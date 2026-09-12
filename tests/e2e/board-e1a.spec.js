@@ -32,7 +32,14 @@ function liffStub({ loggedIn = true, idToken = 'IDTOK', sub = 'U_sub_1' } = {}) 
     isLoggedIn: function(){ return ${loggedIn}; },
     getIDToken: function(){ return ${JSON.stringify(idToken)}; },
     getDecodedIDToken: function(){ return { sub: ${JSON.stringify(sub)} }; },
-    login: function(o){ window.__liffLoginCalled = (o && o.redirectUri) || 1; },
+    login: function(o){ window.__liffLoginCalled = (o && o.redirectUri) || 1;
+                        window.__liffCalls = (window.__liffCalls || []).concat('login'); },
+    // 🔴 logout 不是補齊而已，它是一條真的路。2026-09-13 之前這個替身沒有它，
+    //    於是 assets/liff-relogin.js 的能力檢查判定「SDK 不支援」而走了退路
+    //    ⇒ 06／07 兩條測試綠得毫無意義：量到的是替身缺席，不是頁面行為。
+    //    （真的 SDK 一定有 logout；替身缺一格＝受測物被換成另一個東西。）
+    logout: function(){ window.__liffLogoutCalled = (window.__liffLogoutCalled || 0) + 1;
+                        window.__liffCalls = (window.__liffCalls || []).concat('logout'); },
     closeWindow: function(){}, openWindow: function(){},
     getOS: function(){ return 'ios'; }, isInClient: function(){ return true; },
     getVersion: function(){ return '2.0.0'; }
@@ -42,12 +49,16 @@ function liffStub({ loggedIn = true, idToken = 'IDTOK', sub = 'U_sub_1' } = {}) 
 /**
  * @param {object} envelope 後端對 `batch` 回的外層信封（LINE 那條路是外層就被擋）
  */
-async function open(page, { envelope, liff = {}, search = '' } = {}) {
+async function open(page, { envelope, liff = {}, search = '', reloginTried = false } = {}) {
   const logs = [];
   page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   await blockLiffCdn(page);
   await page.addInitScript(liffStub(liff));
+  // 「這次造訪已經自動重新登入過一次」＝ assets/liff-relogin.js 的防迴圈旗標。
+  if (reloginTried) {
+    await page.addInitScript(`try{sessionStorage.setItem('JDC_RELOGIN_TRIED','1');}catch(e){}`);
+  }
   await page.route(/script\.google\.com/, async (route) => {
     const body = 'cb(' + JSON.stringify(envelope) + ')';
     await route.fulfill({ status: 200, contentType: 'application/javascript', body });
@@ -97,8 +108,13 @@ const MSG = {
   unbound: '您的 LINE 帳號還沒有完成員工身分綁定，所以系統認不出您是誰。請先回 LINE 完成綁定，再開啟這一頁。',
   upstream: '系統目前無法確認您的身分（不是您的問題）。請稍後再試一次；若一直這樣，請聯絡系統維護者。',
   unresolved: '系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。',
-  noToken: '沒有取得您的 LINE 登入資訊，請關掉這一頁重新開啟。',
-  badToken: 'LINE 登入已過期，請關掉這一頁重新開啟以重新登入。',
+  // 🔴 2026-09-13 更新：後端把這兩句改掉了（原本叫人「關掉這一頁重新開啟」，
+  //    而那實測是 no-op ⇒ 照做會無限迴圈）。見 jdc-line-gas roles.js GATE_MSG_LINE。
+  noToken: '沒有把您的 LINE 登入資訊送上來，所以系統認不出您是誰。'
+    + '關掉這一頁重新開啟不會解決（LINE 不會因此重新登入一次），請聯絡資訊人員。',
+  badToken: '您的 LINE 登入憑證已經過期，系統沒辦法確認您的身分。'
+    + '重新整理或關掉這一頁重新開啟都不會解決（LINE 不會因此換一組新的憑證），'
+    + '請聯絡資訊人員。',
   ambiguous: '您的綁定資料有重複的紀錄，系統無法判斷是哪一位。重新登入不會有幫助，請聯絡系統維護者。',
   needsSheet: '這一頁的 LINE 登入目前暫停使用，請改用原本的連結。',
 };
@@ -184,8 +200,6 @@ for (const [key, reason, msg] of [
  *    而且不是靜默空白，console 也乾淨。
  */
 for (const [key, reason, msg] of [
-  ['06-憑證沒帶上來', 'line_no_token', MSG.noToken],
-  ['07-登入過期', 'line_bad_token', MSG.badToken],
   ['08-綁定資料重複', 'line_ambiguous', MSG.ambiguous],
   ['09-退路已啟動', 'line_needs_sheet', MSG.needsSheet],
 ]) {
@@ -368,3 +382,54 @@ test('🔴 年資卡：有資料／沒有資料／被擋住，三種狀態要分
   // 被擋住時後端那句話要真的看得到
   expect(look['被擋住'].text).toContain(MSG.unbound.slice(0, 10));
 });
+
+/* ══ 🔴 憑證死了：畫面不可以叫他做一件做不到的事，而是真的重新登入一次 ════════
+ *
+ * 為何在這裡而不是只有單元測試（2026-09-13）：
+ * 這兩個代號原本走的是「把後端那句話畫在畫面上」，而後端那句話是
+ * 「請關掉這一頁重新開啟以重新登入」——⬛ 實測那是 no-op（`liff.init()` 不會清、
+ * `isLoggedIn()` 仍為 true ⇒ `liff.login()` 被跳過 ⇒ 同一顆過期 token 再送一次）。
+ * 上面 06／07 兩條原本斷言「那句話要出現在畫面上」＝**在釘住一個死巷**，
+ * 所以改寫成斷言「真的重新登入」。**改寫不刪**：刪掉就沒有東西釘住這兩個代號的行為。
+ *
+ * ⚠️ 這裡量的是**真的瀏覽器跑真的 board.html**，不是 vm 裡的替身：
+ *    「判斷對了」與「判斷對了而且真的有人呼叫它」在單元測試裡分不開
+ *    （assets 沒被 <script> 載到，單元測試照樣綠）。
+ */
+for (const [key, reason] of [['06-憑證沒帶上來', 'line_no_token'],
+  ['07-登入過期', 'line_bad_token']]) {
+  test(`🔴 ${key}（${reason}）→ 真的 logout 再 login，不是叫他關掉重開`, async ({ page }) => {
+    const logs = await open(page, { envelope: { ok: false, msg: MSG[reason === 'line_bad_token' ? 'badToken' : 'noToken'], reason } });
+    const calls = await page.evaluate(() => window.__liffCalls || []);
+    const txt = await visibleText(page);
+    await page.screenshot({ path: `test-results/e1a-${key}.png`, fullPage: true });
+    console.log(`【${key}】liff 呼叫序列：`, JSON.stringify(calls));
+    console.log(`【${key}】畫面：`, txt.slice(0, 400));
+    expect(logs.filter((l) => l.startsWith('[pageerror]')), 'console 有未捕捉的錯誤').toEqual([]);
+    // 🔴 順序要緊：先 logout 才 login。反過來＝帶著同一顆死 token 去登入。
+    expect(calls, 'logout／login 沒有被呼叫 ⇒ 他仍然卡在死巷裡').toEqual(['logout', 'login']);
+    expect(await page.evaluate(() => window.__liffLoginCalled),
+      'login 沒帶 redirectUri ⇒ 登入後回不到這一頁').toContain('/board.html');
+    expect(txt, '沒有告訴他正在做什麼 ⇒ 他看著一個定住的畫面').toContain('正在自動重新登入');
+    // ⬛ 對照組：旗標要真的被寫下去，否則下一輪又會自動登出一次（＝迴圈）
+    expect(await page.evaluate(() => { try { return sessionStorage.getItem('JDC_RELOGIN_TRIED'); } catch (e) { return 'THREW'; } }),
+      '防迴圈旗標沒寫進去').toBe('1');
+  });
+
+  test(`🔴 ${key}（${reason}）第二次進來 → **不再**自動登出，改說請聯絡資訊人員`, async ({ page }) => {
+    const logs = await open(page, {
+      envelope: { ok: false, msg: MSG[reason === 'line_bad_token' ? 'badToken' : 'noToken'], reason },
+      reloginTried: true });
+    const calls = await page.evaluate(() => window.__liffCalls || []);
+    const txt = await visibleText(page);
+    await page.screenshot({ path: `test-results/e1a-${key}-第二次.png`, fullPage: true });
+    console.log(`【${key} 第二次】liff 呼叫序列：`, JSON.stringify(calls));
+    console.log(`【${key} 第二次】畫面：`, txt.slice(0, 400));
+    expect(logs.filter((l) => l.startsWith('[pageerror]')), 'console 有未捕捉的錯誤').toEqual([]);
+    expect(calls, '第二次還自動登出 ⇒ 登入與登出會一直來回，這一支自己就是那個迴圈').toEqual([]);
+    expect(txt, '沒有講出「再試也沒用」⇒ 他會一直重試').toContain('請聯絡資訊人員');
+    // ⬛ 對照組（缺一不可）：上面那條「第一次會 logout」與這一條若回一樣的東西，
+    //    就代表旗標根本沒被讀到，而兩條都會綠。
+    expect(txt).not.toContain('正在自動重新登入');
+  });
+}

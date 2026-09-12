@@ -144,6 +144,22 @@ test('同一頁三支 action 幾乎同時回 line_bad_token → 只登出一次'
   assert.equal(r.calls.login.length, 1);
 });
 
+/**
+ * 🔴 **這一條是 latch 專屬的**，而上面那條不是。
+ *
+ * ⚠️ 上面那條（logout 只有一次）**擋它的其實是旗標不是 latch**：第一發寫下旗標之後，
+ *    第二、三發會被判成 `exhausted`，而 `exhausted` 本來就不 logout ⇒ 拿掉 latch
+ *    那條照樣綠（2026-09-13 突變實測：M4 存活）。**兩道防護擋同一件事＝沒人守。**
+ * ⇒ latch 真正擋的是**覆蓋層**：沒有它，第二、三發會把「請聯絡資訊人員」那層
+ *    疊在「正在自動重新登入」上面 ⇒ 他在導頁的那一瞬間看到一句錯的話。
+ */
+test('🔴 並行三發只可以貼一層覆蓋層（拿掉 latch 會疊出三層、而且第二層講錯話）', () => {
+  const r = run({ responses: [BAD, BAD, BAD] });
+  assert.equal(r.calls.appended.length, 1,
+    '疊了第二層 ⇒ 正在導去重新登入的人看到「請聯絡資訊人員」');
+  assert.match(r.calls.appended[0], /正在自動重新登入/);
+});
+
 /* ══ ⑤ 旗標拿不到時的方向：寧可不登出 ═══════════════════════════════════ */
 
 test('🔴 旗標寫不進去（無痕/封鎖 storage）→ 不登出，說實話', () => {
@@ -158,6 +174,30 @@ test('🔴 旗標讀不到（getItem 拋）→ 當成「已經試過」，不登
   assert.equal(r.calls.logout, 0);
   assert.equal(r.calls.appended.length, 1);
   assert.match(r.calls.appended[0], /請聯絡資訊人員/);
+});
+
+/**
+ * 🔴 **直接對 `reloginTried()` 斷言，因為透過 `reloginOnDeadCredential` 量不到它。**
+ *
+ * ⚠️ 上面那條看起來在測「讀不到就當成試過」，其實**不是**：`reloginMarkTried()` 會
+ *    寫完再讀回來驗證，而讀回來那一下同樣會拋 ⇒ 它回 false ⇒ 走「寫不進去」那條，
+ *    結果與「當成試過」一模一樣。⇒ 把 `reloginTried` 的 catch 改成 `return false`，
+ *    上面那條照樣綠（2026-09-13 突變實測：M6 存活）。**兩道防護擋同一件事＝沒人守。**
+ * ⇒ 這一條把那一格單獨拉出來量，它是唯一會因為那個方向翻掉而紅的斷言。
+ */
+test('🔴 reloginTried()：讀不到 storage 時必須回 true（＝寧可不自動登出）', () => {
+  const r = run({ store: 'throwRead', responses: [] });
+  const tried = vm.runInContext('reloginTried()', r.ctx);
+  assert.equal(tried, true,
+    '回 false ⇒ storage 壞掉的裝置上會被判成「還沒試過」，而那正是無窮迴圈的入口');
+  // ⬛ 對照組：正常的 store 沒種旗標時必須回 false，否則上面那個 true
+  //    可能只是「它永遠回 true」＝這條斷言零鑑別力。
+  const ok = run({ responses: [] });
+  assert.equal(vm.runInContext('reloginTried()', ok.ctx), false,
+    '⬛ 正常 store、沒種旗標也回 true ⇒ 它永遠回 true，自動重新登入整個不會發生');
+  // ⬛ 第二個對照：種了旗標就要回 true
+  const seeded = run({ store: 'seeded', responses: [] });
+  assert.equal(vm.runInContext('reloginTried()', seeded.ctx), true);
 });
 
 /* ══ ⑥ SDK 不在時不可以炸掉整頁 ═════════════════════════════════════════ */
