@@ -221,6 +221,8 @@
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/url-token.js"></script>
 <script src="assets/deny-no-role.js"></script>
+<!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/roster-wide.js"></script>
 <script src="assets/roster-dl.js"></script>
 <script src="assets/anniv.js"></script>
@@ -256,6 +258,14 @@ function jsonp(action,params){
   // ⚠️ **ID token 在這裡才取，不是開頁時取一次存起來**——它只有效一小時，
   //    而人事開著這一頁核准一整個上午是常態。存起來的失敗長相是「按下去說請重新登入，
   //    而他根本沒登出過」＝失敗偽裝成使用者的錯。
+  // 🔴 **2026-09-13 更正：這一格擋不到它原本聲稱要擋的那件事。**
+  //    `freshIdToken()` 讀的是 `liff.getIDToken()`，而**那本身就是 SDK 的快取，
+  //    而 SDK 從不更新它**（2.31.0 實測：`getIDToken` ＝純 storage 讀取、零到期檢查，
+  //    整支檔 `refresh_token` 出現 0 次 ⇒ 沒有續期機制）。
+  //    ⇒ 「每次都重新取」取到的仍是**同一顆**；它過期之後，
+  //    「按下去說請重新登入、而他根本沒登出過」**照樣會發生**。
+  //    在這裡取仍然是對的（開頁時取會連「登入完才拿得到」都錯過），
+  //    但它**不是一道防線**。真正的處置在 `assets/liff-relogin.js`。
   var p={};
   Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
   if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
@@ -268,7 +278,7 @@ function jsonp(action,params){
     var timer, timeout=new Promise(function(_,rej){timer=setTimeout(function(){var e=new Error('timeout');e.name='AbortError';rej(e);},30000);});
     return Promise.race([timeout, fetch(GAS_URL+'?action='+encodeURIComponent(action)+qs+'&callback=cb',{credentials:'omit',redirect:'follow'})
       .then(function(r){return r.text();})
-      .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return denyNoRole(JSON.parse(t.slice(a+1,b)));})])
+      .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(denyNoRole(JSON.parse(t.slice(a+1,b))));})])
       .then(function(v){clearTimeout(timer);return v;},function(e){clearTimeout(timer);throw e;});
   }
   // 30s＋逾時/斷線自動重試一次（隔 2s，8/6 對策 1）：GAS 偶發 8-17s 長尾踩 15s 斷頭線
