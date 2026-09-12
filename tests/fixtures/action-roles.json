@@ -613,6 +613,17 @@
         "hr"
       ]
     },
+    "listMyPages": {
+      "roles": [
+        "any"
+      ],
+      "who": [
+        "admin",
+        "activity",
+        "hr",
+        "hrstats"
+      ]
+    },
     "listOptions": {
       "roles": [
         "any"
