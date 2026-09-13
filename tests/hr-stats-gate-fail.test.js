@@ -96,7 +96,16 @@ test('🔴 全部代號的橫幅兩兩相異——「不管什麼都說同一句
 
 test('🔴 各講各的處置：叫人重登的、叫人找人的、叫人換連結的，不可以互相混用', () => {
   // 判準沿用後端 roles.js GATE_REJECT 的分類：他接下來該做什麼。
-  assert.match(fail({ reason: 'line_bad_token' }).banner, /重新開啟|重新登入/);
+  // 🔴 **2026-09-13 改寫：原本是 `/重新開啟|重新登入/`。**
+  //    那個交替**自帶 fail-open**——只要句子裡還有「重新登入」四個字就綠，
+  //    所以它同時相容於「叫他做一件做不到的事」與「講出實際會發生的事」。
+  //    而「請關掉這一頁重新開啟」實測是 no-op（見 assets/liff-relogin.js 檔頭），
+  //    ⇒ 改成：要說出憑證過期這件事，**而且不可以再叫他關掉重開**。
+  assert.match(fail({ reason: 'line_bad_token' }).banner, /憑證已過期/);
+  assert.equal(fail({ reason: 'line_bad_token' }).banner.indexOf('關掉這一頁重新開啟'), -1,
+    '又叫他關掉這一頁重新開啟了——那是 no-op，照做會無限迴圈');
+  assert.equal(fail({ reason: 'line_no_token' }).banner.indexOf('關掉這一頁重新開啟'), -1,
+    '同上（這兩個代號是同一類處置）');
   assert.match(fail({ reason: 'line_unbound' }).banner, /綁定/);
   assert.match(fail({ reason: 'role_unresolved' }).banner, /重新登入不會有用/);
   assert.match(fail({ reason: 'role_mismatch' }).banner, /連結/);
@@ -162,7 +171,11 @@ test('🔴 markGateFail：建出橫幅、改掉已經畫好的姓名欄', () => 
   ctx.markGateFail({ ok: false, reason: 'line_bad_token', msg: 'LINE 登入已過期' });
   assert.equal(dom.inserted.length, 1, '橫幅沒有被插進 #main 前面');
   assert.equal(dom.inserted[0].id, 'gate-fail');
-  assert.match(dom.inserted[0].textContent, /重新開啟/);
+  // 🔴 **2026-09-13 改寫：原本斷言 `/重新開啟/`**，而那正是這次要拿掉的那句 no-op
+  //    ——它是「舊測試在斷言舊前提」，改寫不刪（刪掉就沒有東西釘住這條橫幅的內容）。
+  assert.match(dom.inserted[0].textContent, /憑證已過期/, '橫幅沒說出是憑證過期');
+  assert.equal(dom.inserted[0].textContent.indexOf('關掉這一頁重新開啟'), -1,
+    '橫幅又叫他關掉這一頁重新開啟了——實測那是 no-op');
   for (const l of dom.locks) {
     assert.equal(l.textContent, '登入過期', '已經畫好的姓名欄沒有被改掉');
   }
