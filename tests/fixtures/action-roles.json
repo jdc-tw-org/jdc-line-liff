@@ -317,6 +317,14 @@
         "admin"
       ]
     },
+    "getEntryUsage": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "getEventCheckedIn": {
       "roles": [
         "activity"
