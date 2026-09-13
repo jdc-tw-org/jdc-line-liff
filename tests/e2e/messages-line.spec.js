@@ -188,6 +188,38 @@ test('②沒有替身時真的去 CDN 動態載入 SDK（慢 1 秒也等得到�
   expect(logs).toEqual([]);
 });
 
+test('🔴 空的 ?t=（舊書籤 ?t=&days=180）→ 走②：去 CDN 載 SDK、POST gas、一發 hub 都不打', async ({ page }) => {
+  const logs = [];
+  page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
+  let sdkRequests = 0;
+  const sent = [];
+  await page.route(/static\.line-scdn\.net/, async (route) => {
+    sdkRequests++;
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: liffStub() });
+  });
+  await page.route(/script\.google\.com/, async (route) => {
+    const req = route.request();
+    const u = new URL(req.url());
+    const p = {};
+    new URLSearchParams(req.method() === 'POST' ? (req.postData() || '') : u.search).forEach((v, k) => { p[k] = v; });
+    sent.push({ backend: u.pathname.indexOf(HUB_ID) >= 0 ? 'hub' : (u.pathname.indexOf(GAS_ID) >= 0 ? 'gas' : '?'),
+      method: req.method(), params: p });
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(OK) + ')' });
+  });
+  await page.goto('/messages.html?t=&days=180');
+  await expect.poll(() => sent.length, { timeout: 8000 }).toBe(1);
+  await page.waitForTimeout(500);
+  expect(sdkRequests, '空 t 被當成舊路 ⇒ 沒去載 SDK').toBe(1);
+  expect(sent.map((s) => s.backend), '空 t 去打了 hub').toEqual(['gas']);
+  expect(sent[0].method).toBe('POST');
+  expect(sent[0].params.action).toBe('getMessageLog');
+  expect(sent[0].params.days).toBe('180');
+  expect(sent[0].params.idToken).toBe('IDTOK');
+  expect(sent[0].params.t).toBeUndefined();
+  await expect(page.locator('#list')).toContainText('塗小明');
+  expect(logs).toEqual([]);
+});
+
 test('② CDN 載入失敗 → 紅字「LINE 的元件沒有載入成功」，一個請求都不送', async ({ page }) => {
   const sent = [];
   await page.route(/static\.line-scdn\.net/, (route) => route.abort('failed'));

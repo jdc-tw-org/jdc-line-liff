@@ -73,6 +73,75 @@ test('①優先：?t= 與 from=welfare 同時出現 → 仍走舊路（分流只
   } finally { cleanup(); }
 });
 
+/* 🔴 空的 `?t=` 不算「有 t」（VML2 突變 W1：把空 t 當成有 t 時原本單元 0 紅、e2e 0 紅）。
+ *    faf0c50 的發訊頁產生過 `messages.html?t=<msgLogToken>&days=180`，換發失敗時 token 是空的
+ *    ⇒ 舊書籤可能帶 `?t=&days=180`。它要走②（LINE 登入、打 gas），不可以拿空 t 去打 hub。 */
+test('🔴 空的 ?t=（舊書籤 ?t=&days=180）→ 走②：初始化 LIFF、POST gas、不打 hub、不帶 t', async () => {
+  const { ctx, liff, sent, cleanup } = open('?t=&days=180');
+  try {
+    assert.ok(await waitFor(() => sent.length >= 1), '沒發車');
+    assert.equal(ctx.TOKEN, '');
+    assert.equal(liff.__initCalled, 1, '空 t 被當成①舊路 ⇒ 沒去 LINE 登入');
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].url, GAS_EXEC, '空 t 去打了 hub：' + sent[0].url);
+    assert.equal(sent[0].method, 'POST');
+    assert.equal(sent[0].params.action, 'getMessageLog');
+    assert.equal(sent[0].params.days, '180');
+    assert.equal('t' in sent[0].params, false);
+    assert.equal(ctx.FP, 'U_SUB_1');
+  } finally { cleanup(); }
+});
+
+/* ══ loadLiffSdk 的條件（單元層；VML2：原本三類突變都只靠一條 e2e 撐）══════════ */
+
+test('🔴 startAuth：①（TOKEN 非空）一次都不呼叫 loadLiffSdk；②（空字串）呼叫一次', async () => {
+  const { ctx, cleanup } = open('?t=X');
+  try {
+    let n = 0;
+    ctx.loadLiffSdk = () => { n++; return Promise.resolve(); };
+    ctx.startLine = () => 'line';
+    assert.equal(await ctx.startAuth(), 'token');
+    assert.equal(n, 0, '①去載了 LINE SDK ⇒ LINE CDN 慢時舊連結跟著等');
+    ctx.TOKEN = '';
+    assert.equal(await ctx.startAuth(), 'line');
+    assert.equal(n, 1, '②沒有先載 SDK');
+  } finally { cleanup(); }
+});
+
+test('🔴 loadLiffSdk：沒有 window.liff → 插入指向 LINE CDN 的 script，onload 才 resolve；已有 liff → 不插', async () => {
+  const { ctx, cleanup } = open('?t=X');
+  try {
+    const made = [];
+    ctx.document.createElement = (tag) => { const el = { tag }; made.push(el); return el; };
+    const appended = [];
+    ctx.document.head = { appendChild: (el) => { appended.push(el); } };
+    // 已有 liff（替身）：不插
+    await ctx.loadLiffSdk();
+    assert.equal(made.length, 0, 'window.liff 已在卻又插了一支 SDK');
+    // 沒有 liff：插一支，onload 前不 resolve
+    ctx.liff = undefined;
+    let done = false;
+    const p = ctx.loadLiffSdk().then(() => { done = true; });
+    assert.equal(appended.length, 1, '沒有插入 SDK');
+    assert.equal(appended[0].tag, 'script');
+    assert.equal(appended[0].src, 'https://static.line-scdn.net/liff/edge/2/sdk.js');
+    await new Promise((r) => setImmediate(r));
+    assert.equal(done, false, 'SDK 還沒載完就 resolve 了 ⇒ startLine 會看到沒有 liff');
+    appended[0].onerror();                       // 載不到也要 resolve（交給 startLine 講出來）
+    await p;
+    assert.equal(done, true);
+  } finally { cleanup(); }
+});
+
+test('🔴 messages.html 不可以再同步載入 LINE SDK（頁尾 <script src=…sdk.js> 會讓①等 CDN）', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'messages.html'), 'utf8');
+  const tags = html.match(/<script[^>]*\bsrc="[^"]*static\.line-scdn\.net[^"]*"[^>]*>/g) || [];
+  assert.deepEqual(tags, []);
+  // ⬛ 對照組：同一條樣式抓得到 welfare.html 的同步載入（否則上面的空陣列恆真）
+  const w = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'welfare.html'), 'utf8');
+  assert.equal((w.match(/<script[^>]*\bsrc="[^"]*static\.line-scdn\.net[^"]*"[^>]*>/g) || []).length, 1);
+});
+
 /* ══ ②LINE 登入 ═════════════════════════════════════════════════════════ */
 
 test('🔴 ②沒有 ?t= → LIFF 登入後 POST gas 的 getMessageLog，只帶 idToken（不帶 token／t），天數預設 3650', async () => {

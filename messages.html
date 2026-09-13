@@ -908,8 +908,14 @@ var LIFF_SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
 /**
  * 只在②才動態載入 LINE SDK。**永遠 resolve**：載不到（onerror）時交給 startLine 的能力檢查講出來。
  * ⚠️ `window.liff` 已經在（測試替身、或日後頁面另外載過）就不重載。
- * ⚠️ CDN 一直不回應時 onload／onerror 都不會來 ⇒ 畫面停在「載入中…」——與改動前同步載入的行為相同
- *    （那時整頁都停住），這一刀只把①從這個等待裡拿出來，沒有替②加逾時。
+ * ⚠️ **CDN 一直不回應時 onload／onerror 都不會來 ⇒ ②畫面停在「載入中…」，沒有逾時**
+ *    （VML2 實測本版 20 秒仍是「載入中…」）。
+ *    · **對照 main（faf0c50）不是這樣**：那一版本頁根本不載 SDK，沒帶 t 時 38ms 就發 hub 請求、
+ *      300ms 內顯示「無權限或連結已失效。」⇒ 沒帶 t 的人在 main 是**秒回無權限**，在本版是**要等 SDK**。
+ *      （`f2ef5bf` 曾同步載入 SDK，但那一版從沒進 main，不是「改動前」。）
+ *    · 本版②的這個等待，與全站其他同步載入 SDK 的 LIFF 頁一致。發訊承辦人從發訊頁入口走不到這一格：
+ *      `welfare.html` 自己同步載 SDK，CDN 不回應時她整頁停在「正在確認身分…」，根本點不到入口。
+ *    · 這一刀只保證①（帶 ?t=）不等 CDN；要不要替②加逾時是另一件事，這裡沒做。
  */
 function loadLiffSdk() {
   if (window.liff && typeof liff.init === 'function') return Promise.resolve();
