@@ -662,6 +662,14 @@
         "activity"
       ]
     },
+    "probeIdentityService": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "publishTables": {
       "roles": [
         "activity"
