@@ -13,7 +13,7 @@
  *                 這是真的機械檢查，沒有第二份清單——錨點就是檔案自己。
  *
  *   ❌ 驗不到：`vars.WIF_PROVIDER` 這個名字在 GitHub 上**存不存在**。
- *              唯一的真相來源是 `gh variable list -R jdc-tw/jdc-line-liff`，
+ *              唯一的真相來源是 `gh variable list -R jdc-tw-org/jdc-line-liff`，
  *              那要網路與權限，不在單元測試的射程內。
  *              §1 只是把「這支要哪些外部名字」印出來讓人比對——**它不是檢查，
  *              它永遠會通過**。刻意不寫成「必須等於某張硬編清單」：那會變成
@@ -78,8 +78,8 @@ function shellVars(step) {
 test('§1 這支 workflow 要求外部提供的名字（拿去跟 gh variable/secret list 比對）', () => {
   const names = externalNames(read('update-hr-stats.yml'));
   console.log('\n  update-hr-stats.yml 需要：\n    ' + names.join('\n    ')
-    + '\n  比對指令：gh variable list -R jdc-tw/jdc-line-liff'
-    + '\n            gh secret   list -R jdc-tw/jdc-line-liff\n');
+    + '\n  比對指令：gh variable list -R jdc-tw-org/jdc-line-liff'
+    + '\n            gh secret   list -R jdc-tw-org/jdc-line-liff\n');
   assert.ok(names.length > 0, '一個外部名字都抓不到 ⇒ 抓法壞了，不是這支不需要變數');
 });
 

@@ -4,7 +4,7 @@
 
 ## 📐 系統文件
 
-> 系統架構文件（含帳號／檔案／分頁明細、流程／時序／狀態圖、UI 截圖、美化版總覽頁）已移至**私有 repo** `jdc-tw/jdc-line-gas` 的 [`docs/`](https://github.com/jdc-tw/jdc-line-gas/tree/main/docs)，以 GitHub 帳號權限控管，不公開於網際網路。需檢視請向管理員索取該私有 repo 的存取權。
+> 系統架構文件（含帳號／檔案／分頁明細、流程／時序／狀態圖、UI 截圖、美化版總覽頁）已移至**私有 repo** `jdc-tw-org/jdc-line-gas` 的 [`docs/`](https://github.com/jdc-tw-org/jdc-line-gas/tree/main/docs)，以 GitHub 帳號權限控管，不公開於網際網路。需檢視請向管理員索取該私有 repo 的存取權。
 
 ## 檔案
 
