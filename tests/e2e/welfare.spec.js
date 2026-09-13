@@ -179,17 +179,21 @@ test('對照組：重繪之後沒勾的仍然沒勾（證明上一條不是「�
   await expect(page.locator('#cb-3')).not.toBeChecked();
 });
 
-test('訊息紀錄入口帶對 token；換發失敗要寫出原因', async ({ page }) => {
-  await open(page);
+// 🔴 2026-09-13（訊息平台多人化「乙」，線 ML）：入口改走 LINE 登入。舊版這條斷言的是
+//    「href 帶 `?t=MT-abc`、換發失敗寫出 msgLogWhy」——那正是這一刀要拿掉的（瀏覽器拿 hub token 直接打 hub）。
+test('🔴 訊息紀錄入口走 LINE 登入：連到 messages.html?from=welfare，不帶 hub token（後端仍回 msgLogToken 也不用）', async ({ page }) => {
+  await open(page);   // DEFAULTS 的 getWelfareAudience 仍帶 msgLogToken: 'MT-abc'
   await expect(page.locator('#msglog-entry a'))
-    .toHaveAttribute('href', 'messages.html?t=MT-abc&days=180');
+    .toHaveAttribute('href', 'messages.html?from=welfare&days=180');
 
+  // 換發失敗（舊 token 路的原因）不再影響入口：連結照樣在、不顯示舊路的錯誤。
   await open(page, { responses: { getWelfareAudience: {
     ok: true, rows: ROWS, audienceRev: 'REV1',
     counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 },
     msgLogToken: '', msgLogWhy: 'HUB_VIEWER_BY_ROLE 還沒有 welfare 這一格。' } } });
-  await expect(page.locator('#msglog-entry')).toContainText('還沒有 welfare 這一格');
-  await expect(page.locator('#msglog-entry a')).toHaveCount(0);
+  await expect(page.locator('#msglog-entry a'))
+    .toHaveAttribute('href', 'messages.html?from=welfare&days=180');
+  await expect(page.locator('#msglog-entry')).not.toContainText('還沒有 welfare 這一格');
 });
 
 /* ══════════════ 範本編輯 ══════════════ */

@@ -470,11 +470,33 @@
 </div>
 </div>
 
+<!-- 🔴 LINE SDK **不在這裡同步載入**，改由 startAuth 的 loadLiffSdk 只在②（沒有 ?t=）時動態載入。
+     同步載入的話①舊路也要等 LINE CDN：實測 CDN 延遲 5 秒時，hub 請求 5028ms 才發（faf0c50 是 39ms）。
+     下面兩支是本站同源的小檔，①照樣載、但一支都不呼叫。 -->
+<script src="assets/liff-relogin.js"></script>
+<script src="assets/gas-call.js"></script>
 <script src="assets/board-cache.js"></script>
 <script src="assets/messages-view.js"></script>
 <script src="assets/messages-search.js"></script>
 <script>
-// 這一頁的後端是 jdc-line-hub（獨立的 GAS 專案），不是本站其他頁用的 line-platform。
+/* ══ 這一頁有兩條進來的路（2026-09-13，訊息平台多人化「乙」liff 端，線 ML）══════════
+ *
+ *   ① 網址帶 `?t=`  → **舊路，送出去的請求與改動前逐字相同**：瀏覽器拿 hub 的 viewer token
+ *                      直接打 hub 的 `listMessageLog`（admin.html 換來的、stats／board 的 `?mt=`
+ *                      轉貼過來的、書籤）。新舊並行，跨過下一場活動再拔（使用者拍板）。
+ *   ② 網址沒有 `?t=` → **LINE 登入**，打 line-platform（gas）的新 action，gas 以呼叫者的角色過濾後轉一手：
+ *                      · 預設 `getMessageLog`（admin／activity／hr）
+ *                      · `?from=welfare`（只有發訊頁的入口會帶）→ `getWelfareMessageLog`（發訊三名）
+ *                      🔴 兩支都**只帶 idToken**：帶了 token 後端 `doGet` 會把請求改道回舊守門。
+ *
+ * ⚠️ `from` 不是授權：誰看得到什麼由 gas 的第一道守門決定，手打 `from=welfare` 的人會被擋下。
+ * ⚠️ `?t=` 與 `from=welfare` 同時出現時走①——分流依據只有「網址上有沒有 t」。
+ */
+// ②的後端：line-platform（與 attend／stats／welfare 同一條 /exec）。
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
+var LIFF_ID = '2010451233-a781rqsm';   // 與 index／welfare／board／attend 同一條，不多開 LIFF ID
+
+// ①的後端是 jdc-line-hub（獨立的 GAS 專案），不是本站其他頁用的 line-platform。
 var EXEC_URL = 'https://script.google.com/macros/s/AKfycbwCMxy9K3A8ZE56yJrGW1C9ee1iZnsMRHosBygDHcm8qJD9UeyUINnRuh3aKX9QMqR8/exec';
 
 // 一次全拿，前端自己分月。hub 的 readLog_ 是 `Number(days) || 30`，沒有上限。
@@ -534,7 +556,16 @@ function callApi(params) {
 
 /* ═══ 狀態 ═══════════════════════════════════════════════ */
 var TOKEN = qs('t');
-var CACHE_NAME = 'msglog';       // board-cache 的切片名，與看板頁的切片不會撞
+/** ②打哪一支。只有發訊頁的入口帶 `from=welfare`；其餘（me.html 分流頁等）一律看板身分那支。 */
+var LOG_ACTION = qs('from') === 'welfare' ? 'getWelfareMessageLog' : 'getMessageLog';
+/**
+ * 快取指紋。**②不可以用 TOKEN**——②的 TOKEN 是空字串，同一台裝置上不同人會共用 `''`
+ * 這個指紋（這一頁快取裡有姓名與訊息內容）。②登入完改用 LINE 的 `sub`（同 attend.html）。
+ */
+var FP = TOKEN;
+// board-cache 的切片名，與看板頁的切片不會撞。
+// ②的兩支 action 過濾出來的東西不同（同一個人可能同時有 hr 與發訊角色）⇒ 各用一格，不互相覆蓋。
+var CACHE_NAME = (TOKEN || LOG_ACTION === 'getMessageLog') ? 'msglog' : 'msglog-welfare';
 var BATCHES = [];                // groupBatches 的產出，新到舊
 var INDEX = [];                  // buildIndex 的產出
 var SHOWN_KEYS = [];             // 目前畫面上有哪些月／日（滑桿淡化用）
@@ -787,7 +818,7 @@ function syncClearBtn() {
   clearBtn.title = has ? '' : '\u9019\u53f0\u96fb\u8166\u76ee\u524d\u6c92\u6709\u5feb\u53d6';
 }
 clearBtn.addEventListener('click', function () {
-  cacheClear(TOKEN).then(function () {
+  cacheClear(FP).then(function () {
     clearBtn.textContent = '\u5df2\u6e05\u9664';
     syncClearBtn();
     setTimeout(function () { clearBtn.textContent = '\u6e05\u9664\u672c\u6a5f\u5feb\u53d6'; }, 1800);
@@ -860,24 +891,141 @@ function adopt(data, force) {
   setInterval(check, 5 * 60 * 1000);           // 開著不動時每五分鐘再問一次
 })();
 
+/* ═══ ②LINE 登入（照 attend.html 的 startAuth）════════════════════════ */
+function freshIdToken() {
+  if (!(window.liff && typeof liff.getIDToken === 'function')) return '';
+  var t = liff.getIDToken(); return t ? String(t) : '';
+}
+function lineSub() {
+  try { var d = liff.getDecodedIDToken(); return (d && d.sub) ? String(d.sub) : ''; } catch (e) { return ''; }
+}
+/** 永遠不 resolve ⇒ 後面的首載不會發車。**fail-closed，不是忘了 resolve。** */
+function authHalt(msg) {
+  msgEl.style.display = ''; msgEl.style.color = '#c00'; msgEl.textContent = msg;
+  return new Promise(function () {});
+}
+var LIFF_SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+/**
+ * 只在②才動態載入 LINE SDK。**永遠 resolve**：載不到（onerror）時交給 startLine 的能力檢查講出來。
+ * ⚠️ `window.liff` 已經在（測試替身、或日後頁面另外載過）就不重載。
+ * ⚠️ **CDN 一直不回應時 onload／onerror 都不會來 ⇒ ②畫面停在「載入中…」，沒有逾時**
+ *    （VML2 實測本版 20 秒仍是「載入中…」）。
+ *    · **對照 main（faf0c50）不是這樣**：那一版本頁根本不載 SDK，沒帶 t 時 38ms 就發 hub 請求、
+ *      300ms 內顯示「無權限或連結已失效。」⇒ 沒帶 t 的人在 main 是**秒回無權限**，在本版是**要等 SDK**。
+ *      （`f2ef5bf` 曾同步載入 SDK，但那一版從沒進 main，不是「改動前」。）
+ *    · 本版②的這個等待，與全站其他同步載入 SDK 的 LIFF 頁一致。發訊承辦人從發訊頁入口走不到這一格：
+ *      `welfare.html` 自己同步載 SDK，CDN 不回應時她整頁停在「正在確認身分…」，根本點不到入口。
+ *    · 這一刀只保證①（帶 ?t=）不等 CDN；要不要替②加逾時是另一件事，這裡沒做。
+ */
+function loadLiffSdk() {
+  if (window.liff && typeof liff.init === 'function') return Promise.resolve();
+  return new Promise(function (res) {
+    var s = document.createElement('script');
+    s.src = LIFF_SDK_URL;
+    s.onload = function () { res(); };
+    s.onerror = function () { res(); };
+    (document.head || document.body).appendChild(s);
+  });
+}
+function startAuth() {
+  if (TOKEN) return Promise.resolve('token');            // ①舊路：不碰 LIFF、連 SDK 都不載
+  return loadLiffSdk().then(startLine);
+}
+function startLine() {
+  if (!(window.liff && typeof liff.init === 'function')) {
+    return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      + '請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
+  }
+  return liff.init({ liffId: LIFF_ID }).then(function () {
+    if (!liff.isLoggedIn()) {
+      msgEl.textContent = '正在前往 LINE 登入，登入後會自動回到這一頁…';
+      liff.login({ redirectUri: location.href });        // 保留 ?from=／?days=
+      return new Promise(function () {});                // 導頁中，不要發車
+    }
+    var id = freshIdToken();
+    if (!id) {
+      return authHalt('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        + '這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。');
+    }
+    FP = lineSub() || id;
+    return 'line';
+  }).catch(function (err) {
+    return authHalt('確認身分時失敗：' + ((err && err.message) ? err.message : String(err)));
+  });
+}
+
+/**
+ * ②的呼叫。傳輸走全站共用的 `assets/gas-call.js`（POST、永遠 resolve），不在這頁再 inline 一份。
+ *
+ * 🔴 **只帶 idToken，而且在呼叫當下才取**（它只有效一小時）。呼叫端塞進來的 `token`／`t` 一律拿掉
+ *    ——後端 `doGet` 的分流是「token 非空就走舊守門」，留一個縫等於沒改（同 welfare.html 的 `wfCall`）。
+ * 重試：與①的 `callApi` 同一個策略——**只對傳輸失敗**重試一次、隔 2 秒；伺服器說不行（含 hub_unreadable）不重試。
+ *    這一支唯讀，重送沒有副作用。
+ * 解析出口接 `liff-relogin.js`：憑證過期（`line_bad_token`）時真的重新登入一次。
+ */
+function callGas(action, params) {
+  function attempt() {
+    var id = freshIdToken();
+    if (!id) {
+      return Promise.resolve({ ok: false, transport: false, reason: 'no_line_credential',
+        msg: '拿不到 LINE 登入憑證，所以這一次什麼都沒有送出。請重新整理這一頁；一直這樣的話請找資訊人員。' });
+    }
+    var p = {};
+    Object.keys(params || {}).forEach(function (k) { p[k] = params[k]; });
+    delete p.token; delete p.t;
+    p.idToken = id;
+    return gasCall(GAS_URL, action, p, 30000);
+  }
+  return attempt().then(function (r) {
+    if (r && r.ok !== true && r.transport === true) {
+      return new Promise(function (res) { setTimeout(res, 2000); }).then(attempt);
+    }
+    return r;
+  }).then(reloginOnDeadCredential);
+}
+
+/** 首載那一發。①的那一行與改動前逐字相同。 */
+function fetchLog() {
+  if (TOKEN) return callApi({ action: 'listMessageLog', t: TOKEN, days: qs('days') || DAYS_ALL });
+  return callGas(LOG_ACTION, { days: qs('days') || DAYS_ALL });
+}
+
+/**
+ * 讀不到時畫面上要講的話。
+ * 🔴 `hub_unreadable`（gas 讀不到 hub）**必須講成「讀不到」，不可以落成空白或「沒有紀錄」**：
+ *    那是 hub 掛了，不是這段期間沒發過。不靠後端的 msg——那一格空了也要有這句話。
+ */
+var HUB_UNREADABLE_TEXT = '訊息紀錄暫時讀不到（不是沒有紀錄，是這一次沒有拿到）。請稍後重新整理再試；一直這樣的話請找工務管理組。';
+function logFailText(res) {
+  if (res && res.reason === 'hub_unreadable') return HUB_UNREADABLE_TEXT;
+  return (res && res.msg) || '無法載入。';
+}
+
 var MSG_HIT = null;   // 畫面上那份快取（失敗提示要它的寫入時間）
-cacheBootstrap(TOKEN).then(function () {
+// ⚠️ 快取排在身分確認之後：②的指紋（sub）要登入完才知道。①只差一個微任務。
+startAuth().then(function () {
+  return cacheBootstrap(FP);
+}).then(function () {
   syncClearBtn();
   var hit = cacheGet(CACHE_NAME);
   if (hit && hit.value && hit.value.header) { adopt(hit.value, true); MSG_HIT = hit; }
-  return callApi({ action: 'listMessageLog', t: TOKEN, days: qs('days') || DAYS_ALL });
+  return fetchLog();
 }).then(function (res) {
+  // 失敗的話一律用 logFailText 的文字（①的回應沒有 hub_unreadable ⇒ ①的文字與改動前相同）。
+  if (res && res.ok !== true) res = Object.assign({}, res, { msg: logFailText(res) });
   // 🔴 2026-09-13：失敗而畫面上是快取（BATCHES 有東西）時原本一個字都不說 ⇒ 清單上方掛提示、不改畫面
   if (!settleRefresh('list', res, BATCHES.length ? MSG_HIT : null)) return;
   if (!res || !res.ok) {
     if (!BATCHES.length) {
-      msgEl.textContent = (res && res.msg) || '\u7121\u6cd5\u8f09\u5165\u3002';
+      msgEl.textContent = logFailText(res);
     }
     return;
   }
+  // ⚠️ logSince：gas 會原樣轉回 hub 的 logSince（hub f40744b＋gas 1495533 起），②與①走同一個 adopt。
+  //    hub 或 gas 任一邊還沒上線時回應沒有這一格 ⇒ adopt 照舊掛「紀錄起始日未設定」（不隱藏）。
   adopt(res, false);
   // 存快取：含姓名與內容，使用者已知並拍板。cacheSave 只收 ok:true 的物件。
-  return cacheSave(TOKEN, CACHE_NAME, res).then(syncClearBtn);
+  return cacheSave(FP, CACHE_NAME, res).then(syncClearBtn);
 }).catch(function (e) {
   if (!BATCHES.length) {
     msgEl.textContent = '\u8f09\u5165\u5931\u6557\uff1a' + (e && e.message ? e.message : e);
