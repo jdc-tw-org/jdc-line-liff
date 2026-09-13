@@ -9,6 +9,7 @@
     "staff",
     "welfare",
     "future",
+    "messaging",
     "unknown"
   ],
   "batchAllowed": [
@@ -41,6 +42,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -106,7 +108,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "approveCheckin": {
@@ -258,6 +261,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -292,6 +296,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -334,6 +339,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -385,6 +391,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -412,6 +419,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -428,6 +436,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -521,6 +530,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -532,7 +542,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "getWelfareStatus": {
@@ -543,7 +554,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "getWelfareTemplates": {
@@ -554,7 +566,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "grantRefill": {
@@ -749,7 +762,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "reportBounce": {
@@ -769,7 +783,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "requeueCheckinMail": {
@@ -794,6 +809,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -805,7 +821,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "revertHrChange": {
@@ -860,7 +877,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "schedulePassBroadcast": {
@@ -898,7 +916,8 @@
       ],
       "who": [
         "admin",
-        "welfare"
+        "welfare",
+        "messaging"
       ]
     },
     "setActivityStatus": {
@@ -968,6 +987,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -984,6 +1004,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -1000,6 +1021,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     },
@@ -1043,6 +1065,7 @@
         "staff",
         "welfare",
         "future",
+        "messaging",
         "unknown"
       ]
     }
