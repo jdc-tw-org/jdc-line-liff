@@ -107,6 +107,26 @@ test('🔴 ②?from=welfare → 打 getWelfareMessageLog（只帶 idToken、天�
   } finally { cleanup(); }
 });
 
+/* 🔴 `from` 只有逐字等於 `welfare` 才打發訊那支（VML V2：改成「非空就算」時原本整組全綠）。
+ *    放寬的後果：分流頁或手打的任何 `from=…` 都會去打 `getWelfareMessageLog`，
+ *    admin／activity／hr 在那支第二道被擋 ⇒ 看板身分的人莫名其妙讀不到自己的紀錄。 */
+for (const [search, why] of [
+  ['?from=abc', '非空但不是 welfare'],
+  ['?from=WELFARE', '大小寫不同'],
+  ['?from=', '空值'],
+  ['?from=welfare2', '前綴相同'],
+  ['?from=%20welfare', '前面多一個空白'],
+]) {
+  test(`🔴 ②${search}（${why}）→ 仍打 getMessageLog，快取切片是看板那格`, async () => {
+    const { ctx, sent, cleanup } = open(search);
+    try {
+      assert.ok(await waitFor(() => sent.length >= 1), '沒發車');
+      assert.equal(sent[0].params.action, 'getMessageLog', `${search} 打去了 ${sent[0].params.action}`);
+      assert.equal(ctx.CACHE_NAME, 'msglog');
+    } finally { cleanup(); }
+  });
+}
+
 test('②還沒登入 → 去 LINE 登入（保留 query），一個請求都不送', async () => {
   const { liff, sent, cleanup } = open('?from=welfare&days=180', { liff: { loggedIn: false } });
   try {

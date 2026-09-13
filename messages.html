@@ -470,8 +470,9 @@
 </div>
 </div>
 
-<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-<!-- ②LINE 登入那條路才用得到這三支（見下方「兩條進來的路」）；①舊路一支都不碰。 -->
+<!-- 🔴 LINE SDK **不在這裡同步載入**，改由 startAuth 的 loadLiffSdk 只在②（沒有 ?t=）時動態載入。
+     同步載入的話①舊路也要等 LINE CDN：實測 CDN 延遲 5 秒時，hub 請求 5028ms 才發（faf0c50 是 39ms）。
+     下面兩支是本站同源的小檔，①照樣載、但一支都不呼叫。 -->
 <script src="assets/liff-relogin.js"></script>
 <script src="assets/gas-call.js"></script>
 <script src="assets/board-cache.js"></script>
@@ -903,8 +904,28 @@ function authHalt(msg) {
   msgEl.style.display = ''; msgEl.style.color = '#c00'; msgEl.textContent = msg;
   return new Promise(function () {});
 }
+var LIFF_SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
+/**
+ * 只在②才動態載入 LINE SDK。**永遠 resolve**：載不到（onerror）時交給 startLine 的能力檢查講出來。
+ * ⚠️ `window.liff` 已經在（測試替身、或日後頁面另外載過）就不重載。
+ * ⚠️ CDN 一直不回應時 onload／onerror 都不會來 ⇒ 畫面停在「載入中…」——與改動前同步載入的行為相同
+ *    （那時整頁都停住），這一刀只把①從這個等待裡拿出來，沒有替②加逾時。
+ */
+function loadLiffSdk() {
+  if (window.liff && typeof liff.init === 'function') return Promise.resolve();
+  return new Promise(function (res) {
+    var s = document.createElement('script');
+    s.src = LIFF_SDK_URL;
+    s.onload = function () { res(); };
+    s.onerror = function () { res(); };
+    (document.head || document.body).appendChild(s);
+  });
+}
 function startAuth() {
-  if (TOKEN) return Promise.resolve('token');            // ①舊路：不碰 LIFF
+  if (TOKEN) return Promise.resolve('token');            // ①舊路：不碰 LIFF、連 SDK 都不載
+  return loadLiffSdk().then(startLine);
+}
+function startLine() {
   if (!(window.liff && typeof liff.init === 'function')) {
     return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
       + '請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
