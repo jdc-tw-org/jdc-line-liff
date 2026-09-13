@@ -22,7 +22,11 @@ var CATEGORY = {
   bind_expired: '綁定過期提醒',
   refill_grant: '補登核准',
   refill_auto: '自動補登',
-  welfare_broadcast: '福委會通知',
+  // ⚠️ **鍵 `welfare_broadcast` 刻意不改**：它是寫進紀錄表的 source 代號，
+  //    改了歷史列就對不上。這裡改的只有「顯示成什麼」。
+  //    標籤原為「福委會通知」——2026-09-13 使用者拍板：這個平台不是為福委會做的，
+  //    福委會只是其中一個使用者，所以標籤改成不指名任何單位的「平台廣播」。
+  welfare_broadcast: '平台廣播',
   // 下面兩個不是 line-platform 申報的七個來源之一，是手動發送留下的紀錄。
   // `hub_path_test` 是 2026-08-20 驗證 hub 端到端路徑的煙霧測試，刻意不借既有
   // 代號，免得紀錄表的來源標籤說謊；它不在 hub 的 SOURCE_ROLES 裡，只有 admin 看得到。

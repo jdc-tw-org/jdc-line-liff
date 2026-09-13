@@ -306,7 +306,7 @@ const RAW_EMOJI = JSON.stringify({
 });
 
 test('CATEGORY 有 welfare_broadcast，畫面不顯示生代號', () => {
-  assert.equal(V.CATEGORY['welfare_broadcast'], '福委會通知');
+  assert.equal(V.CATEGORY['welfare_broadcast'], '平台廣播');
 });
 
 test('帶 emoji 的訊息不可把原始 JSON 印給人看（全文）', () => {
@@ -330,7 +330,7 @@ test('從真實 raw 經 groupBatches 走一次，摘要與全文同時斷言', (
     來源: 'welfare_broadcast', 訊息內容: RAW_EMOJI,
     批次: 'line-platform-20260615-550e8400-aaaaaaaa',
   })])[0];
-  assert.equal(b.categoryLabel, '福委會通知');
+  assert.equal(b.categoryLabel, '平台廣播');
   assert.ok(b.gist.indexOf('端午安康') >= 0, 'gist: ' + b.gist);
   assert.ok(V.fullMessageOf(b).indexOf('端午安康') >= 0);
 });

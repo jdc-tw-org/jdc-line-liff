@@ -1,5 +1,7 @@
 /**
- * welfare-client.js — 福委會頁的瀏覽器端純函式。
+ * welfare-client.js — LINE 傳送平台頁（welfare.html）的瀏覽器端純函式。
+ * ⚠️ 檔名與網址的 `welfare` 是歷史名字，**這一頁不是福委會專屬的**
+ *    （2026-09-13 使用者拍板：福委會只是其中一個使用者）。網址刻意不改，理由見 welfare.html 檔頭。
  *
  * 🔴 **`fnv8` / `isHexSelection` / `encodeSelection` 三支與
  *    `jdc-line-gas/line-platform/welfare.js` 逐字相同**，且刻意不依賴任何環境 API
@@ -56,7 +58,7 @@ function encodeSelection(rows, pickedEmpNos) {
 }
 
 // 🔴 gasCall 不在本檔——它是**全站的傳輸層**，見 `assets/gas-call.js`。
-//    本檔只放「福委會這一頁專屬的純函式」。
+//    本檔只放「傳送平台這一頁專屬的純函式」。
 
 /**
  * 每次點擊產生的一次性識別。用途是讓傳輸層重送不會變成第二次發送
