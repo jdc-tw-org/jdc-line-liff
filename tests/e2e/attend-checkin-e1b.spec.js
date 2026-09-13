@@ -12,7 +12,6 @@
  *    寫這一條時，那是副總用②打開會看到的畫面，也是計畫記載的驗收風險。
  *    那個成因已解除——gas `dbc8b17`，隨 gas main `04022c4` 於 2026-09-13 17:03:49 上線。
  *    ⇒ 它現在是「後端子項若擋下，前端怎麼顯示」的紀錄，**不是線上現況，也不是期望**。
- *    ⚠️ 那條的測試名稱與截圖檔名仍寫「後端現況」「後端子項守門未改」——那是寫測試當時的現況。
  */
 const { test, expect } = require('@playwright/test');
 
@@ -112,7 +111,7 @@ test('attend ②登入成功、後端放行 → 看板畫出來，請求帶 idTo
   await page.screenshot({ path: 'test-results/e1b-attend-02-成功.png', fullPage: true });
 });
 
-test('🔴 attend ②後端現況（runBatch_ 子項吃空 token）→ 副總會看到「無權限或連結已失效」', async ({ page }) => {
+test('🔴 attend ②後端子項守門擋下（兩支子項回 token_invalid）→ 前端畫出「無權限或連結已失效」', async ({ page }) => {
   const deny = { ok: false, msg: '無權限或連結已失效。', reason: 'token_invalid' };
   const { logs } = await open(page, 'attend.html', '?act=A1', {
     reply: (u) => (u.searchParams.get('action') === 'batch'
@@ -120,10 +119,10 @@ test('🔴 attend ②後端現況（runBatch_ 子項吃空 token）→ 副總會
       : deny),
   });
   const txt = await visibleText(page);
-  console.log('【attend 後端現況】畫面：', txt.slice(0, 300));
+  console.log('【attend 子項守門擋下】畫面：', txt.slice(0, 300));
   expect(txt).toContain('無權限或連結已失效');
   expect(pageErrors(logs)).toEqual([]);
-  await page.screenshot({ path: 'test-results/e1b-attend-03-後端子項守門未改.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/e1b-attend-03-子項守門擋下.png', fullPage: true });
 });
 
 test('attend ②外層被擋（line_unbound）→ 後端那句話畫在畫面上', async ({ page }) => {
