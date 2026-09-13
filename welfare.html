@@ -301,7 +301,10 @@
 
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
 function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
-var TOKEN = q('t');
+// ⚠️ `q` 今天在本頁**沒有呼叫點**：它原本只給網址上的連結 token 用，
+//    而 2026-09-13 起本頁只走 LINE 登入、不讀 `?t=`（理由見 `wfCall` 檔頭）。
+//    留著它是因為 `tests/source-scan-tripwire.test.js` 拿它當「一行寫法函式」的樣本
+//    ——要刪它，同一次改那支測試。
 
 /**
  * LIFF app。**與 index.html 同一條，不多開 LIFF ID**（`tools.md`：同一條 LIFF ＋ 參數）。
@@ -1341,9 +1344,11 @@ function liffOpen() {
  *    ⚠️ 這不代表這支函式該改掉：不在這裡取只會更糟（開頁時取會錯過「登入完才拿得到」）。
  *       要修的是**過期之後怎麼辦**，那在 `assets/liff-relogin.js`
  *       ——⚠️ **本頁還沒有掛那一支**（它只掛在 board.html／hr-stats.html）。
- *       本頁 `wfCall` 一律帶 `?t=` 的 `token`，帶了 token 的請求走的是後端
- *       `gateAction`、不是 `gateActionByLine` ⇒ 收不到 `line_bad_token`。
- *       **但沒有 `?t=` 開這一頁時就會收到**，那條路今天仍是死巷。
+ *       🔴 2026-09-13 起本頁只走 LINE 登入（`wfCall` 不再帶 `?t=`）⇒ 每一個請求都走
+ *       後端 `gateActionByLine`，憑證過期時收到的就是 `line_bad_token`。
+ *       改之前（兩個都帶、走舊守門）過期時擋下它的是第二道，reason 是 `verify_` 開頭的那一類。
+ *       **兩者都擋、都有一句話，但都不會自動重新登入**——那一格仍是死巷。
+ *       要接 `liff-relogin.js` 是另一件事：它會整頁導走，送出流程中途導走時勾選怎麼辦要先想清楚。
  *
  * 🔴 **2026-09-13 更正②：「還沒有任何呼叫帶著它送出去」也是假的。**
  *    原文寫的是「這一輪（Task 1 前半）只把它準備好」——那句在 Task 1 前半是真的，
@@ -1367,38 +1372,46 @@ function freshIdToken() {
  * 🔴 **ID token 在這裡才取，不是頁面載入時取一次存起來。**
  *    它只有效一小時，而這一頁的流程有寄驗證碼、有 45 秒的送出呼叫。
  *
- * 🔴 **下面那顆 `idToken` 不是裝飾。砍掉它＝把後端第二道守門關掉。**
+ * 🔴 **只帶 idToken，不帶網址上的 `?t=`（2026-09-13 改成只走 LINE 登入）。**
  *
- *    ⚠️ **這一段在 2026-09-13 之前寫的是「這一輪後端還沒有任何 action 會讀
- *       `idToken`——先把管線接起來，授權完全沒變，那一輪之前這個參數是被忽略的」。
- *       那句話已經是假的**，而它就印在 `idToken: freshIdToken()` 的正上方
- *       ⇒ 照它讀，下一個人會把那個參數當成沒人要的殘留，順手刪掉。
+ *    後端分流那一行（量法可原樣重跑，刻意不抄行號——行號會腐爛）：
+ *      cd jdc-line-gas && /usr/bin/grep -n 'var _hasTok' line-platform/Code.js
+ *    條件是「**token 非空就走舊守門 `gateAction`**；沒有 token 且有 idToken 才走
+ *    `gateActionByLine`」。本頁在這之前兩個都帶，而正式連結都有 `?t=`
+ *    ⇒ **正式環境永遠走舊守門**，LINE 那條路一次都沒有被這一頁走過。
+ *    ⇒ 這裡不送 `token`，**連呼叫端自己塞進 params 的 `token`／`t` 也拿掉**
+ *      ——留一個能把請求改道回舊守門的縫，等於沒改。
  *
- *    **後端今天誰在讀它**（量法可原樣重跑，刻意不抄行號——行號會腐爛）：
- *      cd jdc-line-gas && /usr/bin/grep -n 'p\.idToken' line-platform/Code.js
- *    兩個消費者，都在生產路徑上：
- *      ① 第一道 `gateActionByLine(action, p.idToken, …)`
- *         ——**沒帶 `?t=` 時**，這顆就是身分的唯一來源。
- *      ② 第二道 `messagingStrictGate_(action, _gate.identity, p.idToken)`
- *         ——問「拿著這把 token 的是不是本人」。**本頁九支 action 全部要過它。**
+ *    **後端今天誰在讀 idToken**（`/usr/bin/grep -n 'p\.idToken' line-platform/Code.js`）：
+ *      ① 第一道 `gateActionByLine(action, p.idToken, …)`——本頁身分的**唯一來源**。
+ *      ② 第二道 `messagingStrictGate_(action, _gate.identity, p.idToken)`——九支全部要過；
+ *         走 LINE 那條路時它不再比兩張表，只驗這顆是不是我們的 channel 簽的。
+ *    ⇒ **砍掉 idToken＝一個請求都送不出去**（見下一格），不是「只剩一道守門」。
  *
- *    ⇒ 本頁刻意兩個都帶（`?t=` ＋ idToken）：走的是①的 else 分支再過②。
- *      **只砍 idToken 的失敗長相**——①因為有 token 照樣放行，
- *      ②走到 `verifyLineIdToken_('')` 回 `no_token` ⇒ 九支一律
- *      `reason: 'verify_no_token'`、畫面「前端沒有帶 LINE 憑證上來」。
- *      也就是不會有哪一支「看起來壞掉」，是整頁被第二道擋在外面——**吵，但安全**。
- *      🔴 真正危險的是反過來：哪天②也被拿掉，那就沒有人會發現了。
+ * 🔴 **拿不到 idToken 就不送**，回一個「伺服器拒絕」形狀的結果（`transport:false`）。
+ *    送出去的話：沒有 token、idToken 是空字串 ⇒ 後端分流落到舊守門、拿空字串驗 ⇒ 擋下。
+ *    結果一樣是擋，但**多一個打到後端的請求，而且她看到的是一句跟 LINE 無關的話**。
+ *    `transport:false` 是刻意的：這一次**確定沒有送出去**，呼叫端照「伺服器說不行」處置
+ *    （可以重按、不會進「不確定有沒有寄出」的狀態）。
+ *    ⚠️ 開頁時 `startLiff` 已經擋過一次；這一格接的是「開頁時有、之後沒了」。
  *
- * ⬛ **「砍掉會不會有東西紅」——驗過了，會紅。** 2026-09-13 突變實測：
- *    把下一行改成 `var p = { token: TOKEN };`，
- *    `tests/welfare-page-wiring.test.js` 77 條裡 4 條轉紅（還原後回 77 綠）。
- *    直接釘住這一格的是「🔴 wfCall 會帶上 token 與當下取的 idToken」與
- *    「🔴 全頁只能有一個地方直接叫 gasCall…」那兩條。
- *    ⚠️ **紅了不是叫你去改測試**：紅的意思是第二道守門剛剛被關掉了。
+ * ⬛ **突變實測（2026-09-13）**：把本支改回「`token: TOKEN` ＋ idToken 兩個都帶」，
+ *    `tests/welfare-page-wiring.test.js` 的「wfCall 只帶當下取的 idToken…」與
+ *    `tests/e2e/welfare.spec.js` 的「網址帶著舊連結的 ?t=…」都會紅。
+ *    ⚠️ **紅了不是叫你去改測試**：紅的意思是這一頁又回到舊守門了。
  */
 function wfCall(action, params, timeoutMs) {
-  var p = { token: TOKEN, idToken: freshIdToken() };
+  var idToken = freshIdToken();
+  if (!idToken) {
+    return Promise.resolve({ ok: false, transport: false, reason: 'no_line_credential',
+      msg: '拿不到 LINE 登入憑證，所以這一次什麼都沒有送出。'
+        + '請重新整理這一頁；一直這樣的話請找資訊人員。' });
+  }
+  var p = {};
   Object.keys(params || {}).forEach(function (k) { p[k] = params[k]; });
+  delete p.token;
+  delete p.t;
+  p.idToken = idToken;
   return gasCall(GAS_URL, action, p, timeoutMs);
 }
 
@@ -1413,7 +1426,7 @@ function startLiff() {
       if (!liff.isLoggedIn()) {
         // 在電腦瀏覽器開會走到這裡：轉去 LINE 登入，回來時已登入，再走一次上面。
         liffGate('正在前往 LINE 登入，登入後會自動回到這一頁…');
-        liff.login({ redirectUri: location.href });   // 保留 ?t= 過登入
+        liff.login({ redirectUri: location.href });   // 回到原網址（舊連結的 ?t= 會原樣留著，本頁不讀它）
         return;
       }
       // 能力檢查：**取一次就丟掉，不留下來用**。目的是讓「拿不到憑證」在她開頁的
