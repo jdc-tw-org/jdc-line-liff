@@ -57,9 +57,53 @@
  * ⚠️ 動態組出來的子項（`plan.send.map(a => ({a:a}))`，stats.html 報到分頁）抽不到。
  * ⚠️ 矩陣副本 `tests/fixtures/action-roles.json` 是**後端產的**（`jdc-line-gas`
  *    的 `ci/roles-matrix/export-json.js`，與 `roles-matrix.test.js` 共用同一份 fixture）。
- *    它與後端漂移時，本檔只抓得到「出現了副本裡沒有的 action 名」這個方向（見下面的絆線）；
- *    「既有 action 的身分被改窄」這個方向本 repo 看不見。**那一格今天沒有守門**，
- *    處置建議寫在交接文裡（由後端 CI 比對公開的這一份），不要假裝它被守著。
+ *
+ * 🔴 **2026-09-13（線 J）更正兩句話。舊版這裡寫的是：**
+ *    「它與後端漂移時，本檔只抓得到『出現了副本裡沒有的 action 名』這個方向（見下面的絆線）」
+ *    ——**那句反了。那個方向本檔一條都抓不到。**
+ *    下面的絆線第一行就是 `r.subs.filter(known)`，而 `known()` 是「副本裡有沒有這個鍵」。
+ *    ⇒ **副本裡沒有的名字會被這個過濾器靜靜丟掉，不是被報出來。**
+ *
+ *    ⬛ 實測（2026-09-13，突變對）：
+ *      · 突變 A：在 `attend.html` 的 batch 子項加一支 `{ a: '完全不存在的action' }`
+ *        ——掃描器抽到了（`subs` 裡有它），本檔**退出碼 0、全綠**。
+ *      · 突變 B（對照組）：改加一支副本認得、但不在 `batchAllowed` 的 `addActivity`
+ *        ——本檔**紅**，而且紅的正是下面那條絆線。
+ *      ⇒ 絆線抓的是「副本認得、但後端不收 batch」；**「副本不認得」是它的盲點。**
+ *    ⇒ 所以在 2026-09-13 之前，**副本腐爛在這個 repo 裡是零偵測，不是「只有一個方向」。**
+ *
+ * 🔴 **副本的新鮮度現在守在後端**（唯一守得住的地方）：
+ *    `jdc-line-gas` 的 `ci/roles-matrix/copy-guard.js`，掛在該 repo 的
+ *    `.github/workflows/roles-matrix-guard.yml`，把本檔這份副本與 `roles.js`
+ *    算出來的現況**逐字**比對（支數相同但某支身分被改窄，也會紅）。
+ *
+ *    **為什麼一定在那一側**：真理是 `roles.js`，而 `jdc-line-gas` 是**私有** repo，
+ *    本 repo 的 CI 讀不到它。反向可讀（本 repo 是公開的）。⇒ 這個關係只有站在後端
+ *    那一側才看得見。任何只讀這份副本的檢查，最多只能證明它內部自洽——
+ *    **副本與雜湊會一起腐爛，永遠自洽。**
+ *
+ *    ⚠️ **驗法（別信這段話，去量）**：在 `jdc-line-gas` 跑
+ *      `node ci/roles-matrix/copy-guard.js --liff <本 repo 的 checkout>`，看退出碼；
+ *      或確認該 repo 的 `.github/workflows/roles-matrix-guard.yml` 真的在 main 上。
+ *      這兩個 repo 的改動是**分兩顆合併**的——只合了本 repo 這一顆的話，
+ *      上面那段就還不成立。
+ *
+ * ⚠️ 仍然沒有守門的是**另一件事**，不要混為一談：
+ *    「這一頁**直接呼叫**的 action，這一頁的使用者打不打得到」。
+ *    那需要「頁面 → 身分」的宣告，而那正是上面否決掉的東西。
+ *    ⬛ 這個盲點今天有多大（2026-09-13 實測，**數字在 `26f341e` 之後重量過**）：
+ *      下面每一條會掃頁面的斷言都以 `if (!r.callsBatch) return;` 開頭
+ *      ⇒ **母體 13 頁裡只有 4 頁在它眼裡**（admin／attend／board／stats），
+ *      其餘 9 頁 `callsBatch=false`、`subs=[]`。
+ *      重量：`S.pages().map(S.scanPage).filter(r => r.callsBatch).length`
+ *
+ *    🔴 **`me.html` 就是這個盲點的第一個活體實例**（`26f341e` 進 main）：
+ *      它開頁打 `gasCall(GAS_URL, 'listMyPages', …)`——**直接呼叫、不走 batch**，
+ *      而且 action 名在**第二個參數** ⇒ `literalCalls()`（只認 `ident('str'` 的形狀）
+ *      連抽都抽不到。實測 `S.scanPage('me.html')`：
+ *      `callsBatch=false`、`subs=[]`、`calledStrings` 不含 `listMyPages`。
+ *      ⇒ 這一頁今天**整頁都不在本檔的守備範圍內**，而它不是特例：
+ *        它是母體裡那 9 頁的典型，只是最新的一頁。
  */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -198,6 +242,24 @@ test('🔴 batch 的身分集合，不得比它轉派的任何一支子 action �
  * 四、絆線：矩陣副本過期的一個方向（副本裡沒有的 action 名）
  * ════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * ⚠️ **這條抓的是「副本認得、但後端不收 batch」。「副本不認得」是它的盲點**，
+ *    不是它的守備範圍——`filter(known)` 會把那種名字丟掉（檔頭有突變對的實測）。
+ *    副本的新鮮度由後端的 `copy-guard.js` 守，見檔頭。
+ *
+ * ⚠️ **`filter(known)` 不能直接拿掉。** 它在這裡兼了第二個差事：
+ *    `S.batchItems()` 抽的是**整頁所有**的 `{ a: '字串' }`，不是「`batch` 呼叫裡
+ *    `list:` 陣列內的」——兩者今天剛好一致，但不是同一件事。
+ *    ⬛ 實測 2026-09-13（`26f341e` 之後重量，總數未變——`me.html` 沒有帶進新的
+ *      `{ a: }` 字面值）：全部 13 頁共 21 個 `{ a: '字串' }`，其中 17 個是 action；
+ *      另外 4 個是 `hr-stats.html` 的 `{a:'start'}`／`{a:'middle'}`×2／`{a:'end'}`
+ *      （文字對齊設定，不是 action）。那一頁今天 `callsBatch=false` ⇒ 落在本條的
+ *      母體之外，所以今天拿掉過濾器是 0 誤報。
+ *      **但 `hr-stats.html` 哪天開始打 batch，就會冒出 3 種假警報**，
+ *      而假警報會教會下一個人無視這條紅燈——比沒有這條更糟。
+ *    ⇒ 要讓「副本不認得的名字」在本 repo 也會紅，得先把抽取範圍收進
+ *      `batch` 呼叫的 `list:` 裡面。那是另一件事，還沒做。
+ */
 test('🟡 絆線：頁面上的 batch 子項都必須在後端的 batchAllowed 裡', () => {
   const allowed = new Set(M.batchAllowed);
   const 壞的 = [];
