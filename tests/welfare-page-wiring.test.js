@@ -947,7 +947,15 @@ test('🔴 每一支 welfare 呼叫都要走 wfCall，不可以有人直接呼�
   ].join('\n'));
 });
 
-test('🔴 wfCall 會帶上 token 與當下取的 idToken', () => {
+/* ══ 只走 LINE 登入（2026-09-13）═════════════════════════════════════════
+ *
+ * 後端分流：**token 非空就走舊守門**（`jdc-line-gas` `Code.js` 的 `var _hasTok`）。
+ * 本頁原本兩個都帶，而正式連結都有 `?t=` ⇒ 正式環境永遠走舊守門。
+ * ⚠️ `ctxWith` 刻意還留著 `TOKEN: 'T'`：那是舊版 `wfCall` 讀的全域。
+ *    把 `wfCall` 改回「兩個都帶」的突變要有值可送，下面第一條才會紅。
+ */
+
+test('🔴 wfCall 只帶當下取的 idToken，不帶網址 token（後端看到 token 非空就走舊守門）', () => {
   const { ctx } = ctxWith(['wfCall'], {});
   const seen = [];
   ctx.gasCall = (url, action, params) => { seen.push({ action, params }); return Promise.resolve({}); };
@@ -955,9 +963,11 @@ test('🔴 wfCall 會帶上 token 與當下取的 idToken', () => {
   ctx.freshIdToken = () => { n += 1; return 'tok-' + n; };
   vm.runInContext('wfCall("getWelfareAudience", {}, 1000)', ctx);
   vm.runInContext('wfCall("getWelfareTemplates", {}, 1000)', ctx);
-  assert.equal(seen.length, 2);
+  assert.equal(seen.length, 2, '一次都沒送 ⇒ 這一條什麼都沒測到');
   seen.forEach((c) => {
-    assert.equal(c.params.token, 'T', c.action + ' 沒帶連結 token');
+    assert.ok(!('token' in c.params),
+      c.action + ' 帶了 token（' + c.params.token + '）⇒ 後端會走舊守門，LINE 登入等於沒接');
+    assert.ok(!('t' in c.params), c.action + ' 帶了 t ⇒ 同上（兩個參數名是同一條判準）');
     assert.ok(c.params.idToken, c.action + ' 沒帶 LINE 憑證');
   });
   assert.notEqual(seen[0].params.idToken, seen[1].params.idToken,
@@ -965,16 +975,37 @@ test('🔴 wfCall 會帶上 token 與當下取的 idToken', () => {
     + '存起來的失敗長相是「請重新登入」而她根本沒登出過');
 });
 
-test('🔴 呼叫端自己的參數不可以被憑證蓋掉，也不可以蓋掉憑證', () => {
+test('🔴 呼叫端塞進來的 token／t 會被拿掉，idToken 也蓋不掉（不留改道回舊守門的縫）', () => {
   const { ctx } = ctxWith(['wfCall'], {});
   let got = null;
   ctx.gasCall = (url, action, params) => { got = params; return Promise.resolve({}); };
-  vm.runInContext('wfCall("x", { templateId: "t1", token: "冒充的" }, 1000)', ctx);
+  vm.runInContext(
+    'wfCall("x", { templateId: "t1", token: "冒充的", t: "冒充的", idToken: "呼叫端自己帶的" }, 1000)', ctx);
+  assert.ok(got, '一次都沒送 ⇒ 這一條什麼都沒測到');
   assert.equal(got.templateId, 't1', '呼叫端的參數不見了');
-  // 呼叫端傳同名參數時後蓋前——這裡把它釘成「呼叫端贏」，並寫明為何可以接受：
-  // token 本來就是呼叫端可見的值（在網址上），蓋掉它不會拿到更多權限。
-  // 🔴 但 idToken 不同：它是 wfCall 現場跟 SDK 要的，呼叫端沒有理由自己帶。
-  assert.ok(got.idToken, 'idToken 被呼叫端的參數蓋掉了');
+  assert.ok(!('token' in got), '呼叫端塞的 token 送出去了 ⇒ 任何一個呼叫點都能把請求改道回舊守門');
+  assert.ok(!('t' in got), '呼叫端塞的 t 送出去了 ⇒ 同上');
+  // idToken 是 wfCall 現場跟 SDK 要的，呼叫端沒有理由自己帶。
+  assert.equal(got.idToken, 'stub-id-token', 'idToken 被呼叫端的參數蓋掉了');
+});
+
+test('🔴 拿不到 LINE 憑證時一個請求都不送，回「伺服器拒絕」形狀並講原因', async () => {
+  const { ctx } = ctxWith(['wfCall'], { idToken: '' });
+  let 送出 = 0;
+  ctx.gasCall = () => { 送出 += 1; return Promise.resolve({ ok: true }); };
+  const r = await vm.runInContext(
+    'wfCall("sendWelfareBroadcast", { templateId: "t1", otp: "123456", nonce: "n1" }, 1000)', ctx);
+  assert.equal(送出, 0, '沒有 LINE 憑證還是送出去了');
+  assert.equal(r.ok, false);
+  // transport:false ＝「確定沒送出去」。transport:true 會讓送出流程說「不確定有沒有收到、請不要重按」，
+  // 而這一次明明什麼都沒送。
+  assert.strictEqual(r.transport, false, '說成了傳輸失敗 ⇒ 畫面會說「不確定有沒有送到」');
+  assert.match(r.msg, /LINE/, '沒講是 LINE 憑證的問題：' + r.msg);
+  assert.match(r.msg, /沒有送出/, '沒講明這一次沒送出去：' + r.msg);
+  // ⬛ 對照組：同一個計數器在拿得到憑證時會動（否則上面那個 0 什麼都沒證明）
+  ctx.freshIdToken = () => 'tok';
+  await vm.runInContext('wfCall("getWelfareAudience", {}, 1000)', ctx);
+  assert.equal(送出, 1, '拿得到憑證時也沒送 ⇒ 計數器沒接上');
 });
 
 /**
@@ -1001,7 +1032,7 @@ test('🔴 全頁只能有一個地方直接叫 gasCall，而且它在 wfCall �
   //      但只構造得在夾具上（`source-scan-tripwire.test.js` 的「反例 C」，那條是紅的）。
   const wf = S.fnSrc('wfCall');
   assert.match(wf, /gasCall\s*\(\s*GAS_URL/, '唯一那個呼叫點不在 wfCall 裡面');
-  assert.match(wf, /idToken:\s*freshIdToken\(\)/,
+  assert.match(wf, /freshIdToken\(\)/,
     'wfCall 沒有現場取 idToken ⇒ 全部九支都不會帶憑證');
 });
 
@@ -1134,9 +1165,12 @@ test('🔴 取消送的是 cancel=1（走同一支 action，不是第十支）',
   assert.strictEqual(打出去[0].action, 'sendWelfareBroadcast',
     '取消另外開了一支 action ⇒ 後端 ACTION_ROLES 要多一格，而那會動到三條到期哨兵');
   assert.strictEqual(打出去[0].p.cancel, '1');
-  // 憑證必須跟著（走 wfCall ⇒ token 與 idToken 只掛在那一支）。
-  assert.strictEqual(打出去[0].p.token, 'T');
-  assert.ok(打出去[0].p.idToken, '取消沒有帶 idToken ⇒ 第二道守門會擋下它');
+  // 憑證必須跟著（走 wfCall ⇒ 憑證只掛在那一支）。
+  // ⚠️ **改寫不刪**（2026-09-13 只走 LINE 登入）：原本斷言 `p.token === 'T'`，
+  //    那是在斷言「兩個都帶」的舊前提。它防的風險沒變：取消要帶得到身分，否則被守門擋下
+  //    ⇒ 她以為取消了、其實那一發照送。現在身分只來自 idToken。
+  assert.ok(!('token' in 打出去[0].p), '取消帶了網址 token ⇒ 後端會走舊守門');
+  assert.ok(打出去[0].p.idToken, '取消沒有帶 idToken ⇒ 守門會擋下它，而那一發照送');
 });
 
 test('🔴 沒有東西可以取消時，onCancelSend 一個字都不送出去', () => {

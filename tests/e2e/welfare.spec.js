@@ -1138,6 +1138,94 @@ test('liff.init 失敗：畫面要說出原因，不可以靜默停在「確認�
   await expect(page.locator('#liff-gate-msg')).toContainText('boom-原因');
 });
 
+/* ══ 只走 LINE 登入（2026-09-13）═════════════════════════════════════════
+ *
+ * 後端分流：**token 非空就走舊守門**（`jdc-line-gas` `Code.js` 的 `var _hasTok`）。
+ * 🔴 `open()` 開的網址**刻意帶著舊連結的 `?t=TESTTOKEN`**——正式環境的連結都長這樣。
+ *    受測的是「網址上有 token，這一頁也不拿去用」。
+ * 🔴 本節沒有任何一條會按到「送出」，`sendWelfareBroadcast` 一律斷言 0。
+ */
+
+/**
+ * 本機以外的請求，**排除 LINE emoji 圖片**之後剩下的主機。
+ * 攔截的只有 script.google.com（替身回應）與 static.line-scdn.net（擋掉）。
+ *
+ * ⚠️ **emoji 圖片是真的連外的**（`stickershop.line-scdn.net`，GET 圖片）：
+ *    編輯器的 palette／預覽本來就從 LINE 的 CDN 載圖，這一頁上線時也是，
+ *    與身分無關、也不是 action。第一版沒排除它，42 筆全被當成「打到攔截範圍以外」。
+ *    ⇒ 只排除「那個主機 ＋ 圖片」這一格；那個主機上的非圖片請求照樣算。
+ */
+function watchEgress(page) {
+  const hosts = [];
+  page.on('request', (q) => {
+    const h = new URL(q.url()).hostname;
+    if (h === '127.0.0.1') return;
+    if (h === 'stickershop.line-scdn.net' && q.resourceType() === 'image') return;
+    hosts.push(h);
+  });
+  return hosts;
+}
+
+test('🔴 網址帶著舊連結的 ?t=，送出去的每一個請求都沒有 token，只有 idToken', async ({ page }) => {
+  const egress = watchEgress(page);
+  const r = await open(page, {});
+  // 不只看載入時的讀取：多走兩支寫入類（儲存、寄碼）
+  await page.locator('#wf-tpl').fill('只走 LINE 登入的測試文');
+  await page.locator('#btn-save').click();
+  await expect(page.locator('#tpl-note')).toContainText('已儲存');
+  await pick(page, 0);
+  await page.locator('#btn-otp').click();
+  await expect(page.locator('#otp-box')).toBeVisible();
+
+  const 走過的 = new Set(r.seen.map((c) => c.action));
+  expect(走過的.has('saveWelfareTemplate') && 走過的.has('requestWelfareOtp'),
+    '寫入類沒走到 ⇒ 這一條只量到讀取：' + JSON.stringify([...走過的])).toBe(true);
+  const 帶了 = r.seen.filter((c) => 'token' in c.params || 't' in c.params)
+    .map((c) => c.action + ' token=' + (c.params.token || c.params.t));
+  expect(帶了, '有請求帶了網址 token ⇒ 後端會走舊守門：\n' + 帶了.join('\n')).toEqual([]);
+  expect(r.seen.filter((c) => !c.params.idToken).map((c) => c.action),
+    '有請求沒帶 LINE 憑證').toEqual([]);
+  expect(r.calls.sendWelfareBroadcast, '這一條不該按到送出').toBe(0);
+  expect(egress.filter((h) => h !== 'script.google.com' && h !== 'static.line-scdn.net'),
+    '有請求打到攔截範圍以外的主機').toEqual([]);
+  expect(egress.includes('script.google.com'),
+    '⬛ 零點：連替身那個主機都沒看到 ⇒ 監看沒接上，上面那個空陣列沒有意義').toBe(true);
+  expect(r.errors).toEqual([]);
+});
+
+for (const [名, liff] of [
+  ['SDK 沒載到', { noSdk: true }],
+  ['liff.init 失敗', { initFails: 'boom' }],
+  ['已登入但拿不到 ID token', { loggedIn: true, idToken: null }],
+]) {
+  test(`🔴 沒有 LINE 憑證（${名}）：擋在身分閘，網址上的 ?t= 也不拿去走舊路——一個請求都不送`,
+    async ({ page }) => {
+    // ⬛ 零點在「已登入且拿得到憑證：閘讓開，名單照常載出來」那一條：同一個 open() 會記到請求。
+    const r = await open(page, { liff, stopAtGate: true });
+    await expect(page.locator('#liff-gate')).toBeVisible();
+    await expect(page.locator('#liff-gate-msg')).not.toHaveText('正在確認身分…');
+    // 「退回舊路」的寫法會在閘之後才發車 ⇒ 等網路靜下來再數，不是當下就數
+    await page.waitForLoadState('networkidle');
+    expect(r.seen.map((c) => c.action), '沒有 LINE 憑證卻發了請求').toEqual([]);
+    expect(r.calls.sendWelfareBroadcast).toBe(0);
+    expect(r.errors).toEqual([]);
+  });
+}
+
+test('🔴 開頁時有憑證、之後拿不到：按儲存不送出任何請求，而且畫面說出原因', async ({ page }) => {
+  const r = await open(page, {});
+  const 之前 = r.seen.length;
+  expect(之前, '⬛ 零點：開頁時的請求看得到（否則下面的 0 沒有意義）').toBeGreaterThan(0);
+  await page.evaluate(() => { window.liff.getIDToken = () => null; });
+  await page.locator('#wf-tpl').fill('憑證沒了之後改的字');
+  await page.locator('#btn-save').click();
+  await expect(page.locator('#tpl-note')).toContainText('LINE 登入憑證');
+  expect(r.seen.length - 之前, '憑證沒了還送出了請求').toBe(0);
+  expect(r.calls.saveWelfareTemplate).toBe(0);
+  expect(r.calls.sendWelfareBroadcast).toBe(0);
+  expect(r.errors).toEqual([]);
+});
+
 /* ══ 憑證真的上了網址，而且沒有把網址撐爆 ═══════════════════════════════
  *
  * 前兩層看的是「參數物件裡有沒有那一格」。這一層看的是**瀏覽器實際送出的網址**。
