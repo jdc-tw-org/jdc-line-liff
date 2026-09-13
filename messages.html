@@ -1021,8 +1021,8 @@ startAuth().then(function () {
     }
     return;
   }
-  // ⚠️ ②的回應沒有 logSince（那是 hub 的屬性，gas 讀不到）⇒ adopt 照舊掛「紀錄起始日未設定」。
-  //    刻意不隱藏：怎麼呈現待決定（線 ML 交件「待主視窗判斷」），在那之前寧可多一句提醒。
+  // ⚠️ logSince：gas 會原樣轉回 hub 的 logSince（hub f40744b＋gas 1495533 起），②與①走同一個 adopt。
+  //    hub 或 gas 任一邊還沒上線時回應沒有這一格 ⇒ adopt 照舊掛「紀錄起始日未設定」（不隱藏）。
   adopt(res, false);
   // 存快取：含姓名與內容，使用者已知並拍板。cacheSave 只收 ok:true 的物件。
   return cacheSave(FP, CACHE_NAME, res).then(syncClearBtn);

@@ -101,7 +101,7 @@ test('② 角色不符 → 後端那句話畫在畫面上', async ({ page }) => 
   expect(logs).toEqual([]);
 });
 
-test('②成功但沒有 logSince → 「紀錄起始日未設定」照舊顯示（保守呈現，待拍板）', async ({ page }) => {
+test('②成功但回應沒帶 logSince（hub 或 gas 尚未上線）→ 顯示「紀錄起始日未設定」警示', async ({ page }) => {
   const { logs } = await open(page, '', { reply: () => ({ ok: true, who: '甲', header: H, rows: ROWS }) });
   await expect(page.locator('#warnbar')).toBeVisible();
   await expect(page.locator('#warnbar')).toContainText('紀錄起始日未設定');

@@ -261,13 +261,13 @@ test('hub_unreadable 而畫面上是快取 → 提示用本頁那句（logFailTe
 
 /* ══ 成功、logSince、重試、重登 ═════════════════════════════════════════ */
 
-test('②成功 → 清單畫出來、存快取；回應沒有 logSince ⇒「紀錄起始日未設定」照舊掛著（保守，不隱藏既有提示）', async () => {
+test('②成功 → 清單畫出來、存快取；回應沒帶 logSince（hub 或 gas 尚未上線）⇒ 必須掛「紀錄起始日未設定」', async () => {
   const { ctx, cleanup } = open('', { replies: [{ ok: true, who: '甲', header: H, rows: ROWS }] });
   try {
     assert.ok(await waitFor(() => ctx.BATCHES.length === 1), '清單沒有畫出來');
     assert.equal(ctx.msgEl.style.display, 'none');
     assert.match(ctx.warnEl.textContent, /紀錄起始日未設定/,
-      '②路線把「紀錄起始日未設定」藏掉了——怎麼呈現還沒拍板，拍板前不准隱藏');
+      '②路線把「紀錄起始日未設定」藏掉了——logSince 缺席（＝hub 或 gas 尚未上線）時必須顯示警示');
   } finally { cleanup(); }
 });
 
