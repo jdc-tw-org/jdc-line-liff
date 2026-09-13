@@ -188,6 +188,14 @@
         "activity"
       ]
     },
+    "diagnoseToken": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "getActivityReplies": {
       "roles": [
         "activity"
