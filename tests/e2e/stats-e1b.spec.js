@@ -19,7 +19,6 @@
  *    寫這一條時，那是佳岑用②打開會看到的畫面。
  *    那個成因已解除——gas `dbc8b17`，隨 gas main `04022c4` 於 2026-09-13 17:03:49 上線。
  *    ⇒ 它現在是「後端子項若擋下，前端怎麼顯示」的紀錄，**不是線上現況，也不是期望**。
- *    ⚠️ 那條的測試名稱與截圖檔名仍寫「後端現況」「後端子項守門未改」——那是寫測試當時的現況。
  */
 const { test, expect } = require('@playwright/test');
 
@@ -175,7 +174,7 @@ test('②LIFF 元件沒載入 → 紅字說明、「載入中…」不留在統�
   await page.screenshot({ path: 'test-results/e1b-stats-03-元件沒載入.png', fullPage: true });
 });
 
-test('🔴 ②後端現況（runBatch_ 子項吃空 token）→ 佳岑會看到「無權限或連結已失效」', async ({ page }) => {
+test('🔴 ②後端子項守門擋下（batch 子項全回 token_invalid）→ 前端畫出「無權限或連結已失效」', async ({ page }) => {
   const deny = { ok: false, msg: '無權限或連結已失效。', reason: 'token_invalid' };
   const r = await open(page, '?act=A1', {
     reply: (u) => (u.searchParams.get('action') === 'batch'
@@ -183,11 +182,11 @@ test('🔴 ②後端現況（runBatch_ 子項吃空 token）→ 佳岑會看到�
       : deny),
   });
   const txt = await visibleText(page);
-  console.log('【stats 後端現況】畫面：', txt.slice(0, 300));
+  console.log('【stats 子項守門擋下】畫面：', txt.slice(0, 300));
   expect(txt).toContain('無權限或連結已失效');
   expect(pageErrors(r.logs)).toEqual([]);
   noLeak(r);
-  await page.screenshot({ path: 'test-results/e1b-stats-04-後端子項守門未改.png', fullPage: true });
+  await page.screenshot({ path: 'test-results/e1b-stats-04-子項守門擋下.png', fullPage: true });
 });
 
 test('①舊連結 → 帶 token、不碰 LIFF 登入、不帶 idToken，照常畫出來', async ({ page }) => {
