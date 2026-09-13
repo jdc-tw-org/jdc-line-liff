@@ -1063,21 +1063,24 @@ function showServerReject(r) {
 /* ── 訊息紀錄入口 ─────────────────────────────────────────────────────── */
 
 /**
- * ⚠️ **不要呼叫既有的 getMsgLogToken**——它標 'any'，welfare 打不到。
- *    getWelfareAudience 已經一併回了 msgLogToken 與 msgLogWhy，直接用。
- * 換發失敗要說出原因——靜靜消失的東西沒有人會發現。
+ * 🔴 **2026-09-13（訊息平台多人化「乙」，線 ML）改成走 LINE 登入，不再帶 hub 的 token。**
+ *    連結只帶 `from=welfare`（＋天數）：`messages.html` 看到它就改打 gas 的
+ *    `getWelfareMessageLog`，**只帶 idToken**——與本頁 `wfCall` 同一條路（本頁已經只走 LINE 登入）。
+ *    誰看得到什麼由 gas 的守門與角色過濾決定，`from` 不是授權。
+ *
+ * ⚠️ **刻意不再讀 `r.msgLogToken`／`r.msgLogWhy`**（`getWelfareAudience` 仍會回，並行期後端不動）。
+ *    讀了就會把 `?t=` 帶回網址 ⇒ `messages.html` 走①舊路、瀏覽器又拿 hub token 直接打 hub，
+ *    正是這一刀要消滅的東西。舊的 `messages.html?t=` 書籤仍然能用（那是 messages.html 的①）。
+ * ⚠️ 入口因此**不再依賴換發成功**：以前 `msgLogToken` 換不到就不給連結；現在連結永遠在，
+ *    讀不到的原因改由 messages.html 那一頁講（hub 讀不到、角色不符都有一句話）。
  */
 function renderMsgLogEntry(r) {
   var el = document.getElementById('msglog-entry');
   el.innerHTML = '';
-  if (r && r.msgLogToken) {
-    var a = document.createElement('a');
-    a.href = 'messages.html?t=' + encodeURIComponent(r.msgLogToken) + '&days=180';
-    a.textContent = '訊息紀錄';
-    el.appendChild(a);
-  } else {
-    el.textContent = '訊息紀錄暫時開不了：' + ((r && r.msgLogWhy) || '未知原因');
-  }
+  var a = document.createElement('a');
+  a.href = 'messages.html?from=welfare&days=180';
+  a.textContent = '訊息紀錄';
+  el.appendChild(a);
 }
 
 /* ── 載入 ─────────────────────────────────────────────────────────────── */

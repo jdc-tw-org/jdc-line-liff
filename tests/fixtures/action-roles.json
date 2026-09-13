@@ -403,6 +403,18 @@
         "unknown"
       ]
     },
+    "getMessageLog": {
+      "roles": [
+        "admin",
+        "activity",
+        "hr"
+      ],
+      "who": [
+        "admin",
+        "activity",
+        "hr"
+      ]
+    },
     "getMsgLogToken": {
       "roles": [
         "any"
@@ -543,6 +555,18 @@
       ]
     },
     "getWelfareAudience": {
+      "roles": [
+        "messaging",
+        "welfare",
+        "broadcast"
+      ],
+      "who": [
+        "admin",
+        "welfare",
+        "messaging"
+      ]
+    },
+    "getWelfareMessageLog": {
       "roles": [
         "messaging",
         "welfare",
