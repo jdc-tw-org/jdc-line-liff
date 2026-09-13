@@ -899,7 +899,7 @@ test('🔴 送出後 137 則查不到結果 ⇒ 畫面兩處都要說「可能�
   // send-note 用後端組的 msg
   await expect(page.locator('#send-note')).toContainText('還在背景送');
   await expect(page.locator('#send-note')).toContainText('不要重按');
-  // status-line 用前端的 welfareStateLabel——兩處必須說同一件事
+  // status-line 用前端的 messagingStateLabel——兩處必須說同一件事
   await expect(page.locator('#status-line')).toContainText('137');
   await expect(page.locator('#status-line')).toContainText('還在送');
   const line = await page.locator('#status-line').textContent();

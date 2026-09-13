@@ -707,7 +707,7 @@ function otpBindingStillValid() {
  *    getWelfareStatus 走的是 welfareStatusFrom（三態，沒有 recordingFailed），
  *    那時旗標是 undefined ⇒ 不附加。兩個來源共用這一支。
  */
-function welfareStateLabel(r) {
+function messagingStateLabel(r) {
   // 🔴 **「查不到送達結果」與「失敗」要分開講**（2026-08-29 codex G2 高嚴重度的下游）。
   //    後端把 absent 從 failed 拆出來之後，狀態列若還是只講 failedCount，
   //    就會與 send-note 那句（後端組的 r.msg）說不同的話——而她看的是畫面。
@@ -790,7 +790,7 @@ function loadStatus(templateId) {
               || LAST_STATUS.state === 'unknown')
           && r.state === 'unsent') return;
       LAST_STATUS = { templateId: templateId, state: r.state,
-                      stateLabel: welfareStateLabel(r), lastSentAt: r.lastSentAt };
+                      stateLabel: messagingStateLabel(r), lastSentAt: r.lastSentAt };
       renderStatus();
     });
 }
@@ -811,7 +811,7 @@ function showState(r, sentTpl) {
   //    （2026-08-29 codex G3 高嚴重度。）
   sentTpl = sentTpl || CURRENT_TPL;
   LAST_STATUS = { templateId: sentTpl, state: r.state,
-                  stateLabel: welfareStateLabel(r), lastSentAt: r.lastSentAt };
+                  stateLabel: messagingStateLabel(r), lastSentAt: r.lastSentAt };
   // 這一份是最權威的（LINE 剛回的），讓所有在途的狀態查詢失效
   STATUS_GEN++;
   var cls = (r.state === 'sent' && r.recordingFailed !== true) ? 'ok' : 'err';

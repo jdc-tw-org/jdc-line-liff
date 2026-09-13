@@ -117,7 +117,7 @@ function ctxWith(names, opt) {
     otpValue: () => '123456',
     showState: (r) => calls.status.push(r),
     showServerReject: (r) => calls.note.push({ id: 'reject', text: (r && r.msg) || '' }),
-    welfareStateLabel: (r) => 'LABEL:' + r.state,
+    messagingStateLabel: (r) => 'LABEL:' + r.state,
     lastStatusLabel: () => '（測試）',
     isTplDirty: () => opt.dirty === true,
     confirm: (m) => { calls.confirm.push(m); return opt.confirmAnswer !== false; },
@@ -195,7 +195,7 @@ test('🔴 剝註解守住行數（下面「第 N 行」那條的 N 靠它才是
 test('對照組：受測函式都抽得到，而且不是空的', () => {
   ['init', 'loadAudience', 'loadTemplates', 'onAudienceLoaded', 'onTemplateSaved',
    'showState', 'wireTemplateSelector', 'wireButtons', 'onSaveTemplate',
-   'syncSaveButton', 'welfareStateLabel', 'onSend', 'onRequestOtp'].forEach((n) => {
+   'syncSaveButton', 'messagingStateLabel', 'onSend', 'onRequestOtp'].forEach((n) => {
     const s = fnSrc(n);
     assert.ok(s.length > 40, `${n} 只抽到 ${s.length} 個字元，抽取式壞了`);
   });
@@ -275,18 +275,18 @@ test('🔴 unknown 不去校正——連有沒有送出都不知道，重讀只�
 
 /* ── 狀態文案的值域必須與後端對齊 ── */
 test('🔴 四個 state 都有專屬文案，沒有一個掉進「狀態不明」', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   ['sent', 'partial', 'unsent', 'unknown'].forEach((s) => {
     const out = vm.runInContext(
-      'welfareStateLabel({state:"' + s + '", sentCount:1, failedCount:1})', ctx);
+      'messagingStateLabel({state:"' + s + '", sentCount:1, failedCount:1})', ctx);
     assert.notEqual(out, '狀態不明', s + ' 掉進 fallback 了——後端有這一態，前端沒有');
   });
 });
 
 test('🔴 recordingFailed 是獨立一軸，不可蓋掉 partial 那句「不要整批重發」', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"partial", sentCount:130, failedCount:7, recordingFailed:true})', ctx);
+    'messagingStateLabel({state:"partial", sentCount:130, failedCount:7, recordingFailed:true})', ctx);
   assert.ok(out.indexOf('130') >= 0 && out.indexOf('7') >= 0,
     '把那 7 個人的資訊蓋掉了：' + out);
   assert.ok(out.indexOf('不要整批重發') >= 0, '最重要的那句警告不見了：' + out);
@@ -294,8 +294,8 @@ test('🔴 recordingFailed 是獨立一軸，不可蓋掉 partial 那句「不�
 });
 
 test('對照組：沒有 recordingFailed 時不加那句（證明上一條不是恆綠）', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
-  const out = vm.runInContext('welfareStateLabel({state:"sent", lastSentAt:"X"})', ctx);
+  const { ctx } = ctxWith(['messagingStateLabel']);
+  const out = vm.runInContext('messagingStateLabel({state:"sent", lastSentAt:"X"})', ctx);
   assert.ok(out.indexOf('訊息紀錄沒有記到') < 0, out);
 });
 
@@ -305,9 +305,9 @@ test('對照組：沒有 recordingFailed 時不加那句（證明上一條不是
  * memory `feedback_fire_and_forget_hides_outage` 的「告警管道分歧」形態。
  */
 test('🔴 unknown 帶 absentCount ⇒ 不可說「訊息紀錄讀不到」，那是另一件事', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"unknown", absentCount:137, failedCount:0})', ctx);
+    'messagingStateLabel({state:"unknown", absentCount:137, failedCount:0})', ctx);
   assert.ok(out.indexOf('137') >= 0, '沒講出有幾則查不到：' + out);
   assert.ok(out.indexOf('還在送') >= 0, '沒講出「可能還在送」，她會以為是失敗：' + out);
   assert.ok(out.indexOf('訊息紀錄讀不到') < 0,
@@ -315,8 +315,8 @@ test('🔴 unknown 帶 absentCount ⇒ 不可說「訊息紀錄讀不到」，�
 });
 
 test('對照組：unknown 沒有 absentCount（hub 完全沒回應）仍講原本那句', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
-  const out = vm.runInContext('welfareStateLabel({state:"unknown"})', ctx);
+  const { ctx } = ctxWith(['messagingStateLabel']);
+  const out = vm.runInContext('messagingStateLabel({state:"unknown"})', ctx);
   assert.ok(out.indexOf('訊息紀錄讀不到') >= 0, out);
 });
 
@@ -326,33 +326,33 @@ test('對照組：unknown 沒有 absentCount（hub 完全沒回應）仍講原�
  * 而真正的原因（例如 HUB_READER_TOKEN 過期）被丟掉，只能靠一輪一輪打 API 猜。
  */
 test('🔴 unknown 帶 why 時要把原因講出來（不然診斷成本全轉嫁給人）', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"unknown", why:"hub 回 HTTP 401（HUB_READER_TOKEN 過期或被輪換）"})', ctx);
+    'messagingStateLabel({state:"unknown", why:"hub 回 HTTP 401（HUB_READER_TOKEN 過期或被輪換）"})', ctx);
   assert.ok(out.indexOf('訊息紀錄讀不到') >= 0, out);
   assert.ok(out.indexOf('401') >= 0, '狀態碼沒帶出來：' + out);
   assert.ok(out.indexOf('HUB_READER_TOKEN') >= 0, '真正的原因被丟掉了：' + out);
 });
 
 test('對照組：沒有 why 時不可以多出一行空的「原因：」', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
-  const out = vm.runInContext('welfareStateLabel({state:"unknown"})', ctx);
+  const { ctx } = ctxWith(['messagingStateLabel']);
+  const out = vm.runInContext('messagingStateLabel({state:"unknown"})', ctx);
   assert.ok(out.indexOf('原因') < 0, '沒有原因卻印了「原因：」：' + out);
 });
 
 test('對照組：absentCount 那條路徑不受影響（它講的是別件事，不該附 why）', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"unknown", absentCount:137, why:"不該出現"})', ctx);
+    'messagingStateLabel({state:"unknown", absentCount:137, why:"不該出現"})', ctx);
   assert.ok(out.indexOf('137') >= 0 && out.indexOf('還在送') >= 0, out);
   assert.ok(out.indexOf('不該出現') < 0,
     '「hub 還在送」跟「紀錄表讀不到」是兩件事，把讀取失敗的原因附上去會誤導：' + out);
 });
 
 test('🔴 partial 要同時講失敗幾則與查不到幾則', () => {
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"partial", sentCount:95, failedCount:5, absentCount:37})', ctx);
+    'messagingStateLabel({state:"partial", sentCount:95, failedCount:5, absentCount:37})', ctx);
   assert.ok(out.indexOf('95') >= 0 && out.indexOf('5') >= 0, out);
   assert.ok(out.indexOf('37') >= 0, '漏講查不到的那 37 個人：' + out);
   assert.ok(out.indexOf('不要整批重發') >= 0, out);
@@ -360,9 +360,9 @@ test('🔴 partial 要同時講失敗幾則與查不到幾則', () => {
 
 test('對照組：getWelfareStatus 那條路徑沒有 absentCount ⇒ 文案與改動前一致', () => {
   // welfareStatusFrom 是三態、沒有這個欄位。它不可以因為這次改動長出多餘的字。
-  const { ctx } = ctxWith(['welfareStateLabel']);
+  const { ctx } = ctxWith(['messagingStateLabel']);
   const out = vm.runInContext(
-    'welfareStateLabel({state:"partial", sentCount:130, failedCount:7})', ctx);
+    'messagingStateLabel({state:"partial", sentCount:130, failedCount:7})', ctx);
   assert.ok(out.indexOf('查不到結果') < 0, '沒有 absent 卻多講了一段：' + out);
   assert.ok(out.indexOf('失敗 7') >= 0, out);
 });
