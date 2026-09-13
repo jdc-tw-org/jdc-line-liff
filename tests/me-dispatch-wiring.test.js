@@ -101,11 +101,18 @@ function runMe(o) {
 
 const settle = () => new Promise((r) => setImmediate(() => setImmediate(() => setImmediate(() => setImmediate(r)))));
 
+// ⚠️ 前兩列是 gas `line-platform/roles.js` `DISPATCH_PAGES` 的**手動副本**（形狀＝`listMyPages` 的回傳）。
+//    2026-09-14 線 LR 對齊 gas `feat/dispatch-messages-ready`：messages.html 的門是 `getMessageLog`、
+//    `lineReady:true`、note 空（舊值 `getMsgLogToken`／false／「需另外開通檢視權限」是線 MB 換門前的事實）。
+//    ⚠️ 沒有任何機械的東西逼這份與 gas 相等（me.html 不讀 gateAction，這份只是餵畫面的假回應）。
+// 🔴 第三列是**刻意捏的示例列**，不是任何真頁：gas 表上五列翻完全是 true、也沒有 note，
+//    但 me.html「不可點＋說得出為什麼＋畫出 note」那段程式碼還在，不能因為今天的表用不到就不測。
 const 四頁 = {
   ok: true, who: '丁小恆',
   pages: [
     { page: 'board.html', title: '人事異動看板', gateAction: 'getCheckinPending', lineReady: true, note: '' },
-    { page: 'messages.html', title: 'LINE 訊息紀錄', gateAction: 'getMsgLogToken', lineReady: false, note: '需另外開通檢視權限' },
+    { page: 'messages.html', title: 'LINE 訊息紀錄', gateAction: 'getMessageLog', lineReady: true, note: '' },
+    { page: '__未遷移示例__.html', title: '示例：尚未遷移的頁', gateAction: 'zzExample', lineReady: false, note: '示例註記' },
   ],
 };
 
@@ -160,25 +167,28 @@ test('🔴 lineReady:true → 真的可點的 <a>；lineReady:false → 沒有 <
     assert.match(h, /<a class="card" href="board\.html">/,
       '已遷移的頁沒做成連結 ⇒ 他明明進得去，卻沒有入口');
     assert.match(h, /人事異動看板/);
-    // 🔴 未遷移的頁：出現在畫面上，但不是連結。
-    assert.match(h, /LINE 訊息紀錄/, '未遷移的頁被藏起來了 ⇒ 「沒權限」與「還沒做好」變同一個畫面');
-    assert.equal(/<a[^>]+href="messages\.html"/.test(h), false,
+    assert.match(h, /<a class="card" href="messages\.html">/,
+      'messages.html（lineReady:true）沒做成連結 ⇒ 分流頁翻了可點，畫面卻還是灰的');
+    // 🔴 未遷移的頁（示例列）：出現在畫面上，但不是連結。
+    assert.match(h, /示例：尚未遷移的頁/, '未遷移的頁被藏起來了 ⇒ 「沒權限」與「還沒做好」變同一個畫面');
+    assert.equal(/<a[^>]+href="__未遷移示例__\.html"/.test(h), false,
       '未遷移的頁做成了可點的連結 ⇒ 點下去必定被擋，而他什麼都沒做錯');
     assert.match(h, /尚未支援 LINE 登入/, '不可點的那一列沒說出為什麼');
-    assert.match(h, /需另外開通檢視權限/, 'note 沒畫出來 ⇒ 「守門算不出來」這件事被吞掉了');
+    assert.match(h, /示例註記/, 'note 沒畫出來 ⇒ 「這一格還有別的條件」這件事被吞掉了');
   } finally { r.cleanup(); }
 });
 
 test('⬛ 對照組：把 lineReady 反過來，可點／不可點必須整個對調（否則上面是恆真）', async () => {
-  const r = runMe({ reply: { ok: true, who: '甲', pages: [
-    { page: 'board.html', title: '人事異動看板', gateAction: 'getCheckinPending', lineReady: false, note: '' },
-    { page: 'messages.html', title: 'LINE 訊息紀錄', gateAction: 'getMsgLogToken', lineReady: true, note: '' },
-  ] } });
+  // 2026-09-14 線 LR：改成把 `四頁` 逐列反轉（原本手寫一份反過來的兩列——那又是一份會與 `四頁` 分歧的副本）。
+  const r = runMe({ reply: Object.assign({}, 四頁, {
+    pages: 四頁.pages.map((p) => Object.assign({}, p, { lineReady: !p.lineReady })),
+  }) });
   await settle();
   try {
     const h = r.get('list').innerHTML;
     assert.equal(/<a[^>]+href="board\.html"/.test(h), false, 'lineReady 反過來了，board 卻還是連結 ⇒ 這一格根本沒看 lineReady');
-    assert.match(h, /<a class="card" href="messages\.html">/);
+    assert.equal(/<a[^>]+href="messages\.html"/.test(h), false, 'lineReady 反過來了，messages 卻還是連結');
+    assert.match(h, /<a class="card" href="__未遷移示例__\.html">/, '示例列反成 true 卻沒變連結');
   } finally { r.cleanup(); }
 });
 
