@@ -164,13 +164,87 @@
 
 <div id="msg"></div>
 
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="assets/url-token.js"></script>
+<!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
+<script src="assets/liff-relogin.js"></script>
 <script>
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
+// 取值走共用的 assets/url-token.js（E1a 收攏的那一支）。`q(k)` 保留成薄包裝，理由同 hr-stats.html。
+function q(k){return urlParam(k);}
+var TOKEN=q('t');
+
+/* ══ E1b：這一頁有兩條進來的路（2026-09-13，照 attend／checkin／stats 的做法）══════
+ *
+ *   ① 網址帶 `?t=`  → **舊路，送出去的請求與改動前逐字相同**（含同步發第一發）。
+ *   ② 網址沒有 `?t=` → **LINE 登入**，jsonp 掛 idToken 上去。
+ *
+ * 🔴 分流依據是「網址上有沒有那串」，不是開關 ⇒ 退路就是「把舊連結給他」，不必部署。
+ *
+ * 🔴 **身分沒確認之前不發車，閘門只有一道，就在檔尾「開始輪詢」那一格**：
+ *    本頁打後端的出口只有 `tick()` 一支，而它只從那一格被叫（首發＋15 秒輪詢）；
+ *    resize／logo 載入只重畫 `last`，不打後端。⇒ 只擋那一格＝全部擋住。
+ *    ⚠️ 刻意不在 `tick()` 裡再加一道：兩道擋同一件事時，拿掉任一道測試都不會紅。
+ *
+ * ⚠️ **②在現場的已知限制（寫給上線的人，同 checkin.html）**：ID token 只有效一小時，
+ *    而本頁每 15 秒輪詢 ⇒ 開著超過一小時，下一發收到 line_bad_token
+ *    ⇒ liff-relogin.js 自動登出＋重新登入（整頁導走再回來）；同一個分頁第二次過期時
+ *    蓋上「請聯絡資訊人員」覆蓋層、牆停住。**長時間投在大螢幕上的請繼續用①舊連結。**
+ */
+var LIFF_ID='2010451233-a781rqsm';   // 與 index／welfare／board／hr-stats 同一條，不多開 LIFF ID
+var AUTH_OK=!!TOKEN;                 // ①同步為真；②登入完才為真。檔尾看它決定能不能發車
+
+function freshIdToken(){
+  if(!(typeof liff!=='undefined'&&liff&&typeof liff.getIDToken==='function'))return '';
+  var t=liff.getIDToken();return t?String(t):'';
+}
+/**
+ * 說明身分狀態。活動名那一格開頁寫著「載入中…」——擋住時要換掉，否則那句是假話。
+ * 錯誤走本頁既有的 #msg（showErr 的那一條），不另做一個元素。
+ */
+function authBlock(msg,isErr){
+  var act=document.getElementById('act');
+  if(act)act.textContent=isErr?'':msg;
+  if(isErr){var el=document.getElementById('msg');if(el){el.textContent=msg;el.style.display='block';}}
+}
+/** 永遠不 resolve ⇒ 不會發車。**fail-closed，不是忘了 resolve。** */
+function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
+
+function startAuth(){
+  if(TOKEN)return Promise.resolve('token');           // ①舊路
+  if(!(typeof liff!=='undefined'&&liff&&typeof liff.init==='function')){
+    return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
+  }
+  return liff.init({liffId:LIFF_ID}).then(function(){
+    if(!liff.isLoggedIn()){
+      authBlock('正在前往 LINE 登入，登入後會自動回到這一頁…',false);
+      liff.login({redirectUri:location.href});        // 保留 ?act=
+      return new Promise(function(){});
+    }
+    if(!freshIdToken()){
+      return authHalt('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        +'這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。');
+    }
+    AUTH_OK=true;
+    return 'line';
+  }).catch(function(err){
+    return authHalt('確認身分時失敗：'+((err&&err.message)?err.message:String(err)));
+  });
+}
+
+var AUTH_READY=startAuth();
 
 // JSONP：同 stats.html 的作法。逾時用 Promise.race，不用 AbortController
 // （iOS 12.1 以前沒有它，會讓整段初始化同步當掉且畫面不報錯）。
 function jsonp(action,params){
+  // 🔴 **憑證只掛在這一個地方**（同 board／hr-stats／attend／checkin 的 jsonp）。
+  // ⚠️ 條件是 `!TOKEN`：帶 `?t=` 的舊路不帶 idToken（帶了後端 doGet 會改道）。
+  // ⚠️ ID token 在呼叫當下才取；它只有效一小時，而本頁每 15 秒輪詢一次（見上方 E1b 區塊）。
+  var p={};
+  Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
+  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  params=p;
   var qs=Object.keys(params||{}).filter(function(k){return params[k]!=='';})
     .map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   var timer,timeout=new Promise(function(_,rej){
@@ -180,7 +254,7 @@ function jsonp(action,params){
       {credentials:'omit',redirect:'follow'})
       .then(function(r){return r.text();})
       .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');
-        if(a===-1||b===-1)throw new Error('bad');return JSON.parse(t.slice(a+1,b));})])
+        if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(JSON.parse(t.slice(a+1,b)));})])
     .then(function(v){clearTimeout(timer);return v;},function(e){clearTimeout(timer);throw e;});
 }
 
@@ -509,8 +583,10 @@ function showErr(t){
   var el=document.getElementById('msg');
   el.textContent=t; el.style.display=t?'block':'none';
 }
-tick();
-setInterval(tick,15000);
+// 🔴 開始輪詢＝本頁唯一的發車點，也是唯一的身分閘門（理由見檔頭 E1b 區塊）。
+function startPolling(){ tick(); setInterval(tick,15000); }
+if(AUTH_OK)startPolling();            // ①：同步，與改動前逐字相同
+else AUTH_READY.then(startPolling);   // ②：登入完才開始；登入失敗時 AUTH_READY 永遠不 resolve ⇒ 永遠不開始
 // 旋轉或切換投影輸出時要重排格子，否則會溢出或縮成一小塊
 var rz;
 addEventListener('resize',function(){clearTimeout(rz);rz=setTimeout(function(){
