@@ -395,12 +395,77 @@ function currentTaipeiYear(nowMs) {
   }
 }
 
+/** 「月/日 時:分」。offlineLabel 與 refreshFailText 共用，時間只有一種寫法。 */
+function _mdhm(ms) {
+  var d = new Date(ms);
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+
 /** 離線時附在 meta 列的一句話。時間取該筆快取的 savedAt。 */
 function offlineLabel(savedAt) {
-  var d = new Date(savedAt);
-  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
-  return '離線·資料停在 ' + (d.getMonth() + 1) + '/' + d.getDate()
-    + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  return '離線·資料停在 ' + _mdhm(savedAt);
+}
+
+/* ══ 「畫的是快取、而這次刷新失敗」要說出來（2026-09-13）═══════════════════
+ *
+ * 🔴 為何存在：全站 SWR 區塊失敗時的既有寫法是 `else if(!cached) 畫錯誤`
+ *    ——**有快取就一個字都不說**。⑤（強制走 jdc-identity）上線後，身分服務的
+ *    四種失敗一律回 `line_upstream`，而人事看板會照常顯示最長七天前的待核准清單，
+ *    按了核准才第一次看到錯誤。**服務壞了，前端替它藏起來。**
+ *
+ * ⚠️ 提示插在區塊**上方的兄弟節點**，不動區塊本身：區塊裡可能有人正在打字
+ *    （memory feedback_swr_repaint_eats_user_input）。刷新失敗本來就不該重繪。
+ * ⚠️ 不只 `line_upstream`：任何 ok:false 或取不到都算。列舉已知代號然後其餘靜默，
+ *    就是這一次在拆的形狀。
+ */
+
+/** 提示文案。savedAt 不是有限數字＝沒存時間 ⇒ 寫「先前」，**不編造**。 */
+function refreshFailText(savedAt, msg) {
+  var when = (typeof savedAt === 'number' && isFinite(savedAt)) ? ' ' + _mdhm(savedAt) + ' ' : '先前';
+  var m = String(msg == null ? '' : msg).trim() || '伺服器沒有回原因';
+  return '⚠️ 這裡顯示的是' + when + '的資料，目前無法更新：' + m;
+}
+
+/** 在區塊 id 上方掛（或更新）提示。resp 可以是回應物件（取 msg／error）或字串。 */
+function markRefreshFail(id, savedAt, resp) {
+  if (typeof document === 'undefined') return;
+  var box = document.getElementById(id);
+  if (!box || !box.parentNode || !box.parentNode.insertBefore) return;
+  var msg = (resp && typeof resp === 'object') ? (resp.msg || resp.error) : resp;
+  var tag = document.getElementById(id + '-refail');
+  if (!tag) {
+    tag = document.createElement('div');
+    tag.id = id + '-refail';
+    tag.setAttribute('role', 'status');
+    tag.setAttribute('style', 'margin:0 0 10px;padding:8px 12px;border-radius:8px;background:#fff4e5;'
+      + 'border:1px solid #f0c36d;color:#8a5300;font-size:14px;line-height:1.6;font-weight:600');
+    box.parentNode.insertBefore(tag, box);
+  }
+  tag.textContent = refreshFailText(savedAt, msg);
+}
+
+function clearRefreshFail(id) {
+  if (typeof document === 'undefined') return;
+  var tag = document.getElementById(id + '-refail');
+  if (tag && tag.parentNode) tag.parentNode.removeChild(tag);
+}
+
+/**
+ * SWR 第二段（網路那一段）回來時的統一處置。回 true＝呼叫端照原路畫（成功，或失敗但畫面上沒有快取）；
+ * 回 false＝畫面停在快取、提示已掛上，呼叫端**不要畫**。
+ *
+ * 取代的是全站同一個兩行形狀：`if(r&&r.ok)畫(r); else if(!cached)畫(r);`
+ * ——cached 為真而失敗的那一格原本什麼都不做。
+ * @param {string} id      提示要掛在哪個元素上方
+ * @param {*}      r       網路回應
+ * @param {?{savedAt:number}} cached  畫面上那份快取；null＝畫面上沒有快取
+ */
+function settleRefresh(id, r, cached) {
+  if (r && r.ok) { clearRefreshFail(id); return true; }
+  if (cached) { markRefreshFail(id, cached.savedAt, r); return false; }
+  clearRefreshFail(id);   // 沒快取 ⇒ 呼叫端畫錯誤框；舊提示要拿掉，不可兩個一起出現
+  return true;
 }
 
 /**
@@ -480,6 +545,10 @@ if (typeof module !== 'undefined') module.exports = {
   handleVerdict: handleVerdict,
   isRevoked: isRevoked,
   offlineLabel: offlineLabel,
+  refreshFailText: refreshFailText,
+  markRefreshFail: markRefreshFail,
+  clearRefreshFail: clearRefreshFail,
+  settleRefresh: settleRefresh,
   currentTaipeiYear: currentTaipeiYear,
   planCheckinBundle: planCheckinBundle,
   takeOnce: takeOnce,

@@ -607,16 +607,20 @@ function loadActs(){
   var box=document.getElementById('act-list');
   var cached=null;
   CACHE_READY.then(function(){
-    cached=cacheGet(N.activities);
-    if(cached&&cached.value.rows&&cached.value.rows.length)paintActs(cached.value);   // 秒顯
+    var c=cacheGet(N.activities);
+    // ⚠️ 只有真的畫出來才算「畫面上是快取」——空清單的快取不畫（停在載入中），
+    //    原本仍把 cached 設成真 ⇒ 抓失敗時畫面永遠停在「載入中…」。
+    if(c&&c.value.rows&&c.value.rows.length){cached=c;paintActs(c.value);}   // 秒顯
     else box.innerHTML='<div class="empty">載入中…</div>';
   });
   return queueRead(function(){
     return jsonp('listActivities',{token:q('t')}).then(function(r){
       return cacheSave(q('t'),N.activities,r).then(function(){
         // 抓失敗不蓋掉舊資料——寧可看到稍舊的清單，也不要整片變「載入失敗」（全站慣例）
+        // ⇒ 但**要說出來**（2026-09-13，見 settleRefresh）
+        if(!settleRefresh('act-list',r,cached))return;
         if(r&&r.ok)paintActs(r);
-        else if(!cached)box.innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
+        else box.innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
       });
     });
   });
@@ -750,17 +754,17 @@ var seatSel = null;     // 選中的桌/單位
  *   servedFromCache → 網路那段用來判斷「失敗了要不要蓋掉畫面」
  */
 function withActivities(onRows){
-  var servedFromCache=false;
+  var servedFromCache=false, servedAt=null;   // servedAt：畫面上那份快取的寫入時間（失敗提示要用）
   CACHE_READY.then(function(){
     var c=cacheGet(N.activities);
     if(c&&c.value&&c.value.ok&&c.value.rows&&c.value.rows.length){
-      servedFromCache=true;onRows(c.value,true,false);
+      servedFromCache=true;servedAt=c.savedAt;onRows(c.value,true,false);
     }
   });
   return pick('listActivities').then(function(r){
     if(!r||!r.ok) return queueRead(function(){return jsonp('listActivities',{token:q('t')});});   // 首屏沒拿到才補打
     return r;
-  }).then(function(r){onRows(r,false,servedFromCache);});
+  }).then(function(r){onRows(r,false,servedFromCache,servedAt);});
 }
 /**
  * 填活動下拉，並**保住使用者已經選的那一場**。
@@ -782,9 +786,10 @@ function fillActSelect(selId,barId,rows,withName){
   return sel.value!==prev;
 }
 function loadTablesTab(){
-  withActivities(function(r,fromCache,served){
+  withActivities(function(r,fromCache,served,servedAt){
+    if(!fromCache&&!settleRefresh('ti-actbar',r,served?{savedAt:servedAt}:null))return;   // 活動清單停在快取＋已掛提示
     if(!r||!r.ok){
-      if(!served)document.getElementById('seat-board').innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
+      document.getElementById('seat-board').innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
       return;
     }
     var changed=fillActSelect('ti-act','ti-actbar',r.rows,false);
@@ -803,9 +808,10 @@ function ckActName(){
 }
 // 報到分頁：活動清單沿用首屏那支 batch 的結果，首屏失敗才補打。
 function loadCheckinTab(){
-  withActivities(function(r,fromCache,served){
+  withActivities(function(r,fromCache,served,servedAt){
+    if(!fromCache&&!settleRefresh('ck-actbar',r,served?{savedAt:servedAt}:null))return;   // 活動清單停在快取＋已掛提示
     if(!r||!r.ok){
-      if(!served)document.getElementById('st-list').innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
+      document.getElementById('st-list').innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';
       return;
     }
     var changed=fillActSelect('ck-act','ck-actbar',r.rows,true);
@@ -890,9 +896,10 @@ function loadSeating(){
     return queueRead(function(){                       // 沒有才自己打
       return jsonp('getSeatingBoard',{token:q('t'),actId:id}).then(function(r2){
         return cacheSave(q('t'),N.seating(id),r2).then(function(){
+          // 有舊資料就留著（畫面上已經是它）並說出來，只有完全沒有時才顯示錯誤
+          if(!settleRefresh('seat-board',r2,cached))return;
           if(r2&&r2.ok)applySeating(r2);
-          // 有舊資料就留著（畫面上已經是它），只有完全沒有時才顯示錯誤
-          else if(!cached)document.getElementById('seat-board').innerHTML='<div class="empty">'+esc((r2&&r2.msg)||'載入失敗')+'</div>';
+          else document.getElementById('seat-board').innerHTML='<div class="empty">'+esc((r2&&r2.msg)||'載入失敗')+'</div>';
         });
       });
     });
@@ -1127,8 +1134,10 @@ function snLoad(){
     return queueRead(function(){                        // 沒有才自己打
       return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
         return cacheSave(q('t'),N.senior(y),r2).then(function(){
+          // 失敗而畫面上是快取 ⇒ 不重繪（這張卡有勾選，見 renderSenior 的事故註解）、清單上方掛提示
+          if(!settleRefresh('sn-people',r2,cached))return;
           if(r2&&r2.ok)renderSenior(r2);
-          else if(!cached)document.getElementById('sn-people').innerHTML='<div class="empty">'+esc((r2&&r2.msg)||'載入失敗')+'</div>';
+          else document.getElementById('sn-people').innerHTML='<div class="empty">'+esc((r2&&r2.msg)||'載入失敗')+'</div>';
         });
       });
     });
@@ -1370,9 +1379,10 @@ function loadCheckinBundle(actId,tpl){
     // 秒顯順序：本次開頁的第二發切片最新，沒有才退回磁碟上那份。
     // 兩者都只在 tpl==='' 時採用——帶了 tpl 表示使用者正在改草稿，畫面不該被覆寫。
     // ⚠️ 這一段一定在下面 plan.wait 的 return 之前，否則等第二發的期間畫面是空的（＝現行症狀）。
+    var shownPreview=null;   // 畫面上的預覽是磁碟快取那份時才有值（失敗提示用；本次開頁的第二發切片不算快取）
     if(tpl===''){
       if(previewUsable)renderPreview(_previewSlice);
-      else if(previewC&&!_previewUsed)renderPreview(previewC.value);
+      else if(previewC&&!_previewUsed){renderPreview(previewC.value);shownPreview=previewC;}
     }
 
     if(plan.wait)return SECOND.then(function(){return loadCheckinBundle(actId,tpl);});
@@ -1386,17 +1396,20 @@ function loadCheckinBundle(actId,tpl){
     var wantsPreview=plan.send.indexOf('previewPassBroadcast')>=0;
     return queueRead(function(){
       return jsonp('batch',{token:q('t'),list:JSON.stringify(items)}).then(function(env){
-        if(cacheVerdict(env)!=='ok'){
-          // 只有明確要了 preview 的呼叫（如「套用並預覽」按鈕）才需要講失敗——
-          // 自動路徑（開分頁／切活動）沿用舊資料靜靜重試即可，不必嚇人。
-          if(wantsPreview)setMsg('bc-msg',(env&&env.msg)||'查詢失敗','err');
+        // ⚠️ 2026-09-13：原本只擋 cacheVerdict!=='ok'（離線／撤銷）。外層 `{ok:false}` 而 msg 不是那兩種
+        //    （例如 line_upstream）會走進下面讀 `env.results.xxx` ⇒ TypeError、promise 靜靜 reject。
+        if(cacheVerdict(env)!=='ok'||!(env&&env.ok)){
+          // 預覽停在磁碟快取 ⇒ 預覽上方掛提示；沒有快取 ⇒ 照舊寫在 bc-msg（不兩個一起出現）
+          if(wantsPreview&&settleRefresh('bc-preview',env,shownPreview))setMsg('bc-msg',(env&&env.msg)||'查詢失敗','err');
           return;
         }
         return persistBatchSlices(q('t'),env,items,nameOfSlice).then(function(){
           var st=env.results.listStaffStations, pv=env.results.previewPassBroadcast;
           if(st&&st.ok)renderStations(st.rows);
-          if(pv&&pv.ok)renderPreview(pv);   // fallback 抓的：直接給 renderer、用完即丟，不落地（previewPassBroadcast 恆不落地）
-          else if(pv)setMsg('bc-msg',pv.msg||'查詢失敗','err');
+          if(pv&&settleRefresh('bc-preview',pv,shownPreview)){
+            if(pv.ok)renderPreview(pv);   // fallback 抓的：直接給 renderer、用完即丟，不落地（previewPassBroadcast 恆不落地）
+            else setMsg('bc-msg',pv.msg||'查詢失敗','err');
+          }
         });
       });
     });
@@ -2543,7 +2556,7 @@ function loadStats(act){
     // 首發吃 batch 切片（act 已在 batch 的 p 帶上）；FIRST 裡的 persistBatchSlices 已經存過，
     // 這裡不再呼叫 cacheSave——呼叫端再存一次就繞過唯一入口。
     pick('getActivityStats').then(function(r){
-      if(r&&r.ok)renderStats(r);else if(!cached)renderStats(r);
+      if(settleRefresh('content',r,cached))renderStats(r);   // 失敗而畫面上是快取 ⇒ 掛提示、不重繪
     });
     return;
   }
@@ -2551,7 +2564,7 @@ function loadStats(act){
   queueRead(function(){
     return jsonp('getActivityStats',{token:q('t'),act:act||''}).then(function(r){
       return cacheSave(q('t'),N.activityStats(act),r).then(function(){
-        if(r&&r.ok)renderStats(r);else if(!cached)renderStats(r);
+        if(settleRefresh('content',r,cached))renderStats(r);
       });
     });
   });

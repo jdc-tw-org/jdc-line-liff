@@ -46,6 +46,8 @@
 <button id="refresh" class="btn">立即刷新</button>
 <div id="updated" class="updated"></div>
 <script src="assets/checkin-board.js"></script>
+<!-- 只用它的 settleRefresh（刷新失敗提示）——全站「停在快取」只有一種長相；本頁不用它的加密快取 -->
+<script src="assets/board-cache.js"></script>
 <script>
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
 function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
@@ -85,12 +87,15 @@ function paintError(msg){
   document.getElementById('content').innerHTML='<div class="empty">'+esc(msg)+'</div>';
 }
 
+// 本頁最後一次成功寫入快取的時間。sessionStorage 那份沒存時間 ⇒ 開頁時是 null ⇒ 提示寫「先前」（不編造）。
+var LAST_OK_AT=null;
 function load(){
   if(!TOKEN||!ACT)return;   // 缺參數：init() 已畫過錯誤訊息，不再發請求（否則輪詢/手動刷新會一路打 token=''&act=''）
   jget('getEventCheckinStats',{token:TOKEN,act:ACT}).then(function(r){
-    if(r&&r.ok){ swrSet(SWR_KEY,r.stats); paintStats(r.stats); }
-    else if(!swrGet(SWR_KEY)){ paintError((r&&r.msg)||'連結無效或已失效，請向系統管理者索取新連結。'); }
-    // 失敗但有舊快取：不動畫面，保留上一次成功結果
+    // 失敗但有舊快取：不動畫面，保留上一次成功結果——🔴 但要說出來（2026-09-13，原本一個字都不說）
+    if(!settleRefresh('content',r,swrGet(SWR_KEY)?{savedAt:LAST_OK_AT}:null))return;
+    if(r&&r.ok){ swrSet(SWR_KEY,r.stats); LAST_OK_AT=Date.now(); paintStats(r.stats); }
+    else paintError((r&&r.msg)||'連結無效或已失效，請向系統管理者索取新連結。');
   });
 }
 

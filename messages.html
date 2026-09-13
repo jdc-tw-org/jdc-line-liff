@@ -860,12 +860,15 @@ function adopt(data, force) {
   setInterval(check, 5 * 60 * 1000);           // 開著不動時每五分鐘再問一次
 })();
 
+var MSG_HIT = null;   // 畫面上那份快取（失敗提示要它的寫入時間）
 cacheBootstrap(TOKEN).then(function () {
   syncClearBtn();
   var hit = cacheGet(CACHE_NAME);
-  if (hit && hit.value && hit.value.header) adopt(hit.value, true);
+  if (hit && hit.value && hit.value.header) { adopt(hit.value, true); MSG_HIT = hit; }
   return callApi({ action: 'listMessageLog', t: TOKEN, days: qs('days') || DAYS_ALL });
 }).then(function (res) {
+  // 🔴 2026-09-13：失敗而畫面上是快取（BATCHES 有東西）時原本一個字都不說 ⇒ 清單上方掛提示、不改畫面
+  if (!settleRefresh('list', res, BATCHES.length ? MSG_HIT : null)) return;
   if (!res || !res.ok) {
     if (!BATCHES.length) {
       msgEl.textContent = (res && res.msg) || '\u7121\u6cd5\u8f09\u5165\u3002';
@@ -878,6 +881,8 @@ cacheBootstrap(TOKEN).then(function () {
 }).catch(function (e) {
   if (!BATCHES.length) {
     msgEl.textContent = '\u8f09\u5165\u5931\u6557\uff1a' + (e && e.message ? e.message : e);
+  } else {
+    markRefreshFail('list', MSG_HIT && MSG_HIT.savedAt, (e && e.message) ? e.message : String(e));
   }
 });
 </script>

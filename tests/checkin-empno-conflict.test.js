@@ -166,6 +166,9 @@ test('R22：髒旗標成立時（整段重繪被跳過），索引仍然要被�
       }
       return Promise.resolve(null);
     },
+    // 2026-09-13：load() 在 isDirty 之前先過 settleRefresh（刷新失敗提示）。給真貨：
+    // 本例網路成功 ⇒ 它回 true、照原路往下走，這條測試量的東西不變。
+    settleRefresh: require('../assets/board-cache.js').settleRefresh,
     isDirty: () => true,   // 模擬人事正在下面編輯：SWR 第二次繪製必須整段跳過
     hintStale: (id) => calls.hintStale.push(id),
     renderLoad: (rs) => calls.renderLoad.push(rs),

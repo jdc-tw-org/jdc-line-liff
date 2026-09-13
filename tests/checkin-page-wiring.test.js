@@ -39,6 +39,7 @@ const S = require('./helpers/source-scan.js');
 const ROOT = path.join(__dirname, '..');
 const INLINE = S.scriptText('checkin.html');
 const BOARD_JS = fs.readFileSync(path.join(ROOT, 'assets', 'checkin-board.js'), 'utf8');
+const BC_JS = fs.readFileSync(path.join(ROOT, 'assets', 'board-cache.js'), 'utf8');
 const PAGE_HTML = fs.readFileSync(path.join(ROOT, 'checkin.html'), 'utf8');
 
 // 抽取本身是近似（見 source-scan.js 檔頭：**少取跟「這頁沒有」一模一樣**）。
@@ -93,10 +94,20 @@ function boot(opts) {
     return el;
   }
   const els = { meta: mkEl('meta'), content: mkEl('content'), updated: mkEl('updated'), refresh: mkEl('refresh') };
+  // 2026-09-13：#content 要有父節點——「刷新失敗提示」插在它上方（assets/board-cache.js 的 markRefreshFail）。
+  // 沒有父節點的話那支會安靜略過，下面「提示有出現」的斷言就量不到東西。
+  const inserted = [];
+  els.content.parentNode = {
+    insertBefore(el) { inserted.push(el); el.parentNode = this; els[el.id] = el; },
+    removeChild(el) { inserted.splice(inserted.indexOf(el), 1); delete els[el.id]; },
+  };
   const askedFor = [];
   // 不認得的 id 回 null（不是回一個萬用假元素）——頁面改了 id 就會當場 TypeError，
   // 而不是安靜地寫進一個沒人看的物件裡。
-  const document = { getElementById(id) { askedFor.push(id); return els[id] || null; } };
+  const document = {
+    getElementById(id) { askedFor.push(id); return els[id] || null; },
+    createElement() { return { id: '', textContent: '', setAttribute() {} }; },
+  };
 
   const store = Object.assign({}, opts.cache || {});
   const sessionStorage = {
@@ -124,10 +135,12 @@ function boot(opts) {
   };
   vm.createContext(ctx);
   vm.runInContext(BOARD_JS, ctx, { filename: 'assets/checkin-board.js' });
+  // 頁面的 <script> 順序：checkin-board.js → board-cache.js（2026-09-13 加）→ 內嵌
+  if (opts.code === undefined) vm.runInContext(BC_JS, ctx, { filename: 'assets/board-cache.js' });
   vm.runInContext(opts.code === undefined ? INLINE : opts.code, ctx, { filename: 'checkin.html inline' });
 
   const h = {
-    ctx, els, writes, listeners, intervals, fetchCalls, store, askedFor,
+    ctx, els, writes, listeners, intervals, fetchCalls, store, askedFor, inserted,
     get fetchCount() { return fetchCalls.length; },
     /** 只看 #content 的 innerHTML——那就是「畫了一次」。 */
     paints() { return writes.filter((w) => w.id === 'content' && w.prop === 'innerHTML'); },
@@ -292,6 +305,31 @@ test('SWR：重抓失敗但有舊快取 → 畫面不動，錯誤訊息不蓋掉
   assert.equal(h.paints().length, 1, '失敗把舊畫面蓋掉了 ⇒ 現場會突然一片空白');
   assert.ok(h.paints()[0].value.includes('已到 5 / 9'));
   assert.ok(!h.els.content.innerHTML.includes('伺服器忙碌'));
+  // 🔴 2026-09-13：不動畫面，但**要說出來**。sessionStorage 那份沒存時間 ⇒「先前」，不編造。
+  assert.equal(h.inserted.length, 1, '有快取而刷新失敗時一個字都沒說 ⇒ 現場以為數字是最新的');
+  assert.equal(h.inserted[0].textContent, '⚠️ 這裡顯示的是先前的資料，目前無法更新：伺服器忙碌');
+});
+
+test('SWR：刷新失敗提示——下一次成功就消失；沒快取的失敗只畫錯誤框（不兩個一起出現）', async () => {
+  let reply = { ok: false, msg: '伺服器忙碌' };
+  const h = boot({
+    search: SEARCH,
+    cache: { 'swr:checkin:A1': JSON.stringify(STATS_A) },
+    fetchImpl: () => jsonp(reply)(),
+  });
+  await flush();
+  assert.equal(h.inserted.length, 1, '前置：先要有提示');
+  reply = { ok: true, stats: STATS_B };
+  h.tick();                                  // 15 秒輪詢
+  await flush();
+  assert.equal(h.inserted.length, 0, '刷新成功後提示還掛著 ⇒ 最新資料被標成舊的');
+  assert.ok(h.paints()[h.paints().length - 1].value.includes('已到 7 / 9'));
+
+  // ⬛ 對照組：沒有快取＋失敗 ⇒ 錯誤框，且沒有提示
+  const n = boot({ search: SEARCH, fetchImpl: jsonp({ ok: false, msg: '伺服器忙碌' }) });
+  await flush();
+  assert.equal(n.inserted.length, 0, '沒快取卻掛了「這裡顯示的是舊資料」⇒ 兩個訊息疊在一起');
+  assert.ok(n.els.content.innerHTML.includes('伺服器忙碌'));
 });
 
 test('SWR：壞掉的快取（不是合法 JSON）→ 當成沒有快取，不讓整頁掛掉', async () => {

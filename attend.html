@@ -123,9 +123,14 @@ function load(actId){
           // 離線：有快取就掛「離線·資料停在…」；⚠️ 完全沒快取時一定要把錯誤訊息畫出來，
           // 否則畫面停在 load() 同步佔位的「載入中…」，永遠不會變、也不會有任何錯誤提示。
           // 寫法對齊 hr-stats.html 同位置（else if(!painted)renderHr(r)）。
-          if(v==='offline'){ if(cached)markOffline(cached.savedAt); else paint(r); return; }
+          if(v==='offline'){
+            if(cached){markOffline(cached.savedAt);markRefreshFail('content',cached.savedAt,r);}
+            else{clearRefreshFail('content');paint(r);}
+            return;
+          }
           return cacheSave(t,N.attend(actId),r).then(function(){
-            if(r&&r.ok){paint(r);markOffline(null);}else if(!cached)paint(r);
+            // 2026-09-13：原本 `else if(!cached)paint(r)`＝失敗而畫面上是快取時一個字都不說
+            if(settleRefresh('content',r,cached)){paint(r);if(r&&r.ok)markOffline(null);}
           });
         });
       });
@@ -194,8 +199,14 @@ function load(actId){
       if(!CUR){
         document.getElementById('meta').textContent='';
         document.getElementById('content').innerHTML='<div class="empty">'+esc((r&&r.msg)||'連結無效或已失效，請向系統管理者索取新連結。')+'</div>';
+        return;
       }
-      return;
+      // 2026-09-13：清單與統計都沒拿到、畫面上那場是回訪快取 ⇒ 說出來（原本靜默）
+      return pFast.then(function(fr){
+        if(fr&&fr.ok)return;
+        var c=cacheGet(N.attend(CUR));
+        if(c)markRefreshFail('content',c.savedAt,r);
+      });
     }
     var sel=document.getElementById('act-picker');
     if(r.rows.length){

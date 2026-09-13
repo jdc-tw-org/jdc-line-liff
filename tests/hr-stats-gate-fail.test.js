@@ -218,7 +218,9 @@ test('🔴 接線：姓名欄那一格走 lockText()，原始碼裡不可以再�
 });
 
 test('🔴 接線：離線那一條（沒有快取、圖表已經畫好）也要說話', () => {
-  assert.match(FLAT, /if \(c\) \{ markOffline\(c\.savedAt\); return; \} markGateFail\(r\);/,
+  // 2026-09-13 改寫（不刪）：有快取那一格多了 markRefreshFail（圖表上方的「停在快取」提示）。
+  //    後半「沒有快取 ⇒ markGateFail」這條原本要釘的東西不變。
+  assert.match(FLAT, /if \(c\) \{ markOffline\(c\.savedAt\); markRefreshFail\('main', c\.savedAt, r\); return; \} markGateFail\(r\);/,
     '離線且沒有快取時仍然靜默');
 });
 

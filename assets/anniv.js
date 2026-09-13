@@ -15,6 +15,7 @@
 // opts.failBox    有給＝後端回失敗時用它畫。**本檔刻意不自備失敗樣式**，理由見 annivPaint_。
 function annivInit(jsonpFn, token, opts) {
   var painted = false;
+  var shown = null;   // 畫面上**看得到**的那份快取（名單空而整塊隱藏時不算）
   // 秒顯（2026-08-20）：這一支本來只寫進快取、沒有任何地方讀回來——姓名在磁碟躺七天卻零好處。
   // 補上讀取端之後，重開頁時這張卡跟名冊列表同時出現，不會晚一步才「長出來」。
   // typeof 防護：本檔在 board.html 的 <script> 順序中排在 board-cache.js **之前**，
@@ -22,11 +23,22 @@ function annivInit(jsonpFn, token, opts) {
   if (typeof CACHE_READY !== 'undefined' && typeof cacheGet === 'function' && typeof N !== 'undefined') {
     CACHE_READY.then(function () {
       var c = cacheGet(N.anniversaries);
-      if (c) { annivPaint_(c.value, opts); painted = true; }
+      if (c) {
+        annivPaint_(c.value, opts); painted = true;
+        var b = document.getElementById('anniv-box');
+        if (b && b.style.display !== 'none') shown = c;
+      }
     });
   }
   jsonpFn('getAnniversaries', { token: token }).then(function (r) {
-    // 失敗時只有「畫面上還沒有東西」才蓋上去，否則會把剛秒顯的內容抹掉
+    // 🔴 2026-09-13：失敗而畫面上是快取 ⇒ 不重繪、卡片上方掛提示（原本一個字都不說）。
+    //    快取是空名單（整塊隱藏）時不算「畫面上有東西」⇒ 照原路畫錯誤框，
+    //    不在一塊看不見的東西上面說「這裡顯示的是舊資料」。
+    if (typeof settleRefresh === 'function') {
+      if (settleRefresh('anniv-box', r, shown)) annivPaint_(r, opts);
+      return;
+    }
+    // 沒有 board-cache.js 的頁面：維持原行為
     if ((r && r.ok) || !painted) annivPaint_(r, opts);
   });
 }

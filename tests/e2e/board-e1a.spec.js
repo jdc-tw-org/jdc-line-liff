@@ -433,3 +433,112 @@ for (const [key, reason] of [['06-憑證沒帶上來', 'line_no_token'],
     expect(txt).not.toContain('正在自動重新登入');
   });
 }
+
+/* ══ 🔴 有快取＋刷新失敗：畫面停在快取時要說出來（2026-09-13）══════════════════
+ *
+ * 為何在真瀏覽器量：⑤ 上線後身分服務一壞，人事看板有七天內快取的人會看到**照常的**待核准清單，
+ * 沒有任何錯誤或離線提示，按核准才第一次看到錯誤。單元測試證明得了「有呼叫」，
+ * 證明不了「提示真的看得見、清單真的沒被重繪、她打的字真的還在」。
+ *
+ * 快取是真的：第一輪讓頁面自己用 LINE 的 sub 加密存進 localStorage，第二輪同一個 context 再開。
+ */
+const STALE_OK = {
+  getCheckinOptions: { ok: true, units: ['A部'], titles: ['工程師'] },
+  getCheckinPending: { ok: true, who: '甲', admin: false, done: [],
+    rows: [{ _row: 2, 報到日期: '2026-09-01', 姓名: '丙新人', 單位: 'A部', 職稱: '工程師', 生日: '', 公司信箱: '', 員編: '' }] },
+  getHrPending: { ok: true, units: ['A部'], namesByUnit: {}, titles: ['工程師'],
+    rows: [{ _row: 5, 類別: '調動', 文號: 'D-1', 姓名: '乙同仁', 狀態: '待確認', 原部門單位: 'A部', 新部門單位: 'A部',
+      effIso: '2026-10-01', effTag: '10/1 生效' }] },
+  getAnniversaries: { ok: true, year: 2026, rows: [] },
+  getRosterList: { ok: true, activeCount: 1, total: 1,
+    rows: [{ name: '丁名冊', unit: 'A部', title: '工程師', empNo: '001', status: '在職' }] },
+  listHrNotices: { ok: true, rows: [] },
+  listOptions: { ok: true, rows: [] },
+};
+const okReply = (action, u) => {
+  if (action !== 'batch') return STALE_OK[action] || { ok: true };
+  const results = {};
+  JSON.parse(u.searchParams.get('list')).forEach((it) => { results[it.a] = STALE_OK[it.a]; });
+  return { ok: true, results };
+};
+const failReply = () => ({ ok: false, reason: 'line_upstream', msg: MSG.upstream });
+
+/** 換掉 GAS 的回應。delayMs：故意晚回來，讓快取先畫、使用者先動手。 */
+async function routeGas(page, reply, delayMs = 0) {
+  await page.unroute(/script\.google\.com/);
+  await page.route(/script\.google\.com/, async (route) => {
+    const u = new URL(route.request().url());
+    const body = reply(u.searchParams.get('action'), u);
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(body) + ')' });
+  });
+}
+
+test('🔴 有快取＋身分服務故障：清單照舊、上方掛提示（時間＋後端那句）、她打的字還在、不出第二個錯誤框；恢復後提示消失', async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const logs = [];
+  page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
+  page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
+  await blockLiffCdn(page);
+  await page.addInitScript(liffStub());
+
+  // 第一輪：成功，頁面自己把快取存進去（首發 4 支＋第二發 3 支）
+  await routeGas(page, okReply);
+  await page.goto('/board.html');
+  await page.waitForFunction(() => Object.keys(localStorage).filter((k) => k.indexOf('jdcBoard:') === 0).length >= 7,
+    null, { timeout: 10000 });
+  // ⬛ 對照組：成功那一輪沒有任何提示（否則下面「有提示」量不出差異）
+  expect(await page.locator('[id$="-refail"]').count()).toBe(0);
+
+  // 第二輪：身分服務故障，而且晚 2 秒回來
+  await routeGas(page, failReply, 2000);
+  await page.goto('/board.html');
+  await expect(page.locator('#pending .card'), '快取沒有秒顯 ⇒ 這一輪量不到「停在快取」').toHaveCount(1, { timeout: 1500 });
+  await page.fill('#pending .card [data-k="員編"]', 'SENTINEL-9137');
+  await page.evaluate(() => { window.__card = document.querySelector('#pending .card'); });
+  await expect(page.locator('#pending-refail')).toBeVisible({ timeout: 5000 });
+
+  const tip = await page.locator('#pending-refail').textContent();
+  expect(tip).toMatch(/^⚠️ 這裡顯示的是 \d+\/\d+ \d\d:\d\d 的資料，目前無法更新：/);
+  expect(tip).toContain(MSG.upstream);
+  expect(await page.evaluate(() => document.querySelector('#pending .card') === window.__card), '清單被重繪了').toBe(true);
+  expect(await page.inputValue('#pending .card [data-k="員編"]'), '她打的字被吃掉了').toBe('SENTINEL-9137');
+  expect(await page.locator('#pending > .msg-err').count(), '提示與錯誤框同時出現').toBe(0);
+  expect(await visibleText(page), '失敗時說「伺服器上有較新的資料」是假話').not.toContain('伺服器上有較新的資料');
+
+  await page.click('#tabbtn-hr');
+  await expect(page.locator('#hr-pending-refail')).toBeVisible();
+  expect(await page.locator('#hr-pending-refail').textContent()).toContain(MSG.upstream);
+  expect(await page.locator('#hr-pending').textContent(), '人事異動的舊清單不見了').toContain('乙同仁');
+  expect(await page.locator('#hr-pending > .msg-err').count()).toBe(0);
+
+  await page.click('#tabbtn-roster');
+  await expect(page.locator('#r-count-refail')).toBeVisible({ timeout: 5000 });
+  expect(await page.locator('#r-list').textContent()).toContain('丁名冊');
+  await page.screenshot({ path: 'test-results/stale-01-有快取刷新失敗-名冊.png', fullPage: true });
+  await page.click('#tabbtn-hr');
+  await page.screenshot({ path: 'test-results/stale-02-有快取刷新失敗-人事異動.png', fullPage: true });
+  console.log('【停在快取】提示：', tip);
+
+  // 第三輪：恢復 ⇒ 所有提示消失
+  await routeGas(page, okReply);
+  await page.goto('/board.html');
+  await expect(page.locator('#hr-pending .card')).toHaveCount(1);
+  await page.waitForTimeout(800);
+  await page.click('#tabbtn-roster');
+  await page.waitForTimeout(800);
+  expect(await page.locator('[id$="-refail"]').count(), '恢復後提示還在 ⇒ 最新資料被標成舊的').toBe(0);
+  expect(logs.filter((l) => l.startsWith('[pageerror]')), 'console 有未捕捉的錯誤').toEqual([]);
+  await context.close();
+});
+
+test('⬛ 沒有快取＋身分服務故障：維持原本的錯誤框，沒有「停在快取」提示（不出兩個）', async ({ page }) => {
+  const logs = await open(page, { envelope: failReply() });
+  expect(await page.locator('#pending > .msg-err').count()).toBe(1);
+  expect(await page.locator('#pending-refail').count()).toBe(0);
+  await page.click('#tabbtn-hr');
+  expect(await page.locator('#hr-pending > .msg-err').count()).toBe(1);
+  expect(await page.locator('#hr-pending-refail').count()).toBe(0);
+  expect(logs.filter((l) => l.startsWith('[pageerror]'))).toEqual([]);
+});

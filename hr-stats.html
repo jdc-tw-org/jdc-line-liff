@@ -988,17 +988,21 @@ function renderHr(r){
         return handleVerdict(FP, r).then(function (v) {
           if (v === 'revoked') return;                       // 覆蓋層已蓋上
           if (v === 'offline') {
-            // 有快取＝姓名已經是真的，`markOffline` 也會說「資料停在幾點」⇒ 不必再說一次。
-            if (c) { markOffline(c.savedAt); return; }
+            // 有快取＝姓名是快取那一份 ⇒ 不蓋 gate-fail 橫幅；但圖表上方要說「這是幾點的、目前更新不了」
+            // （2026-09-13：`markOffline` 那一小段字在 #sub 裡，與資料區隔了一整個頁首，不夠看得見）。
+            if (c) { markOffline(c.savedAt); markRefreshFail('main', c.savedAt, r); return; }
             markGateFail(r); if (!painted) renderHr(r); return;
           }
           return cacheSave(FP, N.hrStats, r).then(function () {
+            clearRefreshFail('main');
+            // 🔴 2026-09-13：失敗而畫面上是快取（`c`）⇒ 姓名是舊的，gate-fail 橫幅只說「為什麼失敗」、
+            //    沒說「底下是幾點的資料」⇒ 下面那一格補上。公開檔畫的（沒有 `c`）不算快取。
             if (r && r.ok) { renderHr(r); markOffline(null); markPub(null); }
             // 🔴 2026-09-12：原本這裡是 `else if (!painted) renderHr(r);`——
             //    公開檔已經畫好（`painted`）時，這一發失敗**一個字都不會說**，
             //    而姓名欄停在「需權限，載入中…」⇒ 讀起來像還在載入，其實已經跑完並失敗。
             //    `markGateFail` 無條件先講，再決定要不要整頁換成錯誤畫面。
-            else { markGateFail(r); if (!painted) renderHr(r); }
+            else { markGateFail(r); if (c) markRefreshFail('main', c.savedAt, r); if (!painted) renderHr(r); }
           });
         });
       });

@@ -61,6 +61,7 @@ function runLoadActs({ cachedRows, netRows }) {
     queueRead: (fn) => { order.push('queueRead'); return BC.queueRead(fn); },   // 真貨
     q: () => 'tok',
     esc: (s) => String(s),
+    settleRefresh: BC.settleRefresh,   // 真貨（2026-09-13 起 loadActs 的網路段先過它）
     paintActs: (r) => { painted.push(r.rows); },
     jsonp: () => { order.push('jsonp'); return Promise.resolve({ ok: true, rows: netRows }); },
   };

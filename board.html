@@ -725,8 +725,8 @@ function loadLog(){
     return queueRead(function(){               // 沒有才自己打
       return jsonp('listHrNotices',{token:TOKEN}).then(function(r2){
         return cacheSave(FP,N.hrNotices,r2).then(function(){
-          if(r2&&r2.ok)renderLog(r2);
-          else if(!cached)renderLog(r2);
+          // 失敗而畫面上是快取 ⇒ 不重繪、掛提示（原本這一格一個字都不說，見 settleRefresh）
+          if(settleRefresh('log-list',r2,cached))renderLog(r2);
         });
       });
     });
@@ -937,15 +937,17 @@ function renderOptionsAdmin(r){
   document.getElementById('eo-fields').style.display='none';
 }
 function loadOptionsAdmin(){
+  var cached=null;
   CACHE_READY.then(function(){
-    var c=cacheGet(N.options);
-    if(c)renderOptionsAdmin(c.value);           // 秒顯
+    cached=cacheGet(N.options);
+    if(cached)renderOptionsAdmin(cached.value);  // 秒顯
   });
   pick2('listOptions').then(function(r){
     if(r){renderOptionsAdmin(r);return;}         // 第二發已備妥
     return queueRead(function(){                 // 沒有才自己打
       return jsonp('listOptions',{token:TOKEN}).then(function(r2){
         return cacheSave(FP,N.options,r2).then(function(){
+          settleRefresh('eo-pick',r2,cached);      // renderOptionsAdmin 對失敗本來就不畫；這裡只負責說出來
           renderOptionsAdmin(r2);
         });
       });
@@ -1001,14 +1003,17 @@ function loadHr(){
   var src=hrFirst?pick('getHrPending'):jsonp('getHrPending',{token:TOKEN});
   hrFirst=false;
   src.then(function(r){
+    // 🔴 失敗而畫面上是快取（2026-09-13）：原本這裡是 `else if(!cached)paintHr(r)`——
+    //    **有快取就一個字都不說**，人事照著最長七天前的待核准清單工作，按核准才看到錯誤。
+    //    ⑤ 上線後身分服務一壞就是這個畫面。現在：不重繪（保住她正在改的生效日）、清單上方掛提示。
+    if(!settleRefresh('hr-pending',r,cached)){watchDirty('hr-pending');return;}
     if(r&&r.ok){
       logLoaded=false;   // 異動紀錄可能已變，下次切過去重抓（與畫不畫無關，一律要設）
       // ⚠️ 同 load()：這格有「生效日（核定）」可編輯，重繪會抹掉使用者改到一半的日期。
       if(isDirty('hr-pending')){hintStale('hr-pending');return;}
       paintHr(r);
     }
-    // 失敗時只有「畫面上還沒有東西」才把錯誤蓋上去——否則會把剛秒顯的內容抹掉
-    else if(!cached)paintHr(r);
+    else paintHr(r);   // 失敗且畫面上沒有快取 ⇒ 錯誤框
     watchDirty('hr-pending');
   });
 }
@@ -1074,8 +1079,8 @@ function loadRoster(){
     return queueRead(function(){                  // 沒有才自己打
       return jsonp('getRosterList',{token:TOKEN}).then(function(r2){
         return cacheSave(FP,N.rosterList,r2).then(function(){
-          if(r2&&r2.ok)paintRoster(r2);
-          else if(!cached)paintRoster(r2);
+          // 提示掛在人數列上方——人數與名單是同一份資料，兩者一起停在快取
+          if(settleRefresh('r-count',r2,cached))paintRoster(r2);
         });
       });
     });
@@ -1146,9 +1151,11 @@ function load(){
     // 不接住的話：部署後第一次開看板、人事在這批回來前就開始打員編 ⇒ gEmpConflicts 停在
     // 快取版的 {}，那一整場都不會出現警語，且不重整頁面永遠不會補出現。
     if(rs[1]&&rs[1].ok)gEmpConflicts=rs[1].empNoConflicts||gEmpConflicts;
+    // 🔴 失敗而畫面上是快取（2026-09-13）：原本 `else if(!(co&&cp))renderLoad(rs)`＝有快取就靜默。
+    //    排在 isDirty 之前：失敗時不可以出「伺服器上有較新的資料」那句——那是假話。
+    if(!settleRefresh('pending',rs[1],(co&&cp)?cp:null))return;
     if(isDirty('pending')){hintStale('pending');repaintEmpWarnings();return;}
-    if(rs[1]&&rs[1].ok)renderLoad(rs);
-    else if(!(co&&cp))renderLoad(rs);
+    renderLoad(rs);   // 成功，或失敗且畫面上沒有快取（renderLoad 自己畫錯誤框）
     watchDirty('pending');
   });
 }
