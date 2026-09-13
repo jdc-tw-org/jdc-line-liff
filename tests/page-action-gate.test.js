@@ -34,12 +34,41 @@
  *
  * ⇒ **改成問一個不需要知道使用者是誰的問題**：
  *
- *   🔴 `batch` 是**轉派器，不是授權邊界**。`runBatch_` 對每一支子 action
- *      重跑一次**同一支** `gateAction`（`Code.js`；`batch.js` 的 `buildBatchResults`
- *      逐支呼叫 `ctx.gate`）。所以外層那道門只會**減**、不會加。
+ *   🔴 `batch` 是**轉派器，不是授權邊界**。doGet 先對 `batch` 本身守門一次，過了才進
+ *      `runBatch_`；`runBatch_` 再對每一支子 action 各守門一次（`batch.js` 的 `buildBatchResults`
+ *      逐支呼叫 `ctx.gate`，擋下的那支不執行）。子項守門依「外層是哪條路認出來的」分兩條：
+ *      · **token 路**：子項重跑 `gateAction(a, p.token)`——與 doGet 直接打那支 action 是**同一支函式**。
+ *        唯一差別是刻意不傳 `SCOPED_TOKENS`：受限身分在子項恆為拒絕；「同一顆 token 同時登記在
+ *        SCOPED 與別份名單」的碰撞子項看不到，但外層那一趟有傳 SCOPED，會先擋下。
+ *      · **LINE 路**：子項問 `gateLineIdentity(a, 外層交下來的身分)`——doGet 直接打那支 action 時，
+ *        `gateActionByLine` 認出身分後最後一步呼叫的就是**同一支**；子項吃的是外層同一趟認出的身分，
+ *        不重驗簽、不重查名冊，而且它只收 `source === 'line'`（其他一律拒絕）。
+ *      （證據：gas `dbc8b17`，隨 gas main `04022c4` 於 2026-09-13 上線。在那之前兩條路的子項都重跑
+ *       `gateAction(a, p.token)`，LINE 路的 `p.token` 是空字串 ⇒ 子項除 public 外全擋。逐欄比對見 gas
+ *       `line-platform/tests/batch-line-identity.test.js`「batch 子項與 doGet 單支逐欄相同」與「token 路」兩條。）
+ *      ⇒ 放行＝外層放行 **且** 子項放行，所以外層那道門只會**減**、不會加——兩條路都成立：
+ *        token 路的子項就是直接打那支時的同一支 `gateAction`；LINE 路的子項就是直接打那支時
+ *        最後一步的同一支 `gateLineIdentity`。外層在兩條路上都只是多疊一道條件。
  *      ⇒ **外層的身分集合，不得比它所轉派的任何一支子 action 更窄。**
- *      更窄的那些身分，本來直接打得到那支 action，改走 batch 之後卻收到
- *      「無權限或連結已失效」——而前端把那句話翻譯成「整頁停用」。
+ *      更窄的那些身分，本來直接打得到那支 action，改走 batch 之後會在**外層**就被擋下。
+ *      擋下時回什麼，兩條路不同（檔:行皆為 gas origin/main `04022c4` 的 `line-platform/`）：
+ *      · **token 路**（外層是 `gateAction('batch', token)`，`Code.js:1382`）：
+ *        - staff／view 這種「整份名單就是身分」的 token，外層不含它時落不進自己的分支、掉到 board 分支查無此 token
+ *          ⇒ `GATE_MSG_LEGACY_DENY`「無權限或連結已失效。」，reason `token_invalid`
+ *          （`roles.js:882`；常數 `roles.js:706`、代號 `roles.js:551`）。2026-09-12 attend 對 view 打不開就是這一格。
+ *        - 帶角色的 scoped／board token 角色不符 ⇒ `GATE_MSG_OUT_OF_SCOPE`「此連結非您的權限範圍。」，
+ *          reason `role_mismatch`（scoped `roles.js:877`、board `roles.js:894`；常數 `roles.js:682`、代號 `roles.js:541`）。
+ *      · **LINE 路**（外層是 `gateActionByLine('batch', idToken)`，`Code.js:1378`；認出身分後交給
+ *        `gateLineIdentity`，`roles.js:1051-1052`）：
+ *        - 角色不符 ⇒ `GATE_MSG_OUT_OF_SCOPE`「此連結非您的權限範圍。」，reason `role_mismatch`（`roles.js:1097-1098`）。
+ *        - 身分不是 `source === 'line'` ⇒ `GATE_MSG_LEGACY_DENY`「無權限或連結已失效。」，reason `token_invalid`
+ *          （`roles.js:1090-1091`）。⚠️ 這一格今天兩個呼叫點都走不到：`gateActionByLine` 交進去的一定是
+ *          `'line'`（`roles.js:1052`），`runBatch_` 也只在 `source === 'line'` 時才呼叫它（`Code.js:1706`）
+ *          ⇒ 它是 fail-closed 的防線，不是使用者會看到的畫面。
+ *        - 驗簽／換內部碼失敗那幾種（`line_unbound` 等）不屬於這裡：那是「認不出你」，不是「身分集合更窄」。
+ *      前端的顯示也跟著分岔：`assets/board-cache.js:42` 只認「無權限或連結已失效」開頭 ⇒ 判 `revoked`、
+ *      清快取＋蓋整頁；「此連結非您的權限範圍。」不會被判 `revoked`，只有載入 `assets/deny-no-role.js` 的頁
+ *      （board／stats／hr-stats）在 2.5 秒內沒有任何一支成功時，才蓋「此連結非您的權限範圍」——attend.html 沒有載它。
  *
  *   這個判準**完全由頁面自己的子項清單推出來**，不必宣告受眾，
  *   所以沒有第二張表要維護，也就沒有腐爛的那一格。
