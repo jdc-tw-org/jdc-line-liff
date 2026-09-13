@@ -60,6 +60,7 @@ function runLoadActs({ cachedRows, netRows }) {
     N: BC.N,                       // 真貨：名稱算錯就抓得到
     queueRead: (fn) => { order.push('queueRead'); return BC.queueRead(fn); },   // 真貨
     q: () => 'tok',
+    FP: 'tok',                     // 2026-09-13（E1b）：快取指紋改讀 FP（②是 LINE 的 sub，不是 ?t=）
     esc: (s) => String(s),
     settleRefresh: BC.settleRefresh,   // 真貨（2026-09-13 起 loadActs 的網路段先過它）
     paintActs: (r) => { painted.push(r.rows); },
@@ -120,6 +121,7 @@ function runBundle({ tpl, previewCached, secondDone, previewSlice }) {
     // 這裡要驗的是「快取有沒有在等第二發之前就畫」，跟佇列無關。
     queueRead: (fn) => Promise.resolve().then(fn),
     q: () => 'tok',
+    FP: 'tok',                                   // E1b：persistBatchSlices 的指紋改讀 FP
     jsonp: () => new Promise(() => {}),
     setMsg: () => {},
     cacheVerdict: BC.cacheVerdict,
@@ -213,6 +215,7 @@ test('bcInvalidate：cacheDrop／N.preview／clearDirty 在頁面的作用域裡
     ctx, { filename: 'board-cache.js' });
   // ② 再跑頁面裡那一段（＝inline script）
   vm.runInContext('var _previewUsed=false;\nvar q=function(){return "tok";};\n'
+    + 'var FP="tok";\n'   // E1b：cacheDrop 的指紋改讀 FP
     + 'var ckActId=function(){return "A";};\n' + grab('bcInvalidate'),
     ctx, { filename: 'stats.html-bcInvalidate' });
 

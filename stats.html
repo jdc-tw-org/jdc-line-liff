@@ -468,7 +468,11 @@
     <div id="qr-msg" class="msg"></div>
   </div>
 </div>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="assets/url-token.js"></script>
 <script src="assets/deny-no-role.js"></script>
+<!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/roster-wide.js"></script>
 <script src="assets/roster-dl.js"></script>
 <script src="assets/seating.js"></script>
@@ -485,8 +489,91 @@
 // （2026-07-31 在 attend.html 踩到，同型）。這條保命索確保至少講得出話。
 if(typeof esc!=='function'){window.esc=function(s){return (s==null?'':s).toString().replace(/</g,'&lt;');};}
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
-var CACHE_READY=cacheBootstrap(q('t'));   // 開頁時解密該指紋的全部持久快取；cacheGet 在它 resolve 前都讀不到值
+// 取值走共用的 assets/url-token.js（E1a 收攏的那一支）。`q(k)` 保留成薄包裝、不改呼叫端
+// （同 hr-stats.html 的理由：改名會讓 diff 同時含「換來源」與「改名」兩件事，後者會把前者藏起來）。
+function q(k){return urlParam(k);}
+var TOKEN=q('t');
+
+/* ══ E1b：這一頁有兩條進來的路（2026-09-13，照 hr-stats／attend／checkin 的做法）════
+ *
+ *   ① 網址帶 `?t=`  → **舊路，送出去的請求與改動前逐字相同**（佳岑手上那條連結）。
+ *   ② 網址沒有 `?t=` → **LINE 登入**。jsonp 掛 idToken 上去，後端驗簽→換內部碼→查名冊。
+ *
+ * 🔴 分流依據是「網址上有沒有那串」，不是開關 ⇒ 退路就是「把舊連結給她」，不必部署。
+ *
+ * 🔴 **身分沒確認之前不發車，閘門只有一道，就在 jsonp() 開頭**（與 attend 的差別，理由如下）：
+ *    attend 只有首載與切活動兩個出口，所以各自排在 AUTH_READY 後面。本頁打後端的地方
+ *    有四十幾處（五個分頁、各種按鈕、roster-dl.js 借走的 jsonp），逐處包一層必漏。
+ *    ⇒ `AUTH_OK` 為假時 jsonp 自己排到 AUTH_READY 後面；登入失敗時 AUTH_READY 永遠不 resolve
+ *    ⇒ 那一發永遠不送。①的 `AUTH_OK` 同步為真 ⇒ 閘門那一行對舊路是 no-op。
+ *
+ * ⚠️ **②要能用，後端原本還缺幾格——已解除**（解除條件：下面兩格都隨 gas main 上線；本頁量不到）：
+ *    · 原本 `Code.js` 的 `runBatch_` 對子項重跑 `gateAction(a, p.token||'')`——②的 token 是空字串
+ *      ⇒ 本頁三發 batch 的子項全部回「無權限或連結已失效。」
+ *      ⇒ 解除證據：jdc-line-gas `dbc8b17`（外層身分 `source === 'line'` ⇒ 子項改問 `gateLineIdentity`，
+ *         見 gas origin/main `line-platform/Code.js:1706`）。
+ *    · 原本會發 LINE 的 4 支與 `getSeniorNotice` 的第二道還吃 token（刀 5）
+ *      ⇒ 解除證據：gas `77ec561`＋`d07cf56`（刀 5，第二道改吃身分）。
+ *    兩者都隨 gas main `04022c4` 於 2026-09-13 17:03:49 上線。
+ *    ⚠️ 解除的只是「後端缺格」這個成因。**線上仍沒有人用 LINE 實際開過本頁 ⇒ ②在線上還沒驗過。**
+ */
+var LIFF_ID='2010451233-a781rqsm';   // 與 index／welfare／board／hr-stats 同一條，不多開 LIFF ID
+var ID_TOKEN='';                     // ②才有值
+var AUTH_OK=!!TOKEN;                 // ①同步為真；②登入完才為真。jsonp() 看它決定能不能發車
+/**
+ * 快取指紋。**不可以直接用 TOKEN**——②的 TOKEN 是空字串，同一台裝置上不同人會共用 `''`
+ * 這個指紋（本頁快取裡有回覆明細、座位表、名冊）。②改用 LINE 的 `sub`。
+ */
+var FP=TOKEN;
+
+function freshIdToken(){
+  if(!(window.liff&&typeof liff.getIDToken==='function'))return '';
+  var t=liff.getIDToken();return t?String(t):'';
+}
+function lineSub(){
+  try{var d=liff.getDecodedIDToken();return (d&&d.sub)?String(d.sub):'';}catch(e){return '';}
+}
+/**
+ * 說明目前的身分狀態，掛在統計分頁的 `#meta`（開頁預設就是這個分頁）。
+ * ⚠️ 擋住時連 `#content` 的「載入中…」一起換掉——否則紅字下面還寫著「載入中」，那句是假話。
+ */
+function authBlock(msg,isErr){
+  var el=document.getElementById('meta');
+  if(el){el.textContent=msg;el.style.color=isErr?'#c00':'';}
+  if(isErr){var c=document.getElementById('content');if(c)c.innerHTML='';}
+}
+/** 永遠不 resolve ⇒ jsonp 排在它後面的每一發都不會送。**fail-closed，不是忘了 resolve。** */
+function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
+
+function startAuth(){
+  if(TOKEN)return Promise.resolve('token');           // ①舊路
+  if(!(window.liff&&typeof liff.init==='function')){
+    return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
+  }
+  return liff.init({liffId:LIFF_ID}).then(function(){
+    if(!liff.isLoggedIn()){
+      authBlock('正在前往 LINE 登入，登入後會自動回到這一頁…',false);
+      liff.login({redirectUri:location.href});        // 保留 ?act=／?mt=
+      return new Promise(function(){});               // 導頁中，不要發車
+    }
+    ID_TOKEN=freshIdToken();
+    if(!ID_TOKEN){
+      return authHalt('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        +'這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。');
+    }
+    FP=lineSub()||ID_TOKEN;
+    AUTH_OK=true;
+    return 'line';
+  }).catch(function(err){
+    return authHalt('確認身分時失敗：'+((err&&err.message)?err.message:String(err)));
+  });
+}
+
+var AUTH_READY=startAuth();
+// 開頁時解密該指紋的全部持久快取；cacheGet 在它 resolve 前都讀不到值。
+// ⚠️ 排在 AUTH_READY 之後：②的指紋（sub）要登入完才知道。①只差一個微任務。
+var CACHE_READY=AUTH_READY.then(function(){return cacheBootstrap(FP);});
 
 /* ── 活動選擇器：橫向滑動的純文字 ─────────────────────────────────────────
    原生 <select> 留在 DOM 裡當值的載體（全頁十幾處讀 .value、寫 .value，
@@ -523,7 +610,9 @@ function showAdminSwitch(isAdmin){
   if(!isAdmin||document.getElementById('adm-switch'))return;
   var a=document.createElement('a');
   a.id='adm-switch';a.textContent='人事異動看板';
-  a.href='board.html?t='+encodeURIComponent(q('t'));
+  // E1b：②沒有 `?t=`，舊寫法會產生 `board.html?t=`。board.html 已有 LINE 登入（E1a），
+  // 所以②直接連 `board.html`、由那一頁自己登入；①的網址與改動前逐字相同。
+  a.href='board.html'+(TOKEN?'?t='+encodeURIComponent(q('t')):'');
   a.style.cssText='position:fixed;top:10px;right:10px;z-index:99;background:#fff;border:1px solid var(--ln);border-radius:3px;padding:6px 12px;font-size:12.5px;font-weight:600;color:var(--ink2);text-decoration:none';
   a.addEventListener('click',function(e){e.preventDefault();location.href=a.href;}); // iOS standalone：<a> 會彈內嵌 Safari，JS 導頁留在 App 內
   document.body.appendChild(a);
@@ -541,6 +630,17 @@ function surfaceErr(r){
   return r;
 }
 function jsonp(action,params,timeoutMs){
+  // 🔴 身分閘門（E1b）：②登入完之前不發車——本頁唯一一道，理由見上方 E1b 區塊。①同步為真＝no-op。
+  // ⚠️ resolve 之後**再問一次 AUTH_OK、不遞迴**：AUTH_READY 若在 AUTH_OK 仍為假時 resolve（不該發生），
+  //    遞迴寫法會變成無窮微任務把整頁卡死；這樣寫是停住不發（fail-closed）。
+  if(!AUTH_OK)return AUTH_READY.then(function(){return AUTH_OK?jsonp(action,params,timeoutMs):new Promise(function(){});});
+  // 🔴 **憑證只掛在這一個地方**（同 board／hr-stats／attend 的 jsonp）。
+  // ⚠️ ID token 在呼叫當下才取（它只有效一小時；真正的處置在 assets/liff-relogin.js）。
+  // ⚠️ 條件是 `!TOKEN`：帶 `?t=` 的舊路**不可以**順手帶 idToken 上去，那會讓後端 doGet 把舊路改道。
+  var p={};
+  Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
+  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  params=p;
   var qs=Object.keys(params||{}).filter(function(k){return params[k]!=='';}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
   // 讓整段初始化同步當掉 → 畫面永遠停在「載入中」且不顯示任何錯誤（2026-07-31 查 attend.html 時發現，全站同型）。
@@ -549,7 +649,7 @@ function jsonp(action,params,timeoutMs){
     var timer, timeout=new Promise(function(_,rej){timer=setTimeout(function(){var e=new Error('timeout');e.name='AbortError';rej(e);},timeoutMs||30000);});
     return Promise.race([timeout, fetch(GAS_URL+'?action='+encodeURIComponent(action)+qs+'&callback=cb',{credentials:'omit',redirect:'follow'})
       .then(function(r){return r.text();})
-      .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return denyNoRole(surfaceErr(JSON.parse(t.slice(a+1,b))));})])
+      .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(denyNoRole(surfaceErr(JSON.parse(t.slice(a+1,b)))));})])
       .then(function(v){clearTimeout(timer);return v;},function(e){clearTimeout(timer);throw e;});
   }
   // 30s＋逾時/斷線自動重試一次（隔 2s，8/6 對策 1）——僅限「讀取」（未帶 timeoutMs 的呼叫）：
@@ -615,7 +715,7 @@ function loadActs(){
   });
   return queueRead(function(){
     return jsonp('listActivities',{token:q('t')}).then(function(r){
-      return cacheSave(q('t'),N.activities,r).then(function(){
+      return cacheSave(FP,N.activities,r).then(function(){
         // 抓失敗不蓋掉舊資料——寧可看到稍舊的清單，也不要整片變「載入失敗」（全站慣例）
         // ⇒ 但**要說出來**（2026-09-13，見 settleRefresh）
         if(!settleRefresh('act-list',r,cached))return;
@@ -863,6 +963,9 @@ function openArrival(){
      （桌次 #ti-act、報到 #ck-act），跨分頁借變數必錯。 */
   var act=actId();
   if(!act){setMsg('sm-msg','請先在上方選擇活動，才能開啟進場人數。','err');return;}
+  // E1b：wall.html 還沒有 LINE 登入入口，②開出去會是 `wall.html?t=`＝必定「無權限」。
+  // 講實話，不開一個點了必定失敗的視窗。wall.html 也改好之後，這一格要跟著拆。
+  if(!TOKEN){setMsg('sm-msg','進場人數頁還不能用 LINE 登入開啟，請改用原本的看板連結開這一頁再按。','err');return;}
   window.open('wall.html?t='+encodeURIComponent(q('t'))+'&act='+encodeURIComponent(act),'_blank');
 }
 
@@ -895,7 +998,7 @@ function loadSeating(){
     if(r){applySeating(r);return;}                    // 第二發已備妥（且同一場）
     return queueRead(function(){                       // 沒有才自己打
       return jsonp('getSeatingBoard',{token:q('t'),actId:id}).then(function(r2){
-        return cacheSave(q('t'),N.seating(id),r2).then(function(){
+        return cacheSave(FP,N.seating(id),r2).then(function(){
           // 有舊資料就留著（畫面上已經是它）並說出來，只有完全沒有時才顯示錯誤
           if(!settleRefresh('seat-board',r2,cached))return;
           if(r2&&r2.ok)applySeating(r2);
@@ -1133,7 +1236,7 @@ function snLoad(){
     if(r){renderSenior(r);return;}                     // 第二發已備妥（且同一年度）
     return queueRead(function(){                        // 沒有才自己打
       return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
-        return cacheSave(q('t'),N.senior(y),r2).then(function(){
+        return cacheSave(FP,N.senior(y),r2).then(function(){
           // 失敗而畫面上是快取 ⇒ 不重繪（這張卡有勾選，見 renderSenior 的事故註解）、清單上方掛提示
           if(!settleRefresh('sn-people',r2,cached))return;
           if(r2&&r2.ok)renderSenior(r2);
@@ -1354,7 +1457,7 @@ var _previewUsed=false;      // 存過範本／改過預約之後標成 true，�
 function bcInvalidate(){
   _previewUsed=true;
   clearDirty('bc-tpl');clearDirty('bc-date');clearDirty('bc-time');
-  return cacheDrop(q('t'),N.preview(ckActId()));
+  return cacheDrop(FP,N.preview(ckActId()));
 }
 // ⚠️ 收下 SECOND 的 previewPassBroadcast 那段 `SECOND.then(...)` 不在這裡，在檔尾 SECOND 賦值之後。
 // 原本寫在這一行（宣告之前），var SECOND 被 hoist 但賦值還沒發生 → `undefined.then` 直接 TypeError，
@@ -1403,7 +1506,7 @@ function loadCheckinBundle(actId,tpl){
           if(wantsPreview&&settleRefresh('bc-preview',env,shownPreview))setMsg('bc-msg',(env&&env.msg)||'查詢失敗','err');
           return;
         }
-        return persistBatchSlices(q('t'),env,items,nameOfSlice).then(function(){
+        return persistBatchSlices(FP,env,items,nameOfSlice).then(function(){
           var st=env.results.listStaffStations, pv=env.results.previewPassBroadcast;
           if(st&&st.ok)renderStations(st.rows);
           if(pv&&settleRefresh('bc-preview',pv,shownPreview)){
@@ -1427,7 +1530,7 @@ function stLoad(){
       if(!r||!r.ok){box.innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';return;}
       renderStations(r.rows);
       // 座位表快取不受影響：stations 已不隨 getSeatingBoard 回傳，兩包互不牽連。
-      return cacheSave(q('t'),N.stations(id),r);
+      return cacheSave(FP,N.stations(id),r);
     });
   });
 }
@@ -2426,9 +2529,9 @@ function toggleRep(btn,id){
 var FIRST_ITEMS=[{a:'listActivities'},{a:'getActivityStats',p:{act:q('act')||''}}];   // getAnniversaries 已移除：名單改由 getSeniorNotice 一併帶回，不必再抓一次
 var FIRST=queueRead(function(){
   return jsonp('batch',{token:q('t'),list:JSON.stringify(FIRST_ITEMS)}).then(function(env){
-    return handleVerdict(q('t'),env).then(function(v){
+    return handleVerdict(FP,env).then(function(v){
       if(v!=='ok')return {ok:false,_verdict:v,msg:env.msg};
-      return persistBatchSlices(q('t'),env,FIRST_ITEMS,nameOfSlice).then(function(){return env;});
+      return persistBatchSlices(FP,env,FIRST_ITEMS,nameOfSlice).then(function(){return env;});
     });
   });
 });
@@ -2514,7 +2617,7 @@ var SECOND=FIRST.then(function(first){
   return queueRead(function(){
     return jsonp('batch',{token:q('t'),list:JSON.stringify(SECOND_ITEMS)}).then(function(env){
       if(cacheVerdict(env)!=='ok')return null;
-      return persistBatchSlices(q('t'),env,SECOND_ITEMS,nameOfSlice).then(function(){return env;});
+      return persistBatchSlices(FP,env,SECOND_ITEMS,nameOfSlice).then(function(){return env;});
     });
   });
 });
@@ -2563,7 +2666,7 @@ function loadStats(act){
   // 切場次重打單支
   queueRead(function(){
     return jsonp('getActivityStats',{token:q('t'),act:act||''}).then(function(r){
-      return cacheSave(q('t'),N.activityStats(act),r).then(function(){
+      return cacheSave(FP,N.activityStats(act),r).then(function(){
         if(settleRefresh('content',r,cached))renderStats(r);
       });
     });
