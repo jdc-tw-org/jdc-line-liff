@@ -34,9 +34,21 @@
  *
  * ⇒ **改成問一個不需要知道使用者是誰的問題**：
  *
- *   🔴 `batch` 是**轉派器，不是授權邊界**。`runBatch_` 對每一支子 action
- *      重跑一次**同一支** `gateAction`（`Code.js`；`batch.js` 的 `buildBatchResults`
- *      逐支呼叫 `ctx.gate`）。所以外層那道門只會**減**、不會加。
+ *   🔴 `batch` 是**轉派器，不是授權邊界**。doGet 先對 `batch` 本身守門一次，過了才進
+ *      `runBatch_`；`runBatch_` 再對每一支子 action 各守門一次（`batch.js` 的 `buildBatchResults`
+ *      逐支呼叫 `ctx.gate`，擋下的那支不執行）。子項守門依「外層是哪條路認出來的」分兩條：
+ *      · **token 路**：子項重跑 `gateAction(a, p.token)`——與 doGet 直接打那支 action 是**同一支函式**。
+ *        唯一差別是刻意不傳 `SCOPED_TOKENS`：受限身分在子項恆為拒絕；「同一顆 token 同時登記在
+ *        SCOPED 與別份名單」的碰撞子項看不到，但外層那一趟有傳 SCOPED，會先擋下。
+ *      · **LINE 路**：子項問 `gateLineIdentity(a, 外層交下來的身分)`——doGet 直接打那支 action 時，
+ *        `gateActionByLine` 認出身分後最後一步呼叫的就是**同一支**；子項吃的是外層同一趟認出的身分，
+ *        不重驗簽、不重查名冊，而且它只收 `source === 'line'`（其他一律拒絕）。
+ *      （證據：gas `dbc8b17`，隨 gas main `04022c4` 於 2026-09-13 上線。在那之前兩條路的子項都重跑
+ *       `gateAction(a, p.token)`，LINE 路的 `p.token` 是空字串 ⇒ 子項除 public 外全擋。逐欄比對見 gas
+ *       `line-platform/tests/batch-line-identity.test.js`「batch 子項與 doGet 單支逐欄相同」與「token 路」兩條。）
+ *      ⇒ 放行＝外層放行 **且** 子項放行，所以外層那道門只會**減**、不會加——兩條路都成立：
+ *        token 路的子項就是直接打那支時的同一支 `gateAction`；LINE 路的子項就是直接打那支時
+ *        最後一步的同一支 `gateLineIdentity`。外層在兩條路上都只是多疊一道條件。
  *      ⇒ **外層的身分集合，不得比它所轉派的任何一支子 action 更窄。**
  *      更窄的那些身分，本來直接打得到那支 action，改走 batch 之後卻收到
  *      「無權限或連結已失效」——而前端把那句話翻譯成「整頁停用」。
