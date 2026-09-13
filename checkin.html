@@ -45,17 +45,30 @@
 <div id="content"><div class="empty">載入中…</div></div>
 <button id="refresh" class="btn">立即刷新</button>
 <div id="updated" class="updated"></div>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="assets/url-token.js"></script>
+<!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/checkin-board.js"></script>
 <!-- 只用它的 settleRefresh（刷新失敗提示）——全站「停在快取」只有一種長相；本頁不用它的加密快取 -->
 <script src="assets/board-cache.js"></script>
 <script>
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
+// 取值走共用的 assets/url-token.js（E1a 收攏的那一支）。`q(k)` 保留成薄包裝，理由同 hr-stats.html。
+function q(k){return urlParam(k);}
 var TOKEN=q('t'), ACT=q('act');
 
 // jget：打 GAS JSONP action，逾時／連線失敗回 {ok:false,msg}（fetch 匿名 credentials:'omit'：
 // 半殘 Google session 的電腦帶著瀏覽器登入態反被擋）
 function jget(action, params, timeoutMs){
+  // 🔴 **憑證只掛在這一個地方**（同 board／hr-stats／attend 的 jsonp）。
+  // ⚠️ 條件是 `!TOKEN`：帶 `?t=` 的舊路不帶 idToken（帶了後端會改道）。
+  // ⚠️ ID token 在呼叫當下才取；它只有效一小時，而本頁每 15 秒輪詢一次
+  //    ⇒ 開著超過一小時會收到 line_bad_token，由 assets/liff-relogin.js 接手（見檔尾 E1b 註解）。
+  var p={};
+  Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
+  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  params=p;
   var qs=Object.keys(params||{}).filter(function(k){return params[k]!=='';}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
   // 讓整段初始化同步當掉 → 畫面永遠停在「載入中」且不顯示任何錯誤（2026-07-31 查 attend.html 時發現，全站同型）。
@@ -64,10 +77,72 @@ function jget(action, params, timeoutMs){
   var timer, timeout=new Promise(function(_,rej){timer=setTimeout(function(){var e=new Error('timeout');e.name='AbortError';rej(e);},timeoutMs||15000);});
   return Promise.race([timeout, fetch(GAS_URL+'?action='+encodeURIComponent(action)+qs+'&callback=cb',{credentials:'omit',redirect:'follow'})
     .then(function(r){return r.text();})
-    .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return JSON.parse(t.slice(a+1,b));})])
+    .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(JSON.parse(t.slice(a+1,b)));})])
     .then(function(v){clearTimeout(timer);return v;})
     .catch(function(e){clearTimeout(timer);return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時（伺服器喚醒中），請重新整理再試。':'連線失敗，請重新整理。'};});
 }
+
+/* ══ E1b：這一頁有兩條進來的路（2026-09-13，照 hr-stats.html 的做法）══════════
+ *
+ *   ① 網址帶 `?t=`  → **舊路，行為與改動前逐字相同**（含同步秒顯、同步發第一發）。
+ *   ② 網址沒有 `?t=` → **LINE 登入**，jget 掛 idToken 上去。
+ *
+ * 🔴 分流依據是「網址上有沒有那串」，不是開關 ⇒ 退路就是「把舊連結給他」，不必部署。
+ *
+ * ⚠️ **①刻意維持同步，不像 hr-stats.html 一律排在 AUTH_READY 之後**：
+ *    `tests/checkin-page-wiring.test.js` 釘著「有快取就同步秒顯、同步發第一發」這個現況，
+ *    而本頁是活動現場的報到看板。所以 `AUTH_OK` 在①是**同步就為真**，②要等登入完。
+ *    ⇒ 啟動動作只有一份（`start()`），只是①直接叫、②排在 AUTH_READY 後面叫。
+ *
+ * ⚠️ **②在現場的已知限制（寫給上線的人）**：ID token 只有效一小時，而本頁每 15 秒輪詢。
+ *    ⇒ 開著超過一小時，下一發會收到 line_bad_token ⇒ liff-relogin.js 自動登出＋重新登入（整頁導走再回來）；
+ *    ⇒ **同一個分頁第二次過期時**，防迴圈旗標已經在 ⇒ 蓋上「請聯絡資訊人員」覆蓋層、看板停住。
+ *    長時間掛著的大螢幕請繼續用①舊連結。
+ */
+var LIFF_ID='2010451233-a781rqsm';   // 與 index／welfare／board／hr-stats 同一條，不多開 LIFF ID
+var ID_TOKEN='';                     // ②才有值
+var AUTH_OK=!!TOKEN;                 // ①同步為真；②登入完才為真。load() 看它決定能不能發車
+
+// ⚠️ 用 `typeof liff` 而不是 `window.liff`：本頁的單元測試替身沒有 `window`（見 checkin-page-wiring）。
+function freshIdToken(){
+  if(!(typeof liff!=='undefined'&&liff&&typeof liff.getIDToken==='function'))return '';
+  var t=liff.getIDToken();return t?String(t):'';
+}
+/** 掛在 #meta；擋住時把 #content 的「載入中…」一起換掉（否則紅字下面那句是假話）。 */
+function authBlock(msg,isErr){
+  var el=document.getElementById('meta');
+  if(el){el.textContent=msg;if(el.style)el.style.color=isErr?'#c00':'#888';}
+  if(isErr){var c=document.getElementById('content');if(c)c.innerHTML='';}
+}
+/** 永遠不 resolve ⇒ 不會發車。**fail-closed，不是忘了 resolve。** */
+function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
+
+function startAuth(){
+  if(TOKEN)return Promise.resolve('token');           // ①舊路
+  if(!ACT)return new Promise(function(){});           // 缺參數：init 會說，不必先去登入一趟
+  if(!(typeof liff!=='undefined'&&liff&&typeof liff.init==='function')){
+    return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
+  }
+  return liff.init({liffId:LIFF_ID}).then(function(){
+    if(!liff.isLoggedIn()){
+      authBlock('正在前往 LINE 登入，登入後會自動回到這一頁…',false);
+      liff.login({redirectUri:location.href});        // 保留 ?act=
+      return new Promise(function(){});
+    }
+    ID_TOKEN=freshIdToken();
+    if(!ID_TOKEN){
+      return authHalt('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        +'這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。');
+    }
+    AUTH_OK=true;
+    return 'line';
+  }).catch(function(err){
+    return authHalt('確認身分時失敗：'+((err&&err.message)?err.message:String(err)));
+  });
+}
+
+var AUTH_READY=startAuth();
 
 // SWR：sessionStorage 秒顯上次結果、背景重抓校正；重抓失敗不蓋舊畫面
 function swrGet(k){try{var c=sessionStorage.getItem(k);return c?JSON.parse(c):null;}catch(e){return null;}}
@@ -90,7 +165,10 @@ function paintError(msg){
 // 本頁最後一次成功寫入快取的時間。sessionStorage 那份沒存時間 ⇒ 開頁時是 null ⇒ 提示寫「先前」（不編造）。
 var LAST_OK_AT=null;
 function load(){
-  if(!TOKEN||!ACT)return;   // 缺參數：init() 已畫過錯誤訊息，不再發請求（否則輪詢/手動刷新會一路打 token=''&act=''）
+  if(!ACT)return;   // 缺參數：init() 已畫過錯誤訊息，不再發請求（否則輪詢/手動刷新會一路打 act=''）
+  // 🔴 身分還沒確認（②登入中／登入失敗）一律不發車——輪詢與「立即刷新」也走這裡，
+  //    不是只有首載擋住。①的 AUTH_OK 同步為真，行為與改動前相同。
+  if(!AUTH_OK)return;
   jget('getEventCheckinStats',{token:TOKEN,act:ACT}).then(function(r){
     // 失敗但有舊快取：不動畫面，保留上一次成功結果——🔴 但要說出來（2026-09-13，原本一個字都不說）
     if(!settleRefresh('content',r,swrGet(SWR_KEY)?{savedAt:LAST_OK_AT}:null))return;
@@ -100,10 +178,15 @@ function load(){
 }
 
 (function init(){
-  if(!TOKEN||!ACT){ paintError('連結缺少參數，請向系統管理者索取新連結。'); return; }
-  var cached=swrGet(SWR_KEY);
-  if(cached)paintStats(cached);
-  load();
+  // 缺 act 才是缺參數。②沒有 `?t=` 不再是缺參數——那是 LINE 登入那條路（E1b）。
+  if(!ACT){ paintError('連結缺少參數，請向系統管理者索取新連結。'); return; }
+  function start(){
+    var cached=swrGet(SWR_KEY);
+    if(cached)paintStats(cached);
+    load();
+  }
+  if(AUTH_OK)start();            // ①：同步，與改動前逐字相同
+  else AUTH_READY.then(start);   // ②：登入完才開始；登入失敗時 AUTH_READY 永遠不 resolve ⇒ 永遠不開始
 })();
 
 document.getElementById('refresh').addEventListener('click', load);

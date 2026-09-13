@@ -53,6 +53,10 @@
 <select id="act-picker" class="picker" onchange="load(this.value)"></select>
 <div id="meta" class="meta">載入中…</div>
 <div id="content"><div class="empty">載入中…</div></div>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="assets/url-token.js"></script>
+<!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/stats-view.js"></script>
 <script src="assets/board-cache.js"></script>
 <script>
@@ -68,9 +72,21 @@ function fatal(msg){
   }catch(e){}
 }
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-function q(k){var m=location.search.match(new RegExp('[?&]'+k+'=([^&]+)'));return m?decodeURIComponent(m[1]):'';}
+// 取值走共用的 assets/url-token.js（E1a 收攏的那一支，board／hr-stats 已在用）。
+// ⚠️ 刻意保留 `q(k)` 這個名字當薄包裝，不改呼叫端（同 hr-stats.html 的理由：
+//    改名會讓這次的 diff 同時含「換來源」與「改名」兩件事，後者會把前者藏起來）。
+function q(k){return urlParam(k);}
 // fetch 匿名(credentials:'omit')：JSONP script 會帶瀏覽器 Google session，帳號狀態半殘的電腦被 Google 拒絕
 function jsonp(action,params,timeoutMs){
+  // 🔴 **憑證只掛在這一個地方**（同 board.html／hr-stats.html 的 jsonp）。
+  // ⚠️ ID token 在呼叫當下才取（它只有效一小時；見 hr-stats.html 同位置的更正：
+  //    這一格不是防線，真正的處置在 assets/liff-relogin.js）。
+  // ⚠️ 條件是 `!TOKEN`：帶 `?t=` 的舊路**不可以**順手帶 idToken 上去，
+  //    那會打到後端 `doGet` 的分流條件、把舊路整條改道。
+  var p={};
+  Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
+  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  params=p;
   var qs=Object.keys(params||{}).filter(function(k){return params[k]!=='';}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
   // 讓整段 init 同步當掉 → 畫面永遠停在「載入中」且不顯示任何錯誤（2026-07-31 查本頁時發現）。
@@ -78,11 +94,81 @@ function jsonp(action,params,timeoutMs){
   var timer, timeout=new Promise(function(_,rej){timer=setTimeout(function(){var e=new Error('timeout');e.name='AbortError';rej(e);},timeoutMs||15000);});
   return Promise.race([timeout, fetch(GAS_URL+'?action='+encodeURIComponent(action)+qs+'&callback=cb',{credentials:'omit',redirect:'follow'})
     .then(function(r){return r.text();})
-    .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return JSON.parse(t.slice(a+1,b));})])
+    .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(JSON.parse(t.slice(a+1,b)));})])
     .then(function(v){clearTimeout(timer);return v;})
     .catch(function(e){clearTimeout(timer);return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時（伺服器喚醒中），請重新整理再試。':'連線失敗，請重新整理。'};});}
+var TOKEN=q('t');
+
+/* ══ E1b：這一頁有兩條進來的路（2026-09-13，照 hr-stats.html 的做法）══════════
+ *
+ *   ① 網址帶 `?t=`  → **舊路，送出去的請求與改動前逐字相同**（副總手上那條連結）。
+ *   ② 網址沒有 `?t=` → **LINE 登入**。帶 idToken 上去，後端驗簽→換內部碼→查名冊。
+ *
+ * 🔴 分流依據是「網址上有沒有那串」，不是開關 ⇒ 退路就是「把舊連結給他」，不必部署。
+ *
+ * 🔴 **②要能用，後端還缺一格（2026-09-13 本機實跑 roles.js／batch.js 確認，未打線上）**：
+ *    本頁首載是 `batch{listActivities, getActivityStats}`，而 `Code.js` 的 `runBatch_`
+ *    對每支子項重跑 `gateAction(a, p.token || '')`——②的 token 是空字串
+ *    ⇒ 兩支子項都回 `token_invalid`「無權限或連結已失效。」
+ *    ⇒ 畫面顯示的就是計畫記載的那個症狀。**前端這一半做完了，不代表②通了。**
+ */
+var LIFF_ID='2010451233-a781rqsm';   // 與 index／welfare／board／hr-stats 同一條，不多開 LIFF ID
+var ID_TOKEN='';                     // ②才有值
+/**
+ * 快取指紋。**不可以直接用 TOKEN**——②的 TOKEN 是空字串，同一台裝置上
+ * 不同人會共用 `''` 這個指紋（本頁快取裡有未回覆者姓名與意見）。②改用 LINE 的 `sub`。
+ */
+var FP=TOKEN;
+
+function freshIdToken(){
+  if(!(window.liff&&typeof liff.getIDToken==='function'))return '';
+  var t=liff.getIDToken();return t?String(t):'';
+}
+function lineSub(){
+  try{var d=liff.getDecodedIDToken();return (d&&d.sub)?String(d.sub):'';}catch(e){return '';}
+}
+/**
+ * 說明目前的身分狀態，掛在 `#meta`（本頁放「載入中…→資料來源說明」的那一列）。
+ * ⚠️ 擋住時連 `#content` 的「載入中…」一起換掉——否則紅字下面還寫著「載入中」，那句是假話。
+ */
+function authBlock(msg,isErr){
+  var el=document.getElementById('meta');
+  if(el){el.textContent=msg;el.style.color=isErr?'#c00':'#888';}
+  if(isErr){var c=document.getElementById('content');if(c)c.innerHTML='';}
+}
+/** 永遠不 resolve ⇒ 後面的首載整批不會發車。**fail-closed，不是忘了 resolve。** */
+function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
+
+function startAuth(){
+  if(TOKEN)return Promise.resolve('token');           // ①舊路
+  if(!(window.liff&&typeof liff.init==='function')){
+    return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
+  }
+  return liff.init({liffId:LIFF_ID}).then(function(){
+    if(!liff.isLoggedIn()){
+      authBlock('正在前往 LINE 登入，登入後會自動回到這一頁…',false);
+      liff.login({redirectUri:location.href});        // 保留 ?act=
+      return new Promise(function(){});               // 導頁中，不要發車
+    }
+    ID_TOKEN=freshIdToken();
+    if(!ID_TOKEN){
+      return authHalt('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        +'這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。');
+    }
+    FP=lineSub()||ID_TOKEN;
+    return 'line';
+  }).catch(function(err){
+    return authHalt('確認身分時失敗：'+((err&&err.message)?err.message:String(err)));
+  });
+}
+
+var AUTH_READY=startAuth();
+
 var CUR='';   // 目前顯示的活動ID
-var CACHE_READY=cacheBootstrap(q('t'));   // 開頁時解密該指紋的全部持久快取；cacheGet 在它 resolve 前都讀不到值
+// 開頁時解密該指紋的全部持久快取；cacheGet 在它 resolve 前都讀不到值。
+// ⚠️ 排在 AUTH_READY 之後：②的指紋（sub）要登入完才知道。①只差一個微任務。
+var CACHE_READY=AUTH_READY.then(function(){return cacheBootstrap(FP);});
 // 記住上次看的那場，回訪時先用它的快取秒開（localStorage：跨分頁、關瀏覽器也留著）
 function lastAct(){try{return localStorage.getItem('attend:lastAct')||'';}catch(e){return '';}}
 function rememberAct(id){try{if(id)localStorage.setItem('attend:lastAct',id);}catch(e){}}
@@ -106,7 +192,6 @@ function load(actId){
     return;
   }
   CUR=actId;
-  var t=q('t');
   // 同步先佔位：CACHE_READY 是非同步的（哪怕只晚一個 microtask），不佔位就會有一瞬間空白。
   document.getElementById('meta').textContent='載入中…';
   document.getElementById('content').innerHTML='<div class="empty">載入中…</div>';
@@ -115,10 +200,11 @@ function load(actId){
     if(cached)paint(cached.value);   // 命中就把佔位換成秒開內容
     return cached;
   });
-  queueRead(function(){
-    return jsonp('getActivityStats',{token:t,act:actId}).then(function(r){
+  // ⚠️ 排在 AUTH_READY 之後（E1b）：②要等登入拿到憑證才能發車；①只差一個微任務。
+  AUTH_READY.then(function(){return queueRead(function(){
+    return jsonp('getActivityStats',{token:TOKEN,act:actId}).then(function(r){
       return cachedP.then(function(cached){
-        return handleVerdict(t,r).then(function(v){
+        return handleVerdict(FP,r).then(function(v){
           if(v==='revoked')return;
           // 離線：有快取就掛「離線·資料停在…」；⚠️ 完全沒快取時一定要把錯誤訊息畫出來，
           // 否則畫面停在 load() 同步佔位的「載入中…」，永遠不會變、也不會有任何錯誤提示。
@@ -128,14 +214,14 @@ function load(actId){
             else{clearRefreshFail('content');paint(r);}
             return;
           }
-          return cacheSave(t,N.attend(actId),r).then(function(){
+          return cacheSave(FP,N.attend(actId),r).then(function(){
             // 2026-09-13：原本 `else if(!cached)paint(r)`＝失敗而畫面上是快取時一個字都不說
             if(settleRefresh('content',r,cached)){paint(r);if(r&&r.ok)markOffline(null);}
           });
         });
       });
     });
-  });
+  });});
 }
 
 // 2026-08-19：原本兩支同時發，不串接等待（GAS 每支固定 3 秒起跳，串接＝首屏 6 秒以上）。
@@ -149,20 +235,21 @@ function load(actId){
     fatal('頁面元件載入失敗，請重新整理。若從主畫面圖示開啟仍不行，請改用 Safari 開一次連結。');
     return;
   }
-  var t=q('t'), urlAct=q('act');
+  var urlAct=q('act');
 
   var ITEMS = [{ a: 'listActivities' }, { a: 'getActivityStats', p: { act: urlAct || '' } }];
-  var FIRST = queueRead(function () {
-    return jsonp('batch', { token: t, list: JSON.stringify(ITEMS) }).then(function (env) {
-      return handleVerdict(t, env).then(function (v) {
+  // ⚠️ 排在 AUTH_READY 之後（E1b）。②登入失敗時它永遠不 resolve ⇒ 不會帶著空憑證送出去。
+  var FIRST = AUTH_READY.then(function () { return queueRead(function () {
+    return jsonp('batch', { token: TOKEN, list: JSON.stringify(ITEMS) }).then(function (env) {
+      return handleVerdict(FP, env).then(function (v) {
         if (v === 'revoked') return { ok: false, _verdict: v };
         if (v === 'offline') return { ok: false, _verdict: v, msg: env.msg };
-        return persistBatchSlices(t, env, ITEMS, nameOfSlice).then(function () {
+        return persistBatchSlices(FP, env, ITEMS, nameOfSlice).then(function () {
           return env;
         });
       });
     });
-  });
+  }); });
   function pick(a) {
     return FIRST.then(function (r) {
       return (r && r.ok && r.results && r.results[a]) || { ok: false, msg: (r && r.msg) || '連線失敗' };
@@ -191,7 +278,7 @@ function load(actId){
   });
 
   pFast.then(function(r){
-    if(r&&r.ok){ cacheSave(t, N.attend(r.activity.id||''), r); paint(r); }
+    if(r&&r.ok){ cacheSave(FP, N.attend(r.activity.id||''), r); paint(r); }
   });
 
   pList.then(function(r){
