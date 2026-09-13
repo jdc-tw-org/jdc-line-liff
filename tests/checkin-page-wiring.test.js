@@ -40,6 +40,10 @@ const ROOT = path.join(__dirname, '..');
 const INLINE = S.scriptText('checkin.html');
 const BOARD_JS = fs.readFileSync(path.join(ROOT, 'assets', 'checkin-board.js'), 'utf8');
 const BC_JS = fs.readFileSync(path.join(ROOT, 'assets', 'board-cache.js'), 'utf8');
+// 2026-09-13（E1b）：頁面多載了這兩支，而且排在內嵌 script 前面（q() 委派給 urlParam、jget 出口接 reloginOnDeadCredential）。
+// 替身不跟著載的話，內嵌那段一跑就 ReferenceError ⇒ 整檔紅的是「替身缺席」，不是頁面。
+const URL_JS = fs.readFileSync(path.join(ROOT, 'assets', 'url-token.js'), 'utf8');
+const RELOGIN_JS = fs.readFileSync(path.join(ROOT, 'assets', 'liff-relogin.js'), 'utf8');
 const PAGE_HTML = fs.readFileSync(path.join(ROOT, 'checkin.html'), 'utf8');
 
 // 抽取本身是近似（見 source-scan.js 檔頭：**少取跟「這頁沒有」一模一樣**）。
@@ -134,6 +138,10 @@ function boot(opts) {
     clearInterval(id) { for (let i = 0; i < intervals.length; i++) if (intervals[i].id === id) intervals.splice(i, 1); },
   };
   vm.createContext(ctx);
+  // 頁面的 <script> 順序：（LIFF SDK 外部，不跑）→ url-token.js → liff-relogin.js → checkin-board.js → …
+  // 兩支都只宣告函式／常數、沒有頂層副作用 ⇒ 下面「零點」那條的計數不受影響。
+  vm.runInContext(URL_JS, ctx, { filename: 'assets/url-token.js' });
+  vm.runInContext(RELOGIN_JS, ctx, { filename: 'assets/liff-relogin.js' });
   vm.runInContext(BOARD_JS, ctx, { filename: 'assets/checkin-board.js' });
   // 頁面的 <script> 順序：checkin-board.js → board-cache.js（2026-09-13 加）→ 內嵌
   if (opts.code === undefined) vm.runInContext(BC_JS, ctx, { filename: 'assets/board-cache.js' });
