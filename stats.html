@@ -507,10 +507,15 @@ var TOKEN=q('t');
  *    ⇒ `AUTH_OK` 為假時 jsonp 自己排到 AUTH_READY 後面；登入失敗時 AUTH_READY 永遠不 resolve
  *    ⇒ 那一發永遠不送。①的 `AUTH_OK` 同步為真 ⇒ 閘門那一行對舊路是 no-op。
  *
- * ⚠️ **②要能用，後端還缺幾格**（見交件回報的上線前提；本頁量不到）：
- *    `Code.js` 的 `runBatch_` 對子項重跑 `gateAction(a, p.token||'')`——②的 token 是空字串
- *    ⇒ 本頁三發 batch 的子項全部回「無權限或連結已失效。」；會發 LINE 的 4 支與
- *    `getSeniorNotice` 的第二道在刀 5（未上線）。**前端這一半做完了，不代表②通了。**
+ * ⚠️ **②要能用，後端原本還缺幾格——已解除**（解除條件：下面兩格都隨 gas main 上線；本頁量不到）：
+ *    · 原本 `Code.js` 的 `runBatch_` 對子項重跑 `gateAction(a, p.token||'')`——②的 token 是空字串
+ *      ⇒ 本頁三發 batch 的子項全部回「無權限或連結已失效。」
+ *      ⇒ 解除證據：jdc-line-gas `dbc8b17`（外層身分 `source === 'line'` ⇒ 子項改問 `gateLineIdentity`，
+ *         見 gas origin/main `line-platform/Code.js:1706`）。
+ *    · 原本會發 LINE 的 4 支與 `getSeniorNotice` 的第二道還吃 token（刀 5）
+ *      ⇒ 解除證據：gas `77ec561`＋`d07cf56`（刀 5，第二道改吃身分）。
+ *    兩者都隨 gas main `04022c4` 於 2026-09-13 17:03:49 上線。
+ *    ⚠️ 解除的只是「後端缺格」這個成因。**線上仍沒有人用 LINE 實際開過本頁 ⇒ ②在線上還沒驗過。**
  */
 var LIFF_ID='2010451233-a781rqsm';   // 與 index／welfare／board／hr-stats 同一條，不多開 LIFF ID
 var ID_TOKEN='';                     // ②才有值
