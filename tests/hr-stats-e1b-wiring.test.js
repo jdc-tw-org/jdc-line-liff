@@ -8,8 +8,10 @@
  * 🔴 **只驗新路也不夠**：這一格是切換，**切換本身**才是會出事的東西。
  *    所以兩種模式都驗，而且驗的是同一批斷言的相反面。
  *
- * ⚠️ 手法與 `board-e1a-wiring.test.js` 逐字同型（同一個 stub 環境、同一種 settle），
+ * ⚠️ 手法與 `board-e1a-wiring.test.js` 同型（同一種 stub 環境），
  *    刻意不自創第二套——兩套環境的嚴格度會分歧，而分歧是靜默的。
+ *    **唯一刻意的差別是「首載有沒有發車」那五條用 `waitFor` 不用 `settle`**：
+ *    本頁首載排在真 webcrypto 後面，固定幾輪等不到它。理由見 `helpers/page-stub.js` 的 waitFor。
  */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -18,7 +20,7 @@ const path = require('node:path');
 
 // 🔴 stub 環境走共用的一支（`tests/helpers/page-stub.js`）——「退路一次性實測」
 //    也是用同一支跑改動前那一份，兩邊的嚴格度才可能相同。理由見該檔檔頭。
-const { runPage, settle, execOnly, ROOT } = require('./helpers/page-stub.js');
+const { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, ROOT } = require('./helpers/page-stub.js');
 
 /* ══ ① 舊路：網址帶 ?t=（退路，行為必須逐字相同） ════════════════════ */
 
@@ -94,7 +96,7 @@ test('🔴 ②新路：idToken 是「呼叫當下才取」，不是開頁時取�
 
 test('🔴 還沒登入 → 去登入，且**首載不發車**（不可以帶空憑證打後端）', async () => {
   const { urls, liff, cleanup } = runPage({ search: '', loggedIn: false });
-  await settle();
+  await waitFor(() => urls.length > 0, BLOCKED_WAIT_MS);   // 等滿，不是一進來就判 0
   try {
     assert.ok(liff.__loginArgs, '沒有呼叫 liff.login');
     assert.equal(liff.__loginArgs.redirectUri, 'http://localhost/hr-stats.html',
@@ -105,7 +107,7 @@ test('🔴 還沒登入 → 去登入，且**首載不發車**（不可以帶空
 
 test('🔴 登入了但拿不到憑證 → 擋住，首載不發車', async () => {
   const { urls, cleanup } = runPage({ search: '', idToken: '' });
-  await settle();
+  await waitFor(() => urls.length > 0, BLOCKED_WAIT_MS);
   try {
     assert.equal(urls.length, 0, '拿不到憑證卻照樣送了 ' + urls.length + ' 個請求');
   } finally { cleanup(); }
@@ -113,7 +115,7 @@ test('🔴 登入了但拿不到憑證 → 擋住，首載不發車', async () =
 
 test('🔴 LIFF 元件整個沒載入 → 擋住，首載不發車（fail-closed）', async () => {
   const { urls, cleanup } = runPage({ search: '', noLiff: true });
-  await settle();
+  await waitFor(() => urls.length > 0, BLOCKED_WAIT_MS);
   try {
     assert.equal(urls.length, 0, 'LIFF 缺席卻照樣送了 ' + urls.length + ' 個請求');
   } finally { cleanup(); }
@@ -121,7 +123,7 @@ test('🔴 LIFF 元件整個沒載入 → 擋住，首載不發車（fail-closed
 
 test('⬛ 對照組：一切正常時首載**確實會**發車（否則上面三條是「反正都不發」）', async () => {
   const { urls, cleanup } = runPage({ search: '' });
-  await settle();
+  await waitFor(() => execOnly(urls).length >= 1);   // 首載排在真 webcrypto 後面，見 waitFor
   try {
     assert.ok(urls.length >= 1,
       '正常情況也沒發車 ⇒ 上面三條零鑑別力，它們證明的是「這支測試不會發車」');
@@ -134,7 +136,7 @@ test('⬛ 對照組：一切正常時首載**確實會**發車（否則上面三
 
 test('⬛ 對照組：①舊路也一樣會發車，而且帶的是 token', async () => {
   const { urls, cleanup } = runPage({ search: '?t=STUBTOKEN' });
-  await settle();
+  await waitFor(() => execOnly(urls).length >= 1);
   try {
     const e = execOnly(urls);
     assert.ok(e.length >= 1, '舊路沒發車 ⇒ 我把現行行為弄壞了');

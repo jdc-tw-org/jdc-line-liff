@@ -124,7 +124,30 @@ function runPage({ search, loggedIn = true, idToken = 'IDTOK', sub = 'U_SUB_1', 
 /** 讓所有已排定的微任務跑完（AUTH_READY 是好幾層 then）。 */
 const settle = () => new Promise((r) => setImmediate(() => setImmediate(() => setImmediate(r))));
 
+/**
+ * 輪詢到 `pred()` 成立或逾時；回 true／false。**「首載有沒有發車」一律用這支，不用 settle。**
+ *
+ * 🔴 為何（2026-09-13）：本頁首載排在 `cacheBootstrap()` 後面，而它用的是**真的** webcrypto
+ *    （`subtle.digest`／`importKey` 走 libuv threadpool）——完成時間不是「幾輪 setImmediate」
+ *    保證得了的。settle 的 3 輪在本機實測只剩 1～2 輪餘裕；CI run 34744933500 attempt 1
+ *    對照組因此紅（`urls.length >= 1` 為 false），重跑綠。本機把 threadpool 佔住可 10/10 重現。
+ *
+ * ⚠️ **斷言「0 個請求」的測試要傳 `BLOCKED_WAIT_MS`，而且它會等滿。**
+ *    一進來就判 0 等於沒等：守門被拿掉時，首載一樣要等 webcrypto 才送得出去 ⇒ 會假綠。
+ *    500ms 的依據：首載延遲實測 一般 max 5.5ms、threadpool 被佔 max 6.7ms（Node 20.20.2，各 60 次）。
+ */
+const FIRED_WAIT_MS = 5000;
+const BLOCKED_WAIT_MS = 500;
+async function waitFor(pred, timeoutMs = FIRED_WAIT_MS) {
+  const end = Date.now() + timeoutMs;
+  while (!pred()) {
+    if (Date.now() >= end) return false;
+    await new Promise((r) => setTimeout(r, 2));
+  }
+  return true;
+}
+
 /** 只留打 /exec 的那幾發（hr-stats-pub.json 是公開靜態檔，不是 action 呼叫）。 */
 const execOnly = (urls) => urls.filter((u) => u.indexOf('script.google.com') >= 0);
 
-module.exports = { runPage, settle, execOnly, fakeEl, ROOT };
+module.exports = { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, fakeEl, ROOT };
