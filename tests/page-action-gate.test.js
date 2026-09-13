@@ -91,9 +91,19 @@
  * ⚠️ 仍然沒有守門的是**另一件事**，不要混為一談：
  *    「這一頁**直接呼叫**的 action，這一頁的使用者打不打得到」。
  *    那需要「頁面 → 身分」的宣告，而那正是上面否決掉的東西。
- *    ⬛ 這個盲點今天有多大（2026-09-13 實測）：下面每一條會掃頁面的斷言都以
- *      `if (!r.callsBatch) return;` 開頭 ⇒ **母體 12 頁裡只有 4 頁在它眼裡**
- *      （admin／attend／board／stats），其餘 8 頁 `callsBatch=false`、`subs=[]`。
+ *    ⬛ 這個盲點今天有多大（2026-09-13 實測，**數字在 `26f341e` 之後重量過**）：
+ *      下面每一條會掃頁面的斷言都以 `if (!r.callsBatch) return;` 開頭
+ *      ⇒ **母體 13 頁裡只有 4 頁在它眼裡**（admin／attend／board／stats），
+ *      其餘 9 頁 `callsBatch=false`、`subs=[]`。
+ *      重量：`S.pages().map(S.scanPage).filter(r => r.callsBatch).length`
+ *
+ *    🔴 **`me.html` 就是這個盲點的第一個活體實例**（`26f341e` 進 main）：
+ *      它開頁打 `gasCall(GAS_URL, 'listMyPages', …)`——**直接呼叫、不走 batch**，
+ *      而且 action 名在**第二個參數** ⇒ `literalCalls()`（只認 `ident('str'` 的形狀）
+ *      連抽都抽不到。實測 `S.scanPage('me.html')`：
+ *      `callsBatch=false`、`subs=[]`、`calledStrings` 不含 `listMyPages`。
+ *      ⇒ 這一頁今天**整頁都不在本檔的守備範圍內**，而它不是特例：
+ *        它是母體裡那 9 頁的典型，只是最新的一頁。
  */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -240,7 +250,8 @@ test('🔴 batch 的身分集合，不得比它轉派的任何一支子 action �
  * ⚠️ **`filter(known)` 不能直接拿掉。** 它在這裡兼了第二個差事：
  *    `S.batchItems()` 抽的是**整頁所有**的 `{ a: '字串' }`，不是「`batch` 呼叫裡
  *    `list:` 陣列內的」——兩者今天剛好一致，但不是同一件事。
- *    ⬛ 實測 2026-09-13：全部 12 頁共 21 個 `{ a: '字串' }`，其中 17 個是 action；
+ *    ⬛ 實測 2026-09-13（`26f341e` 之後重量，總數未變——`me.html` 沒有帶進新的
+ *      `{ a: }` 字面值）：全部 13 頁共 21 個 `{ a: '字串' }`，其中 17 個是 action；
  *      另外 4 個是 `hr-stats.html` 的 `{a:'start'}`／`{a:'middle'}`×2／`{a:'end'}`
  *      （文字對齊設定，不是 action）。那一頁今天 `callsBatch=false` ⇒ 落在本條的
  *      母體之外，所以今天拿掉過濾器是 0 誤報。
