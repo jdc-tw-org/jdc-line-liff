@@ -239,13 +239,11 @@ function getToken(){return urlToken();}
 // ⚠️ 本 repo 為 PUBLIC，註解與程式碼都不要寫同仁真實姓名。
 function showAdminSwitch(isAdmin){
   if(!isAdmin||document.getElementById('adm-switch'))return;
-  // 🔴 E1a：走 LINE 登入進來時沒有 `?t=`，這條連結會變成 `stats.html?t=`＝必定失敗。
-  //    **顯示一個點了必定失敗的連結比不顯示更糟**（同本頁 ?mt= 那一格的判準）。
-  //    stats.html 還沒改（E1b），所以這裡先不顯示；等它也改了，這一格要跟著拆。
-  if(!TOKEN)return;
   var a=document.createElement('a');
   a.id='adm-switch';a.textContent='⇄ 活動紀錄看板';
-  a.href='stats.html?t='+encodeURIComponent(TOKEN);
+  // E1b：stats.html 已有 LINE 登入 ⇒ ②（沒有 `?t=`）直接連 `stats.html`、由那一頁自己登入；
+  // ①的網址與改動前逐字相同。（E1a 時這裡在②整個不顯示，理由只有「stats 還沒改」，已不成立。）
+  a.href='stats.html'+(TOKEN?'?t='+encodeURIComponent(TOKEN):'');
   a.style.cssText='position:fixed;top:10px;right:10px;z-index:99;background:#fff;border:1px solid #ddd;border-radius:20px;padding:6px 14px;font-size:13px;font-weight:700;color:#333;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.12)';
   a.addEventListener('click',function(e){e.preventDefault();location.href=a.href;}); // iOS standalone：<a> 會彈內嵌 Safari，JS 導頁留在 App 內
   document.body.appendChild(a);

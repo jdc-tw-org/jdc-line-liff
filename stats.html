@@ -963,10 +963,9 @@ function openArrival(){
      （桌次 #ti-act、報到 #ck-act），跨分頁借變數必錯。 */
   var act=actId();
   if(!act){setMsg('sm-msg','請先在上方選擇活動，才能開啟進場人數。','err');return;}
-  // E1b：wall.html 還沒有 LINE 登入入口，②開出去會是 `wall.html?t=`＝必定「無權限」。
-  // 講實話，不開一個點了必定失敗的視窗。wall.html 也改好之後，這一格要跟著拆。
-  if(!TOKEN){setMsg('sm-msg','進場人數頁還不能用 LINE 登入開啟，請改用原本的看板連結開這一頁再按。','err');return;}
-  window.open('wall.html?t='+encodeURIComponent(q('t'))+'&act='+encodeURIComponent(act),'_blank');
+  // E1b：wall.html 已有 LINE 登入 ⇒ ②直接開 `wall.html?act=`、由那一頁自己登入；
+  // ①的網址與改動前逐字相同（`wall.html?t=…&act=…`）。
+  window.open('wall.html?'+(TOKEN?'t='+encodeURIComponent(q('t'))+'&':'')+'act='+encodeURIComponent(act),'_blank');
 }
 
 function togglePublish(){

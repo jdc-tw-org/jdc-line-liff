@@ -252,8 +252,9 @@ for (const [路, search, want] of [['②', '?act=A1', 'board.html'], ['⬛①（
   });
 }
 
-for (const [路, search, opens] of [['②', '?act=A1', false], ['⬛①（對照組）', '?t=STUBTOKEN', true]]) {
-  test(`${路}「進場人數」${opens ? '照常開 wall.html（帶 t）' : '不開一個必定失敗的視窗，改講實話'}`, async () => {
+// E1b（2026-09-13，線 WL）：wall.html 已有 LINE 登入 ⇒ ②也開，網址不帶 `?t=`。
+for (const [路, search, want] of [['②', '?act=A1', 'wall.html?act=A1'], ['⬛①（對照組）', '?t=STUBTOKEN', 'wall.html?t=STUBTOKEN&act=A1']]) {
+  test(`${路}「進場人數」開 ${want}`, async () => {
     const { ctx, cleanup } = runPage({ file: FILE, search });
     await drain();
     try {
@@ -263,12 +264,10 @@ for (const [路, search, opens] of [['②', '?act=A1', false], ['⬛①（對照
       const orig = ctx.document.getElementById;
       ctx.document.getElementById = (id) => (id === 'ti-act' ? { value: 'A1' } : id === 'sm-msg' ? msg : orig(id));
       ctx.openArrival();
-      if (opens) {
-        assert.deepEqual(opened, ['wall.html?t=STUBTOKEN&act=A1']);
-      } else {
-        assert.deepEqual(opened, [], '②開了 wall.html ⇒ 那一頁沒有 LINE 登入，必定「無權限」');
-        assert.match(msg.textContent, /還不能用 LINE 登入開啟/);
-      }
+      assert.deepEqual(opened, [want], search.indexOf('t=') >= 0
+        ? '舊路開出去的網址變了 ⇒ 我把現行行為弄壞了'
+        : '②沒有開 wall.html（或開成了 wall.html?t= 這種必定失敗的網址）');
+      assert.equal(msg.textContent, '', '開了視窗還掛著錯誤訊息');
     } finally { cleanup(); }
   });
 }

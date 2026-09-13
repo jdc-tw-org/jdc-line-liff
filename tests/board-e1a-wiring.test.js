@@ -242,33 +242,26 @@ test('⬛ 對照組：舊路也一樣會發車，而且帶的是 token', async (
 
 /* ══ 跨看板連結 ══════════════════════════════════════════════════════ */
 
-test('②新路不顯示跨看板連結（stats.html 還沒改，點了必定失敗）', async () => {
-  const { ctx, cleanup } = runBoard({ search: '' });
-  await settle();
-  try {
-    let appended = 0;
-    ctx.document.body.appendChild = () => { appended++; };
-    // 🔴 **這一行是這條測試的全部鑑別力所在。** 沒有它，`showAdminSwitch` 會在
-    //    第一格 `document.getElementById('adm-switch')`（假 DOM 回的是**真值**）
-    //    就 return，`appended` 恆為 0 ⇒ 這條測試不管程式怎麼改都會過。
-    //    2026-09-12 實測：拿掉 `if(!TOKEN)return;` 這一發突變**全綠**，就是這個原因。
-    ctx.document.getElementById = () => null;
-    ctx.showAdminSwitch(true);
-    assert.equal(appended, 0, '顯示了一個點下去必定失敗的連結');
-  } finally { cleanup(); }
-});
-
-test('⬛ 對照組：①舊路仍然顯示它（否則上一條只是「這支永遠不顯示」）', async () => {
-  const { ctx, cleanup } = runBoard({ search: '?t=STUBTOKEN' });
-  await settle();
-  try {
-    let appended = 0;
-    ctx.document.body.appendChild = () => { appended++; };
-    ctx.document.getElementById = () => null;   // 讓「已存在就不加」那一格不擋
-    ctx.showAdminSwitch(true);
-    assert.equal(appended, 1, '舊路的跨看板連結不見了 ⇒ 我把管理者的現行功能弄壞了');
-  } finally { cleanup(); }
-});
+// E1b（2026-09-13）：stats.html 已有 LINE 登入 ⇒ ②也顯示，連到不帶 `?t=` 的 `stats.html`。
+// （E1a 時②刻意不顯示，理由只有「stats 還沒改」。）
+for (const [路, search, want] of [['②新路', '', 'stats.html'], ['⬛①舊路（對照組）', '?t=STUBTOKEN', 'stats.html?t=STUBTOKEN']]) {
+  test(`${路}顯示跨看板連結，連到 ${want}`, async () => {
+    const { ctx, cleanup } = runBoard({ search });
+    await settle();
+    try {
+      const got = [];
+      ctx.document.body.appendChild = (el) => { got.push(el.href); };
+      // 🔴 **這一行是這條測試的全部鑑別力所在。** 沒有它，`showAdminSwitch` 會在
+      //    第一格 `document.getElementById('adm-switch')`（假 DOM 回的是**真值**）
+      //    就 return ⇒ 這條測試量不到任何東西。
+      //    2026-09-12 實測：沒有這一行時，拿掉當時的 `if(!TOKEN)return;` 那發突變**全綠**。
+      ctx.document.getElementById = () => null;
+      ctx.showAdminSwitch(true);
+      assert.deepEqual(got, [want], search ? '舊路的跨看板連結變了 ⇒ 我把管理者的現行功能弄壞了'
+        : '②沒有顯示連到 stats.html 的連結（或連成了 stats.html?t= 這種必定失敗的網址）');
+    } finally { cleanup(); }
+  });
+}
 
 /* ══ LIFF ID 必須與另外兩頁同一條 ══════════════════════════════════════ */
 
