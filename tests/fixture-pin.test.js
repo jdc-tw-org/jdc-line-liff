@@ -1,0 +1,84 @@
+/**
+ * **矩陣副本的指紋**：`tests/fixtures/action-roles.json` 是不是本 repo 宣告過的那一份。
+ *
+ * ══ 🔴 為何需要這一條 ═══════════════════════════════════════════════
+ *
+ * 那份 fixture 是**後端產的副本**。2026-09-14 實測：**把它換回舊副本，本 repo 全套照樣全綠。**
+ * 守著它的只有後端那支 copy-guard，而**它住在另一個 repo，且永遠只比本 repo 的 `main`**
+ * ⇒ 分支上換掉副本，在合併進 `main` 之前沒有任何東西看得到。
+ *
+ * ⚠️ **`_generatedBy` 那個欄位擋不住這件事。** 一手量過（新舊兩份副本）：
+ *      `_generatedBy`   相同
+ *      `identities`     相同
+ *      `batchAllowed`   相同
+ *      `actions`        **不同**
+ *      `dispatchPages`  **不同**
+ *    ⇒ 出身字串在兩份之間逐字相同，**它對「哪一份」零鑑別力**。
+ *
+ * ══ 這一條擋什麼、不擋什麼（寫清楚，否則下一個人會高估它）═════════════
+ *
+ *   ✅ 擋：**悄悄換掉那個檔**（換回舊副本、手改一個角色字串、合併時被別的分支蓋掉）。
+ *   ❌ 不擋：**有意識地重產 fixture 並一起更新下面那個 PIN**。那本來就是正當動作。
+ *   ❌ 不擋：**fixture 的內容對不對**。那是後端 copy-guard 的事，
+ *      而且本 repo **刻意不抄一份角色表**——抄了就是同一個判斷散在兩處。
+ *      這裡只認一個不透明的雜湊，不認語意。
+ *
+ * ⇒ 一句話：它回答「**這是不是我宣告過的那一份**」，不回答「這一份對不對」。
+ *
+ * ══ fixture 要更新時怎麼做 ═══════════════════════════════════════════
+ *
+ *   1. 在後端重產：`node ci/roles-matrix/export-json.js --out <這裡>/tests/fixtures/action-roles.json`
+ *   2. 跑 `node --test tests/fixture-pin.test.js` ⇒ 它會**紅**，並把新的雜湊印給你
+ *   3. 把下面的 `PIN` 換成它印出來的值，**在同一顆 commit 裡**
+ *
+ *   ⚠️ 第 3 步是刻意的摩擦。它要的不是防呆，是**留下一個「有人知道副本換了」的痕跡**。
+ */
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+
+const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
+
+/**
+ * 本 repo 宣告的那一份副本的 sha256（raw bytes）。
+ * 2026-09-14：對應後端整合完（拿掉 welfare／broadcast ＋ 分流表加一列）之後重產的那一份。
+ */
+const PIN = 'b9041f301a2891112f25fe3fef39a1ab94defbfe2a55d8ca60e7984f4fe90745';
+
+const raw = fs.readFileSync(FIXTURE);
+const actual = crypto.createHash('sha256').update(raw).digest('hex');
+
+test('🔴 矩陣副本就是本 repo 宣告的那一份（換掉它必須紅）', () => {
+  assert.strictEqual(actual, PIN,
+    '`tests/fixtures/action-roles.json` 不是本 repo 宣告的那一份。\n'
+    + '  宣告：' + PIN + '\n'
+    + '  實際：' + actual + '\n'
+    + '  ⇒ 若是**刻意**重產的：把本檔的 PIN 換成上面「實際」那一串，在同一顆 commit 裡。\n'
+    + '  ⇒ 若**不是**你換的：有人換掉了副本而沒有人宣告——先去問，不要直接改 PIN。\n'
+    + '  ⚠️ 本條不檢查內容對不對（那是後端 copy-guard 的事），只檢查「是不是宣告過的那一份」。');
+});
+
+test('⬛ 對照組：這一條真的在讀那個檔，不是在比兩個常數', () => {
+  // 沒有這一條，上面那句 assert 在「檔案讀不到」時也可能以別的方式綠掉；
+  // 而且它釘住「PIN 是一個 64 位十六進位」這件事——打錯字會在這裡紅，不會在上面假綠。
+  assert.ok(fs.existsSync(FIXTURE), '找不到 fixture ⇒ 上面那條什麼都沒驗');
+  assert.ok(raw.length > 1000, 'fixture 只有 ' + raw.length + ' bytes ⇒ 它多半是空的或壞的');
+  assert.match(PIN, /^[0-9a-f]{64}$/, 'PIN 不是 64 位十六進位 ⇒ 它永遠不會等於任何雜湊');
+  assert.notStrictEqual(PIN, crypto.createHash('sha256').update('').digest('hex'),
+    'PIN 是空字串的雜湊 ⇒ 有人把它當佔位符填進來了');
+});
+
+test('⬛ 零點：出身欄位存在，但**它不是鑑別力的來源**', () => {
+  const m = JSON.parse(raw.toString('utf8'));
+  assert.ok(m._generatedBy, '副本少了 _generatedBy ⇒ 它多半不是那支產生器產的');
+  // 🔴 這一句記錄的是「為什麼不能只靠 _generatedBy」：
+  //    2026-09-14 實測，新舊兩份副本的 _generatedBy **逐字相同**，而 actions 與
+  //    dispatchPages 不同。⇒ 誰要是日後想拿掉上面那個 PIN、改成只驗這個欄位，
+  //    等於把這一條變回一盞永遠的綠燈。
+  assert.ok(typeof m._generatedBy === 'string' && m._generatedBy.includes('export-json.js'),
+    '_generatedBy 變了樣 ⇒ 產生器換了，PIN 的意義要重新確認');
+  assert.ok(Array.isArray(m.identities) && m.identities.length > 0, '副本沒有 identities');
+  assert.ok(m.dispatchPages, 'action-roles.json 沒有 dispatchPages ⇒ 副本是舊版，在後端重產一次');
+});
