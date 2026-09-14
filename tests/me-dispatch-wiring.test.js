@@ -101,25 +101,86 @@ function runMe(o) {
 
 const settle = () => new Promise((r) => setImmediate(() => setImmediate(() => setImmediate(() => setImmediate(r)))));
 
-// ⚠️ 前兩列是 gas `line-platform/roles.js` `DISPATCH_PAGES` 的**手動副本**（形狀＝`listMyPages` 的回傳）。
-//    2026-09-14 線 LR 對齊 gas `feat/dispatch-messages-ready`：messages.html 的門是 `getMessageLog`、
-//    `lineReady:true`、note 空（舊值 `getMsgLogToken`／false／「需另外開通檢視權限」是線 MB 換門前的事實）。
-//    ⚠️ 沒有任何機械的東西逼這份與 gas 相等（me.html 不讀 gateAction，這份只是餵畫面的假回應）。
-// 🔴 第三列是**刻意捏的示例列**，不是任何真頁：gas 表上五列翻完全是 true、也沒有 note，
-//    但 me.html「不可點＋說得出為什麼＋畫出 note」那段程式碼還在，不能因為今天的表用不到就不測。
-const 四頁 = {
-  ok: true, who: '丁小恆',
-  pages: [
-    { page: 'board.html', title: '人事異動看板', gateAction: 'getCheckinPending', lineReady: true, note: '' },
-    { page: 'messages.html', title: 'LINE 訊息紀錄', gateAction: 'getMessageLog', lineReady: true, note: '' },
-    { page: '__未遷移示例__.html', title: '示例：尚未遷移的頁', gateAction: 'zzExample', lineReady: false, note: '示例註記' },
-  ],
+/**
+ * 🔴 **真實那幾列改成讀後端產的那一份，不再手抄**（2026-09-14 線 LN）。
+ *
+ * ══ 換掉了什麼、為什麼 ═════════════════════════════════════════════════
+ *
+ * 舊版是 gas `line-platform/roles.js` `DISPATCH_PAGES` 的**手寫副本**，它自己的註解就寫著
+ * 「沒有任何機械的東西逼這份與 gas 相等」。後果是實測過的：
+ *
+ *   ⬛ 2026-09-14 實測：把 gas 的 `lineReady` 欄位連同它的測試一起拿掉
+ *      → gas **2497／2497 全綠**、liff **1130／1130 全綠**
+ *      → 線上 `me.html` 卻是**可點 0／5、五張卡全灰**，頁尾還說「其中 5 頁還沒改成
+ *        LINE 登入，暫時仍要用原本的連結。」**零錯誤訊息**。
+ *   ⇒ 這一檔對那件事**結構上免疫**：清單是手抄的，gas 送什麼它都綠。
+ *
+ * ⇒ 改成讀 `tests/fixtures/action-roles.json` 的 `dispatchPages`——後端
+ *   `ci/roles-matrix/export-json.js` 產的，由後端 `ci/roles-matrix/copy-guard.js`
+ *   ＋ `roles-matrix-guard.yml` **逐字比對**釘住。同一條契約、同一道守門，不另蓋一個。
+ *
+ * ⚠️ **守門長在 gas 那一側是刻意的**：真理在 `roles.js`，而 `jdc-line-gas` 是私有 repo
+ *    ⇒ 這一端結構上答不出「我這份過期了沒有」。這裡能做的是**在自己這側真的用它**，
+ *    讓它一旦過期不只是別的 repo 一個 CI 紅叉，而是這一檔的斷言跟著紅。
+ *
+ * ⚠️ 重產指令（在 jdc-line-gas 跑）：
+ *    `node ci/roles-matrix/export-json.js --out <這裡>/tests/fixtures/action-roles.json`
+ */
+const 矩陣 = JSON.parse(
+  fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'action-roles.json'), 'utf8'));
+
+/**
+ * 🔴 **刻意捏的示例列**，不是任何真頁。
+ *    gas 表上今天每一列都是 `lineReady:true`、也都沒有 `note`，但 `me.html` 的
+ *    「不可點＋說得出為什麼＋畫出 note」那段還在——不能因為今天的表用不到就不測，
+ *    否則那段什麼時候壞掉都不會有人知道。
+ */
+const 示例列 = {
+  page: '__未遷移示例__.html', title: '示例：尚未遷移的頁',
+  gateAction: 'zzExample', lineReady: false, note: '示例註記',
 };
+
+const 清單 = {
+  ok: true, who: '丁小恆',
+  pages: (矩陣.dispatchPages || []).concat([示例列]),
+};
+
+/* ══ ⬛ 零點：清單真的是從後端那一份來的 ═══════════════════════════════ */
+
+test('⬛ 零點：後端產的那一份讀得到，而且真的有分流頁那幾列', () => {
+  // `dispatchPages` 不見時（副本是舊版、或後端不再出這一段），`清單.pages` 只剩示例列。
+  // 下面那些指名 board／messages 的斷言**會紅**——但紅在一句看不懂的正規式比對失敗上，
+  // 而讀到的人會去翻 me.html 的畫面邏輯，那裡什麼問題都沒有。
+  // 🔴 這一格不是在補一個漏掉的紅燈，是**把紅燈搬到正確的地方**：先問「料有沒有到」，
+  //    再問「畫得對不對」。零點答不出來時，下面每一條的紅綠都不值得解讀。
+  assert.ok(Array.isArray(矩陣.dispatchPages),
+    'action-roles.json 沒有 dispatchPages ⇒ 副本是舊版，在 jdc-line-gas 重產一次');
+  assert.ok(矩陣.dispatchPages.length >= 2,
+    '後端只給了 ' + 矩陣.dispatchPages.length + ' 列 ⇒ 下面的斷言在一個太小的清單上跑');
+  ['board.html', 'messages.html'].forEach((p) => {
+    assert.ok(矩陣.dispatchPages.some((r) => r.page === p),
+      '後端那份裡沒有 ' + p + '，而下面有斷言指名它 ⇒ 那幾條會紅在看不懂的地方');
+  });
+});
+
+test('🔴 後端送來的每一列都必須帶布林的 lineReady', () => {
+  // 🔴 這一條是 `lineReady` 被拆掉時，**liff 這一側**唯一會響的地方。
+  //    （gas 那側先響的是 copy-guard：副本與現況逐字不同 ⇒ 退出碼 3。
+  //      有人照它的指示重產副本之後，換這一條紅。兩個方向都有人守。）
+  //    要拆這個欄位，順序必須是**先改 me.html（已改成「明寫 false 才不可點」）並發布，
+  //    再拆後端**；這一條與它一起改，不是在它之前悄悄消失。
+  矩陣.dispatchPages.forEach((r) => {
+    assert.equal(typeof r.lineReady, 'boolean',
+      r.page + ' 的 lineReady 是 ' + JSON.stringify(r.lineReady)
+      + ' ⇒ 後端不再宣告這一欄。me.html 現在會把它當「可點」（刻意的，見 me.html 檔頭），'
+      + '但清單與畫面的契約已經變了，要一起處理。');
+  });
+});
 
 /* ══ ⬛ 對照組先行 ═══════════════════════════════════════════════════════ */
 
 test('⬛ 對照組：登入正常時，真的打了 listMyPages 並把清單畫出來', async () => {
-  const r = runMe({ reply: 四頁 });
+  const r = runMe({ reply: 清單 });
   await settle();
   try {
     assert.equal(r.liff.__initCalled, 1, 'LIFF 沒被初始化 ⇒ 這一頁的身分那一段根本沒跑');
@@ -133,7 +194,7 @@ test('⬛ 對照組：登入正常時，真的打了 listMyPages 並把清單畫
 /* ══ 🔴 這一頁不可以碰 token ══════════════════════════════════════════════ */
 
 test('🔴 送出的呼叫帶 idToken、**一個 token 參數都不帶**（帶了後端就改走舊路）', async () => {
-  const r = runMe({ reply: 四頁 });
+  const r = runMe({ reply: 清單 });
   await settle();
   try {
     const b = r.送出[0].body;
@@ -160,7 +221,7 @@ test('🔴 整頁不得產生任何帶 ?t= 的連結（登入不是憑證發放�
 /* ══ 🔴 可點與不可點 ════════════════════════════════════════════════════ */
 
 test('🔴 lineReady:true → 真的可點的 <a>；lineReady:false → 沒有 <a>，而且說得出為什麼', async () => {
-  const r = runMe({ reply: 四頁 });
+  const r = runMe({ reply: 清單 });
   await settle();
   try {
     const h = r.get('list').innerHTML;
@@ -179,9 +240,9 @@ test('🔴 lineReady:true → 真的可點的 <a>；lineReady:false → 沒有 <
 });
 
 test('⬛ 對照組：把 lineReady 反過來，可點／不可點必須整個對調（否則上面是恆真）', async () => {
-  // 2026-09-14 線 LR：改成把 `四頁` 逐列反轉（原本手寫一份反過來的兩列——那又是一份會與 `四頁` 分歧的副本）。
-  const r = runMe({ reply: Object.assign({}, 四頁, {
-    pages: 四頁.pages.map((p) => Object.assign({}, p, { lineReady: !p.lineReady })),
+  // 2026-09-14 線 LR：改成把 `清單` 逐列反轉（原本手寫一份反過來的兩列——那又是一份會與 `清單` 分歧的副本）。
+  const r = runMe({ reply: Object.assign({}, 清單, {
+    pages: 清單.pages.map((p) => Object.assign({}, p, { lineReady: !p.lineReady })),
   }) });
   await settle();
   try {
@@ -189,6 +250,59 @@ test('⬛ 對照組：把 lineReady 反過來，可點／不可點必須整個�
     assert.equal(/<a[^>]+href="board\.html"/.test(h), false, 'lineReady 反過來了，board 卻還是連結 ⇒ 這一格根本沒看 lineReady');
     assert.equal(/<a[^>]+href="messages\.html"/.test(h), false, 'lineReady 反過來了，messages 卻還是連結');
     assert.match(h, /<a class="card" href="__未遷移示例__\.html">/, '示例列反成 true 卻沒變連結');
+  } finally { r.cleanup(); }
+});
+
+test('🔴 後端整個沒送 lineReady 這個 key → 照樣可點，頁尾不得冒出「還沒改成 LINE 登入」', async () => {
+  // 🔴 **這一條釘的是 `!== false` 那個判準本身**（2026-09-14 線 LN）。
+  //    上面每一條餵的資料都帶著這個 key，所以 `if (p.lineReady)` 與
+  //    `if (p.lineReady !== false)` 在它們眼裡完全一樣——**把判準改回舊寫法，
+  //    上面 13 條沒有一條會紅**（實測：改回去後 liff 全套 1132／1132 仍全綠）。
+  //    ⇒ 少了這一格，(a) 那個改動可以被任何人無聲地改回去。
+  //
+  // 🔴 為何這個輸入值得測：`lineReady` 是後端**宣告**的欄位，而宣告欄位會腐爛。
+  //    它不見的時候（後端改版、欄位被拆、回應被中間層改寫），舊寫法的畫面是
+  //    **五張卡全灰＋頁尾一句「暫時仍要用原本的連結」**，零錯誤訊息——
+  //    畫面說了一句假話，把人推去找他可能根本沒有的舊連結。
+  const 沒有那個key = {
+    ok: true, who: '丁小恆',
+    pages: 矩陣.dispatchPages.map((p) => {
+      const c = Object.assign({}, p);
+      delete c.lineReady;
+      return c;
+    }),
+  };
+  const r = runMe({ reply: 沒有那個key });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    const 連結數 = (h.match(/<a class="card"/g) || []).length;
+    assert.equal(連結數, 沒有那個key.pages.length,
+      '後端沒送 lineReady，' + 沒有那個key.pages.length + ' 列裡只有 ' + 連結數 + ' 列可點'
+      + ' ⇒ 判準又變回「true 才可點」，`undefined` 被當成「這一頁還沒好」。');
+    assert.equal(/尚未支援 LINE 登入/.test(h), false,
+      '後端沒講，畫面卻替它講了「尚未支援 LINE 登入」⇒ 這是一句沒有依據的話');
+    assert.equal(r.get('foot').textContent, '',
+      '頁尾說了「還有幾頁沒開放」，而後端根本沒宣告任何一頁沒開放：'
+      + JSON.stringify(r.get('foot').textContent));
+  } finally { r.cleanup(); }
+});
+
+test('⬛ 對照組：同一批資料**明寫** lineReady:false → 必須全部變灰（證明上一條不是「永遠可點」）', async () => {
+  // 沒有這一格，上一條可以靠「把 else 分支整段刪掉」通過——那才是真的壞掉。
+  const 明寫false = {
+    ok: true, who: '丁小恆',
+    pages: 矩陣.dispatchPages.map((p) => Object.assign({}, p, { lineReady: false })),
+  };
+  const r = runMe({ reply: 明寫false });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.equal((h.match(/<a class="card"/g) || []).length, 0,
+      '明寫 false 卻還是可點 ⇒ `!== false` 那一格根本沒在看值，上一條的綠燈是假的');
+    assert.match(h, /尚未支援 LINE 登入/, '明寫 false 的那幾列沒說出為什麼');
+    assert.match(r.get('foot').textContent, /還沒改成 LINE 登入/,
+      '後端明說了有頁面沒開放，頁尾卻不講 ⇒ 使用者不知道要去找舊連結');
   } finally { r.cleanup(); }
 });
 

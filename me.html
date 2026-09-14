@@ -75,6 +75,27 @@
  * **③ 未遷移的頁不會被藏起來。** 藏起來的話，「我沒有那個權限」與
  *    「那一頁還沒改好」在畫面上長得一模一樣，而這兩件事的處置相反
  *    （一個要找人開權限，一個是等工程做完）。
+ *
+ * ══ 🔴 `lineReady` 判準是「**明寫 false** 才不可點」，不是「true 才可點」════
+ *
+ * 2026-09-14（線 LN）從 `if (p.lineReady)` 改成 `if (p.lineReady !== false)`。
+ * 差別只在**這個 key 不存在**的時候，而那正是唯一會出事的那一格：
+ *
+ *   ⬛ 實測（跑本檔真正那幾行，五列）：
+ *      後端照舊送 `lineReady:true` → 可點 5／5、頁尾空白      （兩種寫法相同）
+ *      後端**沒有送這個 key**      → 舊寫法：可點 0／5、頁尾「其中 5 頁還沒改成
+ *                                   LINE 登入，暫時仍要用原本的連結。」**而且零錯誤訊息**
+ *                                   新寫法：可點 5／5、頁尾空白
+ *      後端送 `false`              → 那一列變灰（兩種寫法相同 ⇒ 該擋的還是擋得住）
+ *
+ * 🔴 舊寫法壞掉的樣子不是「沒反應」，是**畫面理直氣壯地說了一句假話**，
+ *    把人推去找他可能根本沒有的舊連結。`undefined` 是 falsy，而那與
+ *    「後端說這一頁還沒好」在畫面上完全無法分辨。
+ * ⇒ 判準改成只認**明確的 `false`**：後端沒講，就不要替它講。
+ *
+ * ⚠️ 這**不是**「準備要拆掉 `lineReady`」。2026-09-14 使用者拍板**不拆**
+ *    （表還在長，下一列非 LINE 頁進來這個欄位就又帶資訊）。這一段是純防禦：
+ *    欄位在不在，畫面都不會再靜靜說假話。
  */
 
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
@@ -124,7 +145,7 @@ function showMsg(msg, reason) {
   }
 }
 
-/** 畫清單。`lineReady` 決定可不可點，`note` 決定要不要加一句「這一格還有別的條件」。 */
+/** 畫清單。`lineReady` 決定可不可點（**明寫 false 才不可點**，見檔頭），`note` 決定要不要加一句「這一格還有別的條件」。 */
 function render(res) {
   setWho(res.who ? ('以 ' + res.who + ' 的身分登入') : '已登入', false);
   var pages = res.pages || [];
@@ -139,7 +160,7 @@ function render(res) {
   pages.forEach(function (p) {
     var 副標 = [];
     if (p.note) 副標.push('<span class="tag tag-note">' + esc(p.note) + '</span>');
-    if (p.lineReady) {
+    if (p.lineReady !== false) {
       html += '<a class="card" href="' + esc(p.page) + '">'
         + '<div class="name">' + esc(p.title) + '</div>'
         + (副標.length ? '<div class="sub">' + 副標.join('') + '</div>' : '')
@@ -155,7 +176,9 @@ function render(res) {
     }
   });
   el('list').innerHTML = html;
-  var 未開放 = pages.filter(function (p) { return !p.lineReady; }).length;
+  // 🔴 與上面同一個判準（`=== false`，不是 `!p.lineReady`）。兩處若用不同的述詞，
+  //    會出現「卡片可點、頁尾卻說它還沒開放」——同一個判斷散在兩處而沒被要求相等。
+  var 未開放 = pages.filter(function (p) { return p.lineReady === false; }).length;
   el('foot').textContent = 未開放
     ? ('其中 ' + 未開放 + ' 頁還沒改成 LINE 登入，暫時仍要用原本的連結。')
     : '';
