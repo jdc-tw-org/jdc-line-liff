@@ -7,7 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
 <title>人事資訊看板</title>
 <style>
-  /* 設計語彙沿用 messages.html（LINE 訊息紀錄，2026-08-23 使用者拍板）：
+  /* 設計語彙沿用 line-messages.html（LINE 訊息紀錄，2026-08-23 使用者拍板）：
      灰底細線、卡片無陰影、3px 圓角、文字三階 --ink/--ink2/--ink3。
      圖表色另算（見下方 JS 色票註解）：徽章可以淡到彩度 0.05，色塊不行。 */
   :root {
@@ -350,9 +350,9 @@ var AUTH_READY=startAuth();
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-// 色票（2026-08-23 改低調版，與 messages.html 同語彙）。
+// 色票（2026-08-23 改低調版，與 line-messages.html 同語彙）。
 // 分類二色：OKLCH L.50 C.105、色相 230／65，dataviz validate_palette 五項 PASS
-//   （彩度下限 0.10 是驗證器硬門檻——messages.html 徽章的 0.05 在色塊上會讀成灰）。
+//   （彩度下限 0.10 是驗證器硬門檻——line-messages.html 徽章的 0.05 在色塊上會讀成灰）。
 // 序列段＝同一色相（230）只動明度 L .78→.38，每階差 0.10；不是彩虹。
 // 紅只留給退休預警（訊息紀錄表的規則：紅＝例外與注意）。
 // 2026-08-23 第六版：六組冷色並排對照後使用者選 E「冰藍／銀灰」。
