@@ -85,7 +85,10 @@ test('⬛ 零點：出身欄位存在，但**它不是鑑別力的來源**', () 
   //    而且是非空陣列 ⇒ 缺這個鍵代表的是「更早的版本，或根本不是那支產生器產的」，
   //    不是「舊版」這麼一個聽起來很近、卻會把人帶去重產一次然後發現沒用的結論。
   //    ⚠️ 同一句話也在 `me-dispatch-wiring.test.js` 裡（本條是從那裡抄來的），那邊還沒改。
-  assert.ok(m.dispatchPages,
+  //    ⚠️ 條件用 `Array.isArray` 不用 truthy：`me-dispatch-wiring.test.js:156` 用的是前者，
+  //       而本條原本只判 truthy ⇒ **遇到 `{}` 會一綠一紅**（驗證軌 2026-09-14 指出）。
+  //       同一個判斷散在兩處而沒被要求相等，就是這個形狀的小號版本。
+  assert.ok(Array.isArray(m.dispatchPages),
     'action-roles.json 沒有 dispatchPages ⇒ 這份副本不是現行產生器產的（可能更早，也可能根本不是它產的）。\n'
     + '  不要只是重產一次就算了——先確認產生器本身還會不會輸出這個鍵。');
 });
