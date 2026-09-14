@@ -102,13 +102,10 @@
     },
     "addWelfareTemplate": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -564,49 +561,37 @@
     },
     "getWelfareAudience": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
     "getWelfareMessageLog": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
     "getWelfareStatus": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
     "getWelfareTemplates": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -796,13 +781,10 @@
     },
     "removeWelfareTemplate": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -817,13 +799,10 @@
     },
     "requestWelfareOtp": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -855,13 +834,10 @@
     },
     "restoreWelfareTemplate": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -911,13 +887,10 @@
     },
     "saveWelfareTemplate": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
@@ -950,13 +923,10 @@
     },
     "sendWelfareBroadcast": {
       "roles": [
-        "messaging",
-        "welfare",
-        "broadcast"
+        "messaging"
       ],
       "who": [
         "admin",
-        "welfare",
         "messaging"
       ]
     },
