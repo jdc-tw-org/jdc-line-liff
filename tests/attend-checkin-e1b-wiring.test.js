@@ -20,7 +20,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runPage, settle, execOnly, ROOT } = require('./helpers/page-stub.js');
+const { runPage, settle, execOnly, onlyCall, ROOT } = require('./helpers/page-stub.js');
 
 /** 讓頁面下一發 fetch 回指定的 JSONP 內容（page-stub 預設永遠 pending）。 */
 function replyWith(ctx, urls, obj) {
@@ -77,9 +77,12 @@ test('🔴 attend ②新路：idToken 是「呼叫當下才取」，切活動那
     ctx.liff.getIDToken = () => 'IDTOK_REFRESHED';
     ctx.load('A2');                                   // 下拉切活動走的那條路
     await settle();
-    const last = execOnly(urls).pop();
-    assert.match(last, /action=getActivityStats/);
-    assert.match(last, /idToken=IDTOK_REFRESHED/, '送出去的還是開頁時那顆');
+    // 🔴 **照身分挑，不照位置**（2026-09-14，與 stats-e1b-wiring 同一次收攏）：
+    //    `load()` 不是同步發車（實測：叫完當下 urls 還是只有首載那發），中間隔了 await
+    //    ⇒ 首載鏈上任何晚到的一發都會被 `.pop()` 當成這一發。
+    //    `getActivityStats` 在本頁只有這一個裸呼叫點（首載走的是 `action=batch`）⇒ 不必給 from。
+    assert.match(onlyCall(execOnly(urls), 'getActivityStats'), /idToken=IDTOK_REFRESHED/,
+      '送出去的還是開頁時那顆');
   } finally { cleanup(); }
 });
 

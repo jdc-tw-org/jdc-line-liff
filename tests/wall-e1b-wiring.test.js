@@ -17,7 +17,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runPage, settle, ROOT } = require('./helpers/page-stub.js');
+const { runPage, settle, onlyCall, ROOT } = require('./helpers/page-stub.js');
 const S = require('./helpers/source-scan.js');
 
 const FILE = 'wall.html';
@@ -116,10 +116,16 @@ test('🔴 ②idToken 是「呼叫當下才取」：開頁之後換了 token，�
   const { ctx, urls, cleanup } = run({ search: '?act=A1' });
   await drain();
   try {
+    // ⬛ 先把「__iv[0] 就是那支 15 秒輪詢」釘住——旁邊那條對照組有這一行，這條原本漏了。
+    assert.equal(ctx.__iv.length, 1, '排了 ' + ctx.__iv.length + ' 支輪詢 ⇒ __iv[0] 不見得是 15 秒那支');
     ctx.liff.getIDToken = () => 'IDTOK_REFRESHED';
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = urls.length;
     ctx.__iv[0].f();
-    const last = urls[urls.length - 1];
-    assert.match(last, /idToken=IDTOK_REFRESHED/, '送出去的還是開頁時那顆');
+    assert.match(onlyCall(urls, 'getArrivalWall', before), /idToken=IDTOK_REFRESHED/,
+      '送出去的還是開頁時那顆');
   } finally { cleanup(); }
 });
 

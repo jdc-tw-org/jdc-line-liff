@@ -27,7 +27,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { runPage, settle, execOnly, ROOT } = require('./helpers/page-stub.js');
+const { runPage, settle, execOnly, onlyCall, ROOT } = require('./helpers/page-stub.js');
 const S = require('./helpers/source-scan.js');
 
 const FILE = 'stats.html';
@@ -166,9 +166,11 @@ test('🔴 ②idToken 是「呼叫當下才取」：開頁之後換了 token，�
     ctx.liff.getIDToken = () => 'IDTOK_REFRESHED';
     ctx.loadBindLink();
     await drain();
-    const last = execOnly(urls).pop();
-    assert.match(last, /action=getBindLink/);
-    assert.match(last, /idToken=IDTOK_REFRESHED/, '送出去的還是開頁時那顆');
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：原本 `.pop()` 假設「最後一發＝我剛叫的那一發」。
+    //    本頁的 `getUndelivered` 掛在第二發批次之後、又包 `queueRead`，它晚一步到就會被當成這一發
+    //    ⇒ CI 偶發紅、同一顆 SHA 重跑即綠，而**「沒發出去」與「被別人蓋掉」長得一模一樣**。
+    //    `getBindLink` 全頁只有 loadBindLink 一個呼叫點 ⇒ 不必給 from，篩不到就紅。
+    assert.match(onlyCall(execOnly(urls), 'getBindLink'), /idToken=IDTOK_REFRESHED/, '送出去的還是開頁時那顆');
   } finally { cleanup(); }
 });
 

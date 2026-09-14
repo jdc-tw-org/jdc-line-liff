@@ -16,6 +16,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+// board.html 有自己的一套環境（見上方註解），這裡只借「照身分挑出那一發」這一支。
+const { onlyCall } = require('./helpers/page-stub.js');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -135,8 +137,12 @@ test('①舊路：呼叫帶 token、**不帶** idToken（否則後端會改道�
   const { ctx, urls, cleanup } = runBoard({ search: '?t=STUBTOKEN' });
   await settle();
   try {
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = urls.length;
     ctx.jsonp('getHrPending', { token: ctx.TOKEN });
-    const u = urls[urls.length - 1];
+    const u = onlyCall(urls, 'getHrPending', before);
     assert.match(u, /[?&]token=STUBTOKEN/, '舊路沒把 token 送出去');
     assert.equal(/idToken=/.test(u), false,
       '舊路帶了 idToken ⇒ 後端的分流條件會被打到，福委會那型的改道風險就在這裡');
@@ -184,8 +190,12 @@ test('🔴 ②新路：idToken 是「呼叫當下才取」，不是開頁時取�
   try {
     // 模擬一小時後 LINE 換了新憑證（人事開著這一頁核准一整個上午是常態）
     ctx.liff.getIDToken = () => 'IDTOK_REFRESHED';
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = urls.length;
     ctx.jsonp('getHrPending', { token: ctx.TOKEN });
-    assert.match(urls[urls.length - 1], /idToken=IDTOK_REFRESHED/,
+    assert.match(onlyCall(urls, 'getHrPending', before), /idToken=IDTOK_REFRESHED/,
       '送出去的還是舊憑證 ⇒ 他會在按下核准時被說「請重新登入」，而他根本沒登出過');
   } finally { cleanup(); }
 });

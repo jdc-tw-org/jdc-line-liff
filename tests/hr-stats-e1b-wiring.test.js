@@ -20,7 +20,7 @@ const path = require('node:path');
 
 // 🔴 stub 環境走共用的一支（`tests/helpers/page-stub.js`）——「退路一次性實測」
 //    也是用同一支跑改動前那一份，兩邊的嚴格度才可能相同。理由見該檔檔頭。
-const { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, ROOT } = require('./helpers/page-stub.js');
+const { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, onlyCall, ROOT } = require('./helpers/page-stub.js');
 
 /* ══ ① 舊路：網址帶 ?t=（退路，行為必須逐字相同） ════════════════════ */
 
@@ -39,8 +39,12 @@ test('🔴 ①舊路：呼叫帶 token、**不帶** idToken（帶了後端就會
   const { ctx, urls, cleanup } = runPage({ search: '?t=STUBTOKEN' });
   await settle();
   try {
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = execOnly(urls).length;
     ctx.jsonp('getHrStats', { token: ctx.TOKEN });
-    const u = urls[urls.length - 1];
+    const u = onlyCall(execOnly(urls), 'getHrStats', before);
     assert.match(u, /[?&]token=STUBTOKEN/, '舊路沒把 token 送出去');
     assert.equal(/idToken=/.test(u), false,
       '舊路帶了 idToken ⇒ 後端 doGet 的分流條件會被打到，福委會那型的改道風險就在這裡');
@@ -73,8 +77,12 @@ test('②新路：呼叫自動帶 idToken（憑證只掛在 jsonp 一處）', as
   const { ctx, urls, cleanup } = runPage({ search: '' });
   await settle();
   try {
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = execOnly(urls).length;
     ctx.jsonp('getHrStats', { token: ctx.TOKEN });
-    const u = urls[urls.length - 1];
+    const u = onlyCall(execOnly(urls), 'getHrStats', before);
     assert.match(u, /[?&]idToken=IDTOK/, '沒帶 idToken ⇒ 這一支會永遠驗不過');
     assert.match(u, /[?&]token=&|[?&]token=$/, 'token 應該是空的，否則後端走舊路');
   } finally { cleanup(); }
@@ -86,8 +94,12 @@ test('🔴 ②新路：idToken 是「呼叫當下才取」，不是開頁時取�
   try {
     // 模擬一小時後 LINE 換了新憑證（看板開著不動一整個上午是常態）
     ctx.liff.getIDToken = () => 'IDTOK_REFRESHED';
+    // 🔴 **照身分挑，不照位置**（2026-09-14）：`urls[length-1]` 只在「jsonp 同步發車」這個
+    //    **沒寫出來的前提**下才對——本頁首載送的也是同一個 action，前提一破就靜靜量到首載那一發。
+    //    `from` 把「這一段新增了什麼」框出來，`onlyCall` 再要求恰好一發 ⇒ 前提從假設變成斷言。
+    const before = execOnly(urls).length;
     ctx.jsonp('getHrStats', { token: ctx.TOKEN });
-    assert.match(urls[urls.length - 1], /idToken=IDTOK_REFRESHED/,
+    assert.match(onlyCall(execOnly(urls), 'getHrStats', before), /idToken=IDTOK_REFRESHED/,
       '送出去的還是舊憑證 ⇒ 他會被說「請重新登入」，而他根本沒登出過');
   } finally { cleanup(); }
 });

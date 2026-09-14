@@ -14,6 +14,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const assert = require('node:assert');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -150,4 +151,34 @@ async function waitFor(pred, timeoutMs = FIRED_WAIT_MS) {
 /** 只留打 /exec 的那幾發（hr-stats-pub.json 是公開靜態檔，不是 action 呼叫）。 */
 const execOnly = (urls) => urls.filter((u) => u.indexOf('script.google.com') >= 0);
 
-module.exports = { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, fakeEl, ROOT };
+/**
+ * 照**身分**挑出「我剛剛觸發的那一發」，不照位置。挑不到、或挑到不只一發，都直接紅。
+ *
+ * 🔴 **為何（2026-09-14）**：原本寫 `execOnly(urls).pop()`／`urls[urls.length-1]`，
+ *    那是拿「位置」推定「身分」——它假設「最後一發就是我剛叫的那一發」。
+ *    頁面上有排在別的 promise 後面的請求（`stats.html` 的 `getUndelivered`
+ *    掛在第二發批次之後、又包了 `queueRead`），它只要晚一步到，`.pop()` 拿到的就是它。
+ *    ⇒ 本機 1134/1134 綠、CI 偶發紅、**同一顆 SHA 重跑即綠**（liff 30c3be7）。
+ *    不穩的測試比沒有測試更糟：它教人「紅了就重跑」，而真的壞掉的那一天長得一模一樣。
+ *
+ * ⚠️ **第二個理由比偶發更要緊——現在這兩件事分不開**：
+ *    「根本沒發出去」與「發了但被別的請求蓋在後面」都表現成同一個 `not ok`。
+ *    這裡 0 發與 ≥2 發各講各的話，讀的人才有線索。
+ *
+ * @param {string[]} list   送出去的網址（要只看 /exec 的，呼叫端自己先過 execOnly）
+ * @param {string} action   這一發的身分
+ * @param {number} [from]   只看第 from 筆之後新增的；**同一個 action 在本頁會出現不只一次時必須給**
+ *                          （`hr-stats`／`board`／`wall` 的首載送的就是同一個 action）
+ */
+function onlyCall(list, action, from) {
+  const pool = list.slice(from || 0);
+  const nameOf = (u) => { try { return new URL(u).searchParams.get('action') || '(沒有 action)'; } catch (e) { return '(不是網址)'; } };
+  const hit = pool.filter((u) => nameOf(u) === action);
+  const 實送 = pool.map(nameOf);
+  assert.equal(hit.length, 1, hit.length === 0
+    ? 'action=' + action + ' 一發都沒送出去（這一段實送：' + (實送.join(', ') || '一發都沒有') + '）'
+    : 'action=' + action + ' 送了 ' + hit.length + ' 發，分不出哪一發是這次觸發的（這一段實送：' + 實送.join(', ') + '）');
+  return hit[0];
+}
+
+module.exports = { runPage, settle, waitFor, BLOCKED_WAIT_MS, execOnly, onlyCall, fakeEl, ROOT };
