@@ -1145,6 +1145,13 @@
       "gateAction": "getMessageLog",
       "lineReady": true,
       "note": ""
+    },
+    {
+      "page": "welfare.html",
+      "title": "LINE 傳送平台",
+      "gateAction": "getWelfareAudience",
+      "lineReady": true,
+      "note": ""
     }
   ]
 }
