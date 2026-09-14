@@ -923,7 +923,7 @@ function cancelTick() {
   // 🔴 歸零之後**不可以**說「已經送出去了」。這裡的倒數與伺服器的等待是兩份，
   //    沒有東西逼它們相等 ⇒ 它只知道自己數完了。說死會變成一句錯的保證。
   setNote('cancel-count', CANCEL_LEFT > 0
-    ? ('還有 ' + CANCEL_LEFT + ' 秒可以取消（關掉這一頁不會取消）')
+    ? ('還有 ' + CANCEL_LEFT + ' 秒（關掉頁面不會取消）')
     : '時間到了，隨時會送出——取消可能已經來不及。');
   if (CANCEL_LEFT <= 0) { clearInterval(CANCEL_TIMER); CANCEL_TIMER = null; return; }
   CANCEL_LEFT--;
