@@ -109,6 +109,7 @@
     },
     "addWelfareTemplate": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -386,9 +387,11 @@
     },
     "getEventCheckinSnapshot": {
       "roles": [
+        "admin",
         "staff"
       ],
       "who": [
+        "admin",
         "staff"
       ]
     },
@@ -604,6 +607,7 @@
     },
     "getWelfareAudience": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -613,6 +617,7 @@
     },
     "getWelfareMessageLog": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -622,6 +627,7 @@
     },
     "getWelfareStatus": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -631,6 +637,7 @@
     },
     "getWelfareTemplates": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -804,9 +811,11 @@
     },
     "recordEventCheckins": {
       "roles": [
+        "admin",
         "staff"
       ],
       "who": [
+        "admin",
         "staff"
       ]
     },
@@ -842,6 +851,7 @@
     },
     "removeWelfareTemplate": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -861,6 +871,7 @@
     },
     "requestWelfareOtp": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -898,6 +909,7 @@
     },
     "restoreWelfareTemplate": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -955,6 +967,7 @@
     },
     "saveWelfareTemplate": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [
@@ -994,6 +1007,7 @@
     },
     "sendWelfareBroadcast": {
       "roles": [
+        "admin",
         "messaging"
       ],
       "who": [

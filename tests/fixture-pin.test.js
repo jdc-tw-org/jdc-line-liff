@@ -44,11 +44,17 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
 /**
  * 本 repo 宣告的那一份副本的 sha256（raw bytes）。
  * 2026-09-14：對應後端整合完（拿掉 welfare／broadcast ＋ 分流表加一列）之後重產的那一份。
+ * 🔴 2026-09-15（gas #15，第二輪）：後端把 `admin` 寫進 `ACTION_ROLES` 的 **103 格（全部）**
+ *    ⇒ 每一支的 `roles` 都含 `"admin"`。上一輪（PR #25）是 91 格，這一輪補完剩下的 12 格。
+ *    ⚠️ `who` 只有**兩支**變（`recordEventCheckins`／`getEventCheckinSnapshot` 多了 admin）
+ *      ——那是後端**第一道**的變化；第二道 `staffAuthFromIdentity_` 仍然擋著，
+ *      後端逐身分 × 逐 action 實算：**實際可達權限多拿 0、少拿 0**。
+ *    ⇒ 本 repo 的 `page-action-gate.test.js` 與 `me-dispatch-wiring.test.js` 判定不受影響。
  * 🔴 2026-09-15（gas #15）：後端把 `admin` 寫進 `ACTION_ROLES` 的 91 格 ⇒ 每一支的 `roles`
  *    多了一個 `"admin"`。**`who` 一格都沒動**（實測：diff 是 84 加 0 減，加的全是 `"admin"`），
  *    因為 `roleAllows` 本來就讓 admin 通吃 ⇒ 前端守門的判定零變化。
  */
-const PIN = 'd987d1fe5747907ed8f8bc72875ec3cde6a3932c7934ad276a92197a7777bd71';
+const PIN = '949843bdb30303584a2a1d3b0761f3d6e6ff06505c89d338be712cca6107cb5d';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
