@@ -1,5 +1,5 @@
 /**
- * welfare.html 的 e2e 場景（2026-08-29）。
+ * line.html 的 e2e 場景（2026-08-29）。
  *
  * 受測物是**瀏覽器實際送出了幾個請求、畫面實際變成什麼樣**——
  * 不是函式的回傳值。前面兩層（純函式、wiring）測不到的東西住在這裡：
@@ -118,7 +118,7 @@ async function open(page, opts) {
 
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto('/welfare.html?t=TESTTOKEN');
+  await page.goto('/line.html?t=TESTTOKEN');
   const liffLogins = () => page.evaluate(() => window.__liffLogins || []);
   if (opts.stopAtGate) return { calls, seen, errors, liffLogins };
   await page.waitForSelector('#audience-list details.grp');
@@ -1064,7 +1064,7 @@ test('未登入（電腦瀏覽器那條路）：畫面停在身分閘，送出�
 
   const logins = await r.liffLogins();
   expect(logins.length, '沒有轉去 LINE 登入 ⇒ 她在電腦上永遠停在確認身分').toBe(1);
-  expect(logins[0].redirectUri).toContain('/welfare.html?t=TESTTOKEN');
+  expect(logins[0].redirectUri).toContain('/line.html?t=TESTTOKEN');
   expect(r.calls.getWelfareAudience, '還沒確認是誰就把全公司名單載出來了').toBe(0);
   expect(r.errors, 'console 有錯').toEqual([]);
 });

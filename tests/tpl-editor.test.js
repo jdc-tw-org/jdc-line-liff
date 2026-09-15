@@ -387,7 +387,7 @@ test('🔴「更多」的格子點下去，插入的是那一組的 id（不是�
   assert.equal(ta.value, '[[e:ggg111:002]]', '插到的不是「更多」那一組的第二顆');
 });
 
-test('🔴 tpl-editor.js 與 line-emoji.js 的全域不得重疊（welfare.html 會同頁載入）', () => {
+test('🔴 tpl-editor.js 與 line-emoji.js 的全域不得重疊（line.html 會同頁載入）', () => {
   const fs = require('node:fs'), path = require('node:path');
   const A = path.join(__dirname, '..', 'assets');
   const g = (f) => globalsAddedBy(fs.readFileSync(path.join(A, f), 'utf8'), browserStub(), f);

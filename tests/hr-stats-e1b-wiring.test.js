@@ -216,7 +216,7 @@ test('LIFF ID 與 index／welfare／board 同一條（tools.md：不多開 LIFF 
   const pick = (f, re) => (fs.readFileSync(path.join(ROOT, f), 'utf8').match(re) || [])[1];
   const h = pick('hr-stats.html', /^var LIFF_ID='([^']+)';/m);
   const b = pick('board.html', /^var LIFF_ID='([^']+)';/m);
-  const w = pick('welfare.html', /^var LIFF_ID = '([^']+)';/m);
+  const w = pick('line.html', /^var LIFF_ID = '([^']+)';/m);
   const i = pick('index.html', /^\s*var LIFF_ID = '([^']+)';/m);
   assert.ok(h, 'hr-stats.html 找不到 LIFF_ID');
   assert.equal(h, b, 'hr-stats 與 board 的 LIFF ID 不同');

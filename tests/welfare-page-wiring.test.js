@@ -1,5 +1,5 @@
 /**
- * welfare.html 的接線測試。
+ * line.html 的接線測試。
  *
  * 為何存在：計畫第六輪審查抓到的缺陷**全是接線**，不是邏輯——每一支函式單獨看都對，
  * 錯在「誰呼叫誰、拿到什麼參數」，而且全都零錯誤訊息或訊息完全誤導：
@@ -12,7 +12,7 @@
  *
  * `page-load.test.js` 驗的是「載得起來」，它明講不驗非同步；上面六個全在非同步之後。
  *
- * 手法沿用 download-menu-wiring.test.js：**從 welfare.html 抽原始碼**配 stub 跑，
+ * 手法沿用 download-menu-wiring.test.js：**從 line.html 抽原始碼**配 stub 跑，
  * 不另抄一份等價的（抄的那份會漂移，而漂移不報錯）。
  */
 /* ══ ⚠️ 跨 repo 的手動對齊：改動詞的時候，另一邊要一起改 ══════════════════
@@ -22,7 +22,7 @@
  *   後端 `jdc-line-gas` line-platform/Code.js
  *     welfareActiveCapMsg_()      → 「請先**停用**不用的」
  *     welfareTemplateGoneMsg_()   → 「到「已**停用的範本**」按「**恢復**」」
- *   前端 `jdc-line-liff` welfare.html
+ *   前端 `jdc-line-liff` line.html
  *     id="btn-tpl-disable" 的鈕面      → 「**停用**這一則」
  *     data-restore 那顆的 textContent  → 「**恢復**」
  *     id="tpl-disabled-head" 的標題    → 「已**停用的範本**」
@@ -43,11 +43,11 @@ const vm = require('node:vm');
 
 const S = require('./helpers/source-scan.js');
 
-const SRC = fs.readFileSync(path.join(__dirname, '..', 'welfare.html'), 'utf8');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'line.html'), 'utf8');
 
 function extract(re, what) {
   const m = SRC.match(re);
-  assert.ok(m, `welfare.html 裡找不到 ${what}——改名了就要同步改這支測試`);
+  assert.ok(m, `line.html 裡找不到 ${what}——改名了就要同步改這支測試`);
   return m[0];
 }
 /**
@@ -78,7 +78,7 @@ function ctxWith(names, opt) {
     console, Promise, JSON, Math, Date, Object, Array, String, Number,
     document: { getElementById: el, createElement: (t) => el('__made_' + t) },
     GAS_URL: '', TOKEN: 'T',
-    // ⚠️ 從 welfare.html 抽真正的宣告跑進來，**不在這裡抄一份值**——
+    // ⚠️ 從 line.html 抽真正的宣告跑進來，**不在這裡抄一份值**——
     //    抄的話這裡就變成拿自己的答案驗自己。
     LIFF_ID: (SRC.match(/^var LIFF_ID = '([^']+)';/m) || [])[1],
     ROWS: opt.ROWS || [], TEMPLATES: opt.TEMPLATES || {}, TPL_ORDER: opt.TPL_ORDER || [],
@@ -130,7 +130,7 @@ function ctxWith(names, opt) {
   ctx.setAllChecked = () => {};
   ctx.SAVE_IN_FLIGHT = false; ctx.OTP_IN_FLIGHT = false; ctx.SEND_IN_FLIGHT = false;
   // ── 延遲送出的反悔窗口（2026-09-12）────────────────────────────────
-  // ⚠️ 常數從 welfare.html 的真宣告抽進來，**不在這裡抄一份值**（同 LIFF_ID 的理由：
+  // ⚠️ 常數從 line.html 的真宣告抽進來，**不在這裡抄一份值**（同 LIFF_ID 的理由：
   //    抄的話就變成拿自己的答案驗自己，頁面改了這裡照樣綠）。
   ctx.SEND_CANCEL_SEC = Number((SRC.match(/^var SEND_CANCEL_SEC = (\d+);/m) || [])[1]);
   ctx.SEND_TIMEOUT_MS = Number((SRC.match(/^var SEND_TIMEOUT_MS = (\d+);/m) || [])[1]);
@@ -513,7 +513,7 @@ test('🔴 有未存草稿時切換要先問；她說不要，下拉必須拉回
 // 🔴 2026-08-29 上線當天在 production 抓到：前端讀 `t.id`，而後端回的是 `t.templateId`。
 //    **這條測試原本也寫 `id`**——它的失敗訊息寫著「欄位名對不上就是一則範本都讀不到」，
 //    它正是在測這件事，卻用了跟被測程式碼一樣的錯欄位名，所以永遠綠。
-//    同一個病灶在三個地方：welfare.html、e2e 的 mock、這裡。
+//    同一個病灶在三個地方：line.html、e2e 的 mock、這裡。
 //    ⚠️ 教訓不是「要小心」：**替身的欄位名要從一手碼抄**，不要從被測程式碼抄——
 //       從被測程式碼抄的話，測試與程式碼會一起錯而且互相印證。
 test('🔴 範本清單讀的是回應的 items，而每一則的鍵是 templateId', async () => {
@@ -666,7 +666,7 @@ test('🔴 init 先接線再載資料（invalidator 要早於任何重繪）', (
   ctx.wireButtons = () => order.push('wire-btn');
   ctx.loadAudience = () => { order.push('load'); return Promise.resolve(); };
   ctx.loadTemplates = () => order.push('tpl');
-  ctx.location = { href: 'https://x/welfare.html?t=T', reload() {} };
+  ctx.location = { href: 'https://x/line.html?t=T', reload() {} };
   ctx.window = ctx;
   ctx.liff = { init: () => Promise.resolve(), isLoggedIn: () => true,
                getIDToken: () => 'tok', login() {} };
@@ -692,7 +692,7 @@ function liffCtx(liffStub, extra) {
   const loaded = [];
   ctx.loadAudience = () => { loaded.push('audience'); return Promise.resolve(); };
   ctx.loadTemplates = () => loaded.push('templates');
-  ctx.location = { href: 'https://x/welfare.html?t=T', reload() {} };
+  ctx.location = { href: 'https://x/line.html?t=T', reload() {} };
   ctx.window = ctx;
   if (liffStub) ctx.liff = liffStub;
   Object.assign(ctx, extra || {});
@@ -717,7 +717,7 @@ test('🔴 未登入（電腦瀏覽器那條路）：轉去 LINE 登入，而且
   });
   return vm.runInContext('startLiff()', ctx).then(() => {
     assert.equal(logins.length, 1, '沒有轉去登入 ⇒ 她在電腦上永遠停在確認身分');
-    assert.equal(logins[0].redirectUri, 'https://x/welfare.html?t=T',
+    assert.equal(logins[0].redirectUri, 'https://x/line.html?t=T',
       'redirectUri 沒帶回原網址 ⇒ 登入完回不到這一頁，或 ?t= 掉了');
     assert.deepStrictEqual(loaded, [], '還沒確認是誰就把全公司名單載出來了');
     assert.ok(gateShut(els), '轉址期間閘開了');
@@ -777,16 +777,16 @@ test('🔴 身分閘在 markup 裡就是可見的（fail-closed，不是靠 JS �
     '閘沒有蓋滿整頁 ⇒ 底下的鈕還是按得到：' + m[1]);
 });
 
-test('🔴 不可以多開一條 LIFF：welfare.html 要跟 index.html 用同一個 LIFF ID', () => {
+test('🔴 不可以多開一條 LIFF：line.html 要跟 index.html 用同一個 LIFF ID', () => {
   // 規則來源：tools.md「同一條 LIFF ＋ 參數，不多開 LIFF ID」。
   // 多開一條的代價不是浪費，是**兩條各自要在 Console 設 scope 與 endpoint**，
   // 而「其中一條設錯」的長相是「某一頁的人拿不到憑證」——只有那一頁壞，很難反推。
   const idx = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const a = (SRC.match(/^var LIFF_ID = '([^']+)';/m) || [])[1];
   const b = (idx.match(/^\s*var LIFF_ID = '([^']+)';/m) || [])[1];
-  assert.ok(a, 'welfare.html 找不到 LIFF_ID 宣告');
+  assert.ok(a, 'line.html 找不到 LIFF_ID 宣告');
   assert.ok(b, 'index.html 找不到 LIFF_ID 宣告——抓法壞了，這條會恆綠');
-  assert.equal(a, b, 'welfare.html 與 index.html 用了不同的 LIFF ID');
+  assert.equal(a, b, 'line.html 與 index.html 用了不同的 LIFF ID');
 });
 
 test('🔴 ID token 每次都重新取，不可以存起來重複用', () => {
@@ -856,7 +856,7 @@ test('🔴 送出結果一到，所有在途的狀態查詢都要失效', () => 
 
 /**
  * 剝掉註解再比對。
- * 🔴 **非剝不可**：`welfare.html` 有兩處註解提到「刪除」（都在講歷史，不是功能）
+ * 🔴 **非剝不可**：`line.html` 有兩處註解提到「刪除」（都在講歷史，不是功能）
  *    ⇒ 不剝的話「頁面上不可以有刪除入口」那條會**永遠是紅的**，
  *    而永遠響的紅燈會讓人學會無視它——比沒有判準更糟。
  */
@@ -1039,35 +1039,62 @@ test('🔴 全頁只能有一個地方直接叫 gasCall，而且它在 wfCall �
 /* ══ 改名的回頭鎖（2026-09-08）══════════════════════════════════════════════
  *
  * 使用者拍板：這頁不再只服務福委會，正式名稱是「日本國土開發官方 LINE 傳送平台」。
+ * 🔴 **那個名字已於 2026-09-14 被「line訊息發訊」取代**（見下一段）。這一段留著是因為
+ *    它記的**理由**（不再只服務福委會）今天仍然成立，被換掉的只是名字本身。
  * **沒有斷言的文案改動，下一次有人從舊版複製貼上就回去了，而且複製回去不報錯。**
  *
  * 這條同時擋兩個方向。只斷言「新名稱在」擋不住「舊名稱也還在」——那正是改一半的樣子。
  *
- * 🔴 判準不是「舊名稱在 welfare.html 裡出現 0 次」。第一版就是那樣寫的，而它**當場
+ * 🔴 判準不是「舊名稱在 line.html 裡出現 0 次」。第一版就是那樣寫的，而它**當場
  *    自我違反**：註解裡「原名「福委會 LINE 發送」」那句歷史紀錄本身含有舊名。
  *    「刻意沒有 X」這句話本身含有 X ⇒ 判準永遠紅，而永遠紅的判準會被人學會無視。
  *    改成：舊名只能出現在標註「原名」的那一行，其餘任何一行都算回頭。
  *
- * ⚠️ 本檔自己也寫著舊名（下面的 OLD_NAME）。它讀的是 welfare.html，不是自己，
+ * ⚠️ 本檔自己也寫著舊名（下面的 OLD_NAME）。它讀的是 line.html，不是自己，
  *    所以不衝突——但要改判準的人請先確認你改的是哪一份的定義域。
  *
- * ⚠️ 這個 repo 另有工作樹持著 welfare.html 的舊副本（feat/welfare-tpl-lifecycle、
+ * ⚠️ 這個 repo 另有工作樹持著 line.html 的舊副本（feat/welfare-tpl-lifecycle、
  *    feat/welfare-broadcast-g1 等）。它們合併回來會把舊標題帶回來 ⇒ 這條會紅。
  *    **那是它在做事，不是它壞了。**
  */
-const NEW_NAME = '日本國土開發官方 LINE 傳送平台';
+/* ══ 2026-09-14：整頁改名成「line訊息發訊」════════════════════════════════
+ *
+ * SPEC `jdc-tw/jdc-line-gas#13` 第②項拍板：這一頁改名為 `line.html`、
+ * 標題「line訊息發訊」、**加進分流表**（舊檔名逐字寫在 `line.html` 檔頭的
+ * 「原網址」那一行，本檔刻意不再複製一份）。
+ *
+ * 🔴 **擁有者裁示：整頁改名——分頁標題、主標題 `<h1>`、身分閘標題三處都換。**
+ *    ⚠️ 施工當下曾把它讀成「只換分頁標題」，理由是 SPEC 的分流頁表把六頁列成六個名字，
+ *       而前五者逐字等於各該頁的 `<title>`（stats／attend／messages／board／hr-stats）
+ *       ⇒ 推論出「line訊息發訊」只是分流表那一格＝`<title>` 的名字。
+ *       **那個推論被擁有者當面推翻**，記在這裡是因為它看起來很有依據：
+ *       下一個讀 SPEC 的人很可能推出同一個結論，而 SPEC 本身沒有把這件事寫死。
+ *
+ * ⚠️ **兩個常數現在同值，但刻意不合併成一個。** 合併之後「三處」在程式碼裡會塌成
+ *    一個字串比對三次，日後只有 `<title>` 被單獨改掉時，訊息說不出是哪一處脫鉤。
+ *    分成 TAB_NAME／DISPLAY_NAME，是把「分頁的名字」與「畫面上的名字」當成兩個**可以
+ *    再度分開的概念**留著——真要分開時改的是值，不是結構。
+ *
+ * ⚠️ 2026-09-08 定的「日本國土開發官方 LINE 傳送平台」**已被這次取代**，改寫不刪：
+ *    上面那一段是歷史紀錄。它在整個 repo 只剩三處（`line.html` 檔頭一處、本檔兩處
+ *    ——都是註解），**命中第四處才是真的漏改**：畫面上還留著舊名字。
+ *    ⚠️ 本檔讀的是 `line.html`，不是自己 ⇒ 本檔寫著舊名不會讓這條紅（同 OLD_NAME 的理由）。
+ */
+const TAB_NAME = 'line訊息發訊';      // 分頁標題 <title>＝分流表那一格的名字
+const DISPLAY_NAME = 'line訊息發訊';  // 畫面上的名字（<h1> 與身分閘）。2026-09-14 起與上面同值
 const OLD_NAME = '福委會 LINE 發送';
 
 test('頁面名稱是新的：分頁標題、身分閘標題、主標題三處都要', () => {
   const 位置 = [
-    ['分頁標題 <title>', '<title>' + NEW_NAME + '</title>'],
-    ['主標題 <h1>', '<h1>' + NEW_NAME + '</h1>'],
-    ['身分閘的標題', '>' + NEW_NAME + '</div>'],
+    ['分頁標題 <title>', '<title>' + TAB_NAME + '</title>'],
+    ['主標題 <h1>', '<h1>' + DISPLAY_NAME + '</h1>'],
+    ['身分閘的標題', '>' + DISPLAY_NAME + '</div>'],
   ];
   const 少的 = 位置.filter(([, needle]) => !SRC.includes(needle)).map(([name]) => name);
   assert.deepEqual(少的, [],
-    `welfare.html 這幾處不是新名稱：${少的.join('、')}`
-    + `——改名要三處一起改，只改 <title> 的話使用者在畫面上看到的還是舊的。`);
+    `line.html 這幾處不是預期的名稱：${少的.join('、')}`
+    + `——分頁標題要是「${TAB_NAME}」，畫面上的兩處要是「${DISPLAY_NAME}」；`
+    + `三處各自都要對（改名要三處一起改，漏一處使用者就會在某個地方看到舊名字）。`);
 });
 
 test('舊名稱沒有回頭：只准出現在註解裡標「原名」的那一行', () => {
@@ -1075,7 +1102,7 @@ test('舊名稱沒有回頭：只准出現在註解裡標「原名」的那一�
     .map((l, i) => [l, i + 1])
     .filter(([l]) => l.includes(OLD_NAME) && !l.includes('原名'));
   assert.deepEqual(strays.map(([, n]) => n), [],
-    `舊名稱「${OLD_NAME}」出現在 welfare.html 這幾行：`
+    `舊名稱「${OLD_NAME}」出現在 line.html 這幾行：`
     + strays.map(([l, n]) => `\n     第 ${n} 行：${l.trim()}`).join('')
     + `\n   ⇒ 這是改名被複製回去了。要保留歷史請寫成「原名「${OLD_NAME}」」那個形狀。`);
 });

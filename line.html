@@ -5,7 +5,7 @@
 <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>日本國土開發官方 LINE 傳送平台</title>
+<title>line訊息發訊</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
 <style>
   /* 設計語彙逐項沿用 stats.html（2026-08-16 改版）：低調、簡約、扁平。
@@ -159,7 +159,7 @@
          全白配一行字讀起來像「網站壞了」。轉址那條只閃一下，但共用同一個閘。 -->
     <img src="assets/logo-full.svg" alt="日本國土開發" style="height:28px;margin-bottom:18px"
          onerror="this.style.display='none'">
-    <div style="font-size:17px;font-weight:600;margin-bottom:10px">日本國土開發官方 LINE 傳送平台</div>
+    <div style="font-size:17px;font-weight:600;margin-bottom:10px">line訊息發訊</div>
     <div id="liff-gate-msg" style="font-size:15px;line-height:1.7">正在確認身分…</div>
     <div id="liff-gate-act" style="margin-top:16px"></div>
   </div>
@@ -168,7 +168,7 @@
 <div class="brand"><img src="assets/logo-full.svg" alt="日本國土開發" onerror="this.style.display='none'"></div>
 <div class="toplinks"><span id="msglog-entry"></span></div>
 
-<h1>日本國土開發官方 LINE 傳送平台</h1>
+<h1>line訊息發訊</h1>
 <div class="meta">選人 → 選範本 → 寄驗證碼到你的信箱 → 輸入驗證碼送出。</div>
 
 <div class="card">
@@ -263,7 +263,20 @@
 <script src="assets/tpl-editor.js"></script>
 <script>
 /* ════════════════════════════════════════════════════════════════════════
-   日本國土開發官方 LINE 傳送平台（原名「福委會 LINE 發送」，2026-09-08 使用者拍板改名）。
+   line訊息發訊（2026-09-14 使用者拍板**整頁改名**：分頁標題 `<title>`、主標題 `<h1>`、
+   身分閘標題三處同名，網址同日改成 `line.html`）。
+
+   ⚠️ **名字的沿革，改寫不刪**（下面兩個都是歷史紀錄，不是現行名稱）：
+      · 原名「福委會 LINE 發送」。
+      · 2026-09-08 改成「日本國土開發官方 LINE 傳送平台」——那次拍板的理由是
+        「這頁不再只服務福委會，福委會只是其中一個使用者」，**那個理由今天仍然成立**，
+        2026-09-14 換掉的只是名字本身（短、與分流表那一格逐字一致）。
+      ⚠️ 那個 2026-09-08 的名字在整個 repo 裡只剩三處，**全部是註解**：上面那一行，
+        以及 `tests/welfare-page-wiring.test.js` 的兩段同樣性質的歷史註解。
+        `git grep` 命中這三處是預期的；**命中第四處才是真的漏改**——畫面上還留著舊名字，
+        就是這次改名只做了一半。
+        （這一行刻意**不重寫一次那個名字**：說「只剩三處」的句子自己含有它的話，
+         這個判準第一天就自我違反，而永遠對不上的判準會被下一個人學會無視。）
 
    ✅ **授權範圍後來真的跟上了**（2026-09-08 當天稍晚，後端 `5593e3d` 已上線）。
       本段原本寫著「改的是名字，不是授權範圍……系統只認一種身分」，並把它列為本頁
@@ -287,8 +300,27 @@
         **刻意不寫行號**：上一版寫了 `Code.js:5957`，五個小時後它是 6011。
       ⚠️ 仍然成立的那一半：**要再擴大範圍是動後端那一支的事，不是改這裡的字。**
 
-   ⚠️ 網址 `welfare.html` **刻意不改**：它有一批連結活在 repo 之外
-      （LINE 圖文選單、書籤），窮舉不了，改掉就是不可逆地弄丟它們。
+   🔴 **網址已於 2026-09-14 改名：原網址 `welfare.html` → 現在的 `line.html`。**
+      ⚠️ 這一段原本寫的是禁令，**保留原文以免有人照著它把改名改回去**。
+        ⚠️ **舊檔名在整個 repo 裡只剩兩處**：上面那一行「原網址」後面（歷史紀錄，
+           不是漏改），以及後端產的 `tests/fixtures/action-roles.json`（由 gas 重產）。
+           `git grep` 命中這兩處是預期的；命中第三處才是真的漏改。
+        原文：
+
+        「⚠️ 網址 **刻意不改**：它有一批連結活在 repo 之外
+          （LINE 圖文選單、書籤），窮舉不了，改掉就是不可逆地弄丟它們。」
+
+      那句話的**事實部分今天仍然成立**——repo 外確實有一批連結、確實窮舉不了。
+      被推翻的是**取捨**，不是事實：2026-09-14 使用者在知道會弄丟舊連結的前提下裁示
+      「不轉址，重新提供一個新的網址」。⇒ 代價明寫：
+
+        · **刻意不做轉址**（舊網址不放 meta refresh，也不放 302）。
+        · LINE 圖文選單由擁有者自己改指到 `https://campaign.jdc-corpn.com.tw/line.html`。
+        · **舊書籤與還沒更新的舊選單，改完就是 404。** 這是已知並接受的結果，
+          看到 404 的回報不是 bug，是這次取捨的帳單。
+
+      ⚠️ 所以**不要再從這一段推出「檔名不可改」**。要改檔名的人該問的不是這一段，
+        而是「repo 外的連結這次由誰負責更新、404 誰接」——那才是當初的真問題。
 
    本頁反覆在防同一個形狀的缺陷：**畫面說 A、系統送 B**。
    它在本案出現過七次（後端冷卻分支、OTP_STATE、未存草稿、存檔競態、

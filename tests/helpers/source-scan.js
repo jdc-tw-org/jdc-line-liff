@@ -14,19 +14,19 @@
  * │ **跑不完＝紅燈**，那是它唯一的失效條件，而且方向是吵的。
  * ├ liff 側（本檔）─────────────────────────────────────────────────────
  * │ 來源是 `.html`，內嵌 script 一定有會執行的頂層碼
- * │ （2026-09-10 實測：`welfare.html` 在 script 第 38 行拋 `location is not defined`，
+ * │ （2026-09-10 實測：`line.html` 在 script 第 38 行拋 `location is not defined`，
  * │  全長 1016 行）。**跑不完是常態，不是訊號。**
  * └─────────────────────────────────────────────────────────────────────
  *
  * ⇒ 所以本檔靠的是**函式宣告的 hoisting**：`function N() {}` 在腳本開始執行前
  *   就已經綁進 context，**中途拋例外不影響它們**。這是規格保證的，不是巧合。
- *   2026-09-10 實測 `welfare.html`：例外之後 context 裡有 50 支函式，
+ *   2026-09-10 實測 `line.html`：例外之後 context 裡有 50 支函式，
  *   與 `^function` 近似列舉**逐名比對差集兩邊皆空**。
  *
  * ⚠️ **定義域的邊界（這是本檔與 gas 版真正的差異，不要抹掉）**：
  *   `var f = function () {}` 與箭頭函式**不是** hoisting 的，它們靠執行到那一行才賦值。
  *   ⇒ 寫在例外行**之後**的那種函式，本檔**取不到**，而且是**靜默**取不到。
- *   `welfare.html` 今天頂層那種寫法是 0 個，所以現在無害——**但那是今天的事實。**
+ *   `line.html` 今天頂層那種寫法是 0 個，所以現在無害——**但那是今天的事實。**
  *   盲區釘在 `tests/source-scan-tripwire.test.js`，補好了那條會紅並告訴你怎麼收。
  *
  * ⚠️ 抽 `<script>` 這件事本身也是近似（見 `scriptText` 的註解）。
@@ -40,7 +40,7 @@ const cache = new Map();
 
 /** 讀原始碼原文（單一讀取點，省得每個檔各自拼路徑）。 */
 function sourceText(file) {
-  const f = file || 'welfare.html';
+  const f = file || 'line.html';
   const key = 'txt:' + f;
   if (!cache.has(key)) cache.set(key, fs.readFileSync(path.join(ROOT, f), 'utf8'));
   return cache.get(key);
@@ -59,7 +59,7 @@ function sourceText(file) {
  * 非 `.html` 的檔直接回原文（`assets/*.js` 走這一條）。
  */
 function scriptText(file) {
-  const f = file || 'welfare.html';
+  const f = file || 'line.html';
   const src = sourceText(f);
   if (!/\.html?$/i.test(f)) return src;
   const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/g;
@@ -81,7 +81,7 @@ function scriptText(file) {
  *      所以頂層碼**送不出任何請求**。這一點是刻意的，不要餵 stub 讓它「跑完」。
  */
 function contextOf(file) {
-  const f = file || 'welfare.html';
+  const f = file || 'line.html';
   const key = 'ctx:' + f;
   if (!cache.has(key)) {
     const ctx = vm.createContext(Object.create(null));
@@ -102,16 +102,16 @@ function contextOf(file) {
 /** 載入診斷：`{ error, line, totalLines }`。`error` 為 null 代表頂層碼整段跑完了。 */
 function loadDiag(file) {
   contextOf(file);
-  return cache.get('diag:' + (file || 'welfare.html'));
+  return cache.get('diag:' + (file || 'line.html'));
 }
 
 /**
  * 一支函式的**逐字**原始碼。
  * @param {string} name 函式名
- * @param {string} [file] 預設 `welfare.html`
+ * @param {string} [file] 預設 `line.html`
  */
 function fnSrc(name, file) {
-  const f = file || 'welfare.html';
+  const f = file || 'line.html';
   const fn = contextOf(f)[name];
   if (typeof fn !== 'function') {
     throw new Error(
