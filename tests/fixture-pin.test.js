@@ -72,7 +72,7 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 第二列是在補一個**已經存在的洞**：liff `#18` 2026-09-14 就合了，而 gas 的表沒跟著改名
  *      ⇒ 從那天起分流頁上「LINE 傳送平台」那個連結點下去是 404。
  */
-const PIN = 'a342a43aa0d8216371621443917394ff79d1816893b1a21153937b39b4966f21';
+const PIN = '15d3773ef86248b685a92fae77e42b06a25c5ff35748b5a6d4e05e369888c1e7';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
