@@ -31,6 +31,7 @@
   "actions": {
     "__whoami": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -48,6 +49,7 @@
     },
     "addActivity": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -57,6 +59,7 @@
     },
     "addGuests": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -66,6 +69,7 @@
     },
     "addSeniorTemplate": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -75,6 +79,7 @@
     },
     "addStaffStation": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -84,6 +89,7 @@
     },
     "addTitle": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -93,6 +99,7 @@
     },
     "addUnit": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -111,6 +118,7 @@
     },
     "approveCheckin": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -120,6 +128,7 @@
     },
     "batch": {
       "roles": [
+        "admin",
         "any",
         "view"
       ],
@@ -133,6 +142,7 @@
     },
     "batchTransferUnit": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -142,6 +152,7 @@
     },
     "cancelPassSchedule": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -151,6 +162,7 @@
     },
     "clearGuests": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -160,6 +172,7 @@
     },
     "clearSeatMarks": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -169,6 +182,7 @@
     },
     "confirmHrChange": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -178,6 +192,7 @@
     },
     "deleteActivity": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -195,6 +210,7 @@
     },
     "getActivityReplies": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -204,6 +220,7 @@
     },
     "getActivityStats": {
       "roles": [
+        "admin",
         "activity",
         "view"
       ],
@@ -215,6 +232,7 @@
     },
     "getAnniversaries": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -226,6 +244,7 @@
     },
     "getArrivalTimeline": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -235,6 +254,7 @@
     },
     "getArrivalWall": {
       "roles": [
+        "admin",
         "activity",
         "view"
       ],
@@ -246,6 +266,7 @@
     },
     "getBindLink": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -255,6 +276,7 @@
     },
     "getBindingState": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -272,6 +294,7 @@
     },
     "getBounceCursor": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -281,6 +304,7 @@
     },
     "getCheckinCodes": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -290,6 +314,7 @@
     },
     "getCheckinOptions": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -307,6 +332,7 @@
     },
     "getCheckinPending": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -332,6 +358,7 @@
     },
     "getEventCheckedIn": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -341,6 +368,7 @@
     },
     "getEventCheckinPass": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -366,6 +394,7 @@
     },
     "getEventCheckinStats": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -375,6 +404,7 @@
     },
     "getHrPending": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -384,6 +414,7 @@
     },
     "getHrStats": {
       "roles": [
+        "admin",
         "hrstats"
       ],
       "who": [
@@ -393,6 +424,7 @@
     },
     "getHrStatsPublic": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -422,6 +454,7 @@
     },
     "getMsgLogToken": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -433,6 +466,7 @@
     },
     "getMyLottery": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -450,6 +484,7 @@
     },
     "getMyReply": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -467,6 +502,7 @@
     },
     "getRefillCandidates": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -484,6 +520,7 @@
     },
     "getRosterExport": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -495,6 +532,7 @@
     },
     "getRosterList": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -506,6 +544,7 @@
     },
     "getSeatingBoard": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -515,6 +554,7 @@
     },
     "getSeniorNotice": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -524,6 +564,7 @@
     },
     "getTitleRanks": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -533,6 +574,7 @@
     },
     "getUndelivered": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -544,6 +586,7 @@
     },
     "getUnitsAndNames": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -597,6 +640,7 @@
     },
     "grantRefill": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -606,6 +650,7 @@
     },
     "ingestHrNotice": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -615,6 +660,7 @@
     },
     "isEventCheckedIn": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -624,6 +670,7 @@
     },
     "listActivities": {
       "roles": [
+        "admin",
         "activity",
         "view"
       ],
@@ -635,6 +682,7 @@
     },
     "listGuests": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -644,6 +692,7 @@
     },
     "listHrNotices": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -653,6 +702,7 @@
     },
     "listMyPages": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -664,6 +714,7 @@
     },
     "listOptions": {
       "roles": [
+        "admin",
         "any"
       ],
       "who": [
@@ -675,6 +726,7 @@
     },
     "listStaffStations": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -684,6 +736,7 @@
     },
     "listTableBoard": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -693,6 +746,7 @@
     },
     "previewPassBroadcast": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -710,6 +764,7 @@
     },
     "publishTables": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -719,6 +774,7 @@
     },
     "reconcileBegin": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -728,6 +784,7 @@
     },
     "reconcileChunk": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -737,6 +794,7 @@
     },
     "reconcileCommit": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -754,6 +812,7 @@
     },
     "rejectHrChange": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -763,6 +822,7 @@
     },
     "removeSeniorTemplate": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -772,6 +832,7 @@
     },
     "removeStaffStation": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -790,6 +851,7 @@
     },
     "reportBounce": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -808,6 +870,7 @@
     },
     "requeueCheckinMail": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -817,6 +880,7 @@
     },
     "resendVerifyMail": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -843,6 +907,7 @@
     },
     "revertHrChange": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -852,6 +917,7 @@
     },
     "revokeRefill": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -869,6 +935,7 @@
     },
     "savePassTemplate": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -878,6 +945,7 @@
     },
     "saveSeniorTemplate": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -896,6 +964,7 @@
     },
     "schedulePassBroadcast": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -905,6 +974,7 @@
     },
     "sendPassBroadcast": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -914,6 +984,7 @@
     },
     "sendSeniorNotice": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -932,6 +1003,7 @@
     },
     "setActivityStatus": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -941,6 +1013,7 @@
     },
     "setBounceCursor": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -950,6 +1023,7 @@
     },
     "setGuestTable": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -959,6 +1033,7 @@
     },
     "setGuestTables": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -968,6 +1043,7 @@
     },
     "setTables": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -977,6 +1053,7 @@
     },
     "setTitleRanks": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -986,6 +1063,7 @@
     },
     "submitActivity": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -1003,6 +1081,7 @@
     },
     "submitBinding": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -1020,6 +1099,7 @@
     },
     "submitCheckin": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
@@ -1037,6 +1117,7 @@
     },
     "unpublishTables": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -1046,6 +1127,7 @@
     },
     "updateActivity": {
       "roles": [
+        "admin",
         "activity"
       ],
       "who": [
@@ -1055,6 +1137,7 @@
     },
     "updateOption": {
       "roles": [
+        "admin",
         "hr"
       ],
       "who": [
@@ -1064,6 +1147,7 @@
     },
     "verify": {
       "roles": [
+        "admin",
         "public"
       ],
       "who": [
