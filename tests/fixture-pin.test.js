@@ -44,6 +44,15 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
 /**
  * 本 repo 宣告的那一份副本的 sha256（raw bytes）。
  * 2026-09-14：對應後端整合完（拿掉 welfare／broadcast ＋ 分流表加一列）之後重產的那一份。
+ * 🔴 2026-09-15（gas #16）：後端把 `getMessageLog` 的 allow 拿掉 `hr`
+ *    （擁有者 2026-09-14 拍板；原本是 `admin,activity,hr`）。
+ *    ⚠️ **這一輪與前兩輪不同：`who` 真的變了，而且是「少一個」。**
+ *      前兩輪（#15）只是每一支的 `roles` 多寫一個 `admin`，`who` 幾乎不動、
+ *      實際可達權限零變化；這一輪 `getMessageLog` 的 `roles` 與 `who` **兩邊都少掉 `hr`**
+ *      （diff 恰好 4 列，全在這一支底下）⇒ **持有 `hr` 的人真的少了一項權限**，
+ *      分流頁由 2 頁掉到 1 頁（只剩 `board.html`）。後端擁有者已知情。
+ *    ⇒ 本 repo 的 `page-action-gate.test.js` 與 `me-dispatch-wiring.test.js`
+ *      判定會跟著變，那是**對的**，不是回歸。
  * 🔴 2026-09-15（gas #15，第二輪）：後端把 `admin` 寫進 `ACTION_ROLES` 的 **103 格（全部）**
  *    ⇒ 每一支的 `roles` 都含 `"admin"`。上一輪（PR #25）是 91 格，這一輪補完剩下的 12 格。
  *    ⚠️ `who` 只有**兩支**變（`recordEventCheckins`／`getEventCheckinSnapshot` 多了 admin）
@@ -54,7 +63,7 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    多了一個 `"admin"`。**`who` 一格都沒動**（實測：diff 是 84 加 0 減，加的全是 `"admin"`），
  *    因為 `roleAllows` 本來就讓 admin 通吃 ⇒ 前端守門的判定零變化。
  */
-const PIN = '949843bdb30303584a2a1d3b0761f3d6e6ff06505c89d338be712cca6107cb5d';
+const PIN = 'dfdd0bcebaf8a8d1b192136f0d2b2962f16d9fa39647d33d6b27624d41510bd4';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

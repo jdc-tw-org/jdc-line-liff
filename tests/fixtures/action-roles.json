@@ -446,13 +446,11 @@
     "getMessageLog": {
       "roles": [
         "admin",
-        "activity",
-        "hr"
+        "activity"
       ],
       "who": [
         "admin",
-        "activity",
-        "hr"
+        "activity"
       ]
     },
     "getMsgLogToken": {
