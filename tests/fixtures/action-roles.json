@@ -1206,15 +1206,15 @@
       "note": ""
     },
     {
-      "page": "messages.html",
+      "page": "line-messages.html",
       "title": "LINE 訊息紀錄",
       "gateAction": "getMessageLog",
       "lineReady": true,
       "note": ""
     },
     {
-      "page": "welfare.html",
-      "title": "LINE 傳送平台",
+      "page": "line.html",
+      "title": "line訊息發訊",
       "gateAction": "getWelfareAudience",
       "lineReady": true,
       "note": ""

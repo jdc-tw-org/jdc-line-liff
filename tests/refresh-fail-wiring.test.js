@@ -136,7 +136,7 @@ const SWR_TABLE = {
   'board.html':            { cacheGet: 7, fns: ['load', 'loadHr', 'loadLog', 'loadRoster', 'loadOptionsAdmin'] },
   'stats.html':            { cacheGet: 7, fns: ['loadActs', 'loadTablesTab', 'loadCheckinTab', 'loadSeating', 'snLoad', 'loadCheckinBundle', 'loadStats'] },
   'attend.html':           { cacheGet: 4 },
-  'messages.html':         { cacheGet: 2 },
+  'line-messages.html':         { cacheGet: 2 },
   'hr-stats.html':         { cacheGet: 1 },
   'assets/anniv.js':       { cacheGet: 1 },
   'admin.html':            { cacheGet: 1, excluded: '命中快取就不打 API——沒有「第二段」，不是 SWR' },

@@ -388,8 +388,8 @@ var MSG_LOG_UI_ON = false;
   if (!MSG_LOG_UI_ON) return;
   var mt = new URLSearchParams(location.search).get('mt') || '';
   var a = document.getElementById('msgLogLink');
-  if (mt) {                       // messages.html 與本頁同站台，用相對路徑
-    a.href = 'messages.html?t=' + encodeURIComponent(mt);
+  if (mt) {                       // line-messages.html 與本頁同站台，用相對路徑
+    a.href = 'line-messages.html?t=' + encodeURIComponent(mt);
     a.hidden = false;
   }
 })();

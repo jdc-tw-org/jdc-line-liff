@@ -1,5 +1,5 @@
 /**
- * 訊息紀錄頁「乙」liff 端（線 ML，2026-09-13）：`messages.html` 的兩條進來的路＋發訊頁入口。
+ * 訊息紀錄頁「乙」liff 端（線 ML，2026-09-13）：`line-messages.html` 的兩條進來的路＋發訊頁入口。
  *
  * 🔴 **為何非有這一支不可**：`page-load.test.js` 開頁時網址帶 `?t=STUBTOKEN` ⇒ 它跑的永遠是①舊路，
  *    ②LINE 登入那條路一行都沒被執行過，而它照樣全綠（同 `attend-checkin-e1b-wiring.test.js` 檔頭）。
@@ -29,7 +29,7 @@ const ROWS = [['2026-09-01 10:00:00', 'line-platform', 'bind_success', 'U1', '�
  * @returns {{ctx, liff, sent: {url:string, method:string, params:object}[], cleanup}}
  */
 function open(search, { replies = [], liff: liffOpt = {} } = {}) {
-  const r = runPage(Object.assign({ file: 'messages.html', search }, liffOpt));
+  const r = runPage(Object.assign({ file: 'line-messages.html', search }, liffOpt));
   const sent = [];
   let i = 0;
   r.ctx.fetch = (u, init) => {
@@ -74,7 +74,7 @@ test('①優先：?t= 與 from=welfare 同時出現 → 仍走舊路（分流只
 });
 
 /* 🔴 空的 `?t=` 不算「有 t」（VML2 突變 W1：把空 t 當成有 t 時原本單元 0 紅、e2e 0 紅）。
- *    faf0c50 的發訊頁產生過 `messages.html?t=<msgLogToken>&days=180`，換發失敗時 token 是空的
+ *    faf0c50 的發訊頁產生過 `line-messages.html?t=<msgLogToken>&days=180`，換發失敗時 token 是空的
  *    ⇒ 舊書籤可能帶 `?t=&days=180`。它要走②（LINE 登入、打 gas），不可以拿空 t 去打 hub。 */
 test('🔴 空的 ?t=（舊書籤 ?t=&days=180）→ 走②：初始化 LIFF、POST gas、不打 hub、不帶 t', async () => {
   const { ctx, liff, sent, cleanup } = open('?t=&days=180');
@@ -133,8 +133,8 @@ test('🔴 loadLiffSdk：沒有 window.liff → 插入指向 LINE CDN 的 script
   } finally { cleanup(); }
 });
 
-test('🔴 messages.html 不可以再同步載入 LINE SDK（頁尾 <script src=…sdk.js> 會讓①等 CDN）', () => {
-  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'messages.html'), 'utf8');
+test('🔴 line-messages.html 不可以再同步載入 LINE SDK（頁尾 <script src=…sdk.js> 會讓①等 CDN）', () => {
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'line-messages.html'), 'utf8');
   const tags = html.match(/<script[^>]*\bsrc="[^"]*static\.line-scdn\.net[^"]*"[^>]*>/g) || [];
   assert.deepEqual(tags, []);
   // ⬛ 對照組：同一條樣式抓得到 line.html 的同步載入（否則上面的空陣列恆真）
@@ -200,7 +200,7 @@ test('②還沒登入 → 去 LINE 登入（保留 query），一個請求都不
   const { liff, sent, cleanup } = open('?from=welfare&days=180', { liff: { loggedIn: false } });
   try {
     await waitFor(() => false, BLOCKED_WAIT_MS);
-    assert.ok(liff.__loginArgs && /messages\.html\?from=welfare&days=180$/.test(liff.__loginArgs.redirectUri),
+    assert.ok(liff.__loginArgs && /line-messages\.html\?from=welfare&days=180$/.test(liff.__loginArgs.redirectUri),
       '沒有去登入，或登入回來的網址丟了 query：' + JSON.stringify(liff.__loginArgs));
     assert.deepEqual(sent, [], '導頁中還送出了請求');
   } finally { cleanup(); }
@@ -253,7 +253,7 @@ test('hub_unreadable 而畫面上是快取 → 提示用本頁那句（logFailTe
     assert.equal(ctx.logFailText({ ok: false, reason: 'hub_unreadable' }), ctx.HUB_UNREADABLE_TEXT);
     assert.equal(ctx.logFailText({ ok: false, msg: '連線失敗' }), '連線失敗');
     assert.equal(ctx.logFailText(null), '無法載入。');
-    const src = S.stripComments(S.scriptText('messages.html'));
+    const src = S.stripComments(S.scriptText('line-messages.html'));
     assert.match(src, /res = Object\.assign\(\{\}, res, \{ msg: logFailText\(res\) \}\);\s*\n\s*if \(!settleRefresh\('list', res,/,
       '失敗回應沒有先換成 logFailText 的話就交給 settleRefresh ⇒ 有快取時提示照抄後端（或空白）');
   } finally { cleanup(); }
@@ -296,10 +296,10 @@ test('②憑證過期（line_bad_token）→ 接上 liff-relogin：真的 logout
 
 /* ══ 發訊頁入口 ═════════════════════════════════════════════════════════ */
 
-test('🔴 line.html 的訊息紀錄入口：連到 messages.html?from=welfare，不帶 ?t=、不讀 msgLogToken', () => {
+test('🔴 line.html 的訊息紀錄入口：連到 line-messages.html?from=welfare，不帶 ?t=、不讀 msgLogToken', () => {
   const fn = S.stripComments(S.fnSrc('renderMsgLogEntry', 'line.html'));
   assert.ok(fn.length > 40, '⬛ 抽不到 renderMsgLogEntry ⇒ 下面的「不含」恆真');
-  assert.match(fn, /'messages\.html\?from=welfare&days=180'/);
+  assert.match(fn, /'line-messages\.html\?from=welfare&days=180'/);
   assert.equal(/msgLogToken/.test(fn), false, '入口又讀了 msgLogToken ⇒ 會把 hub token 帶回網址');
-  assert.equal(/[?&]t=/.test(fn), false, '入口帶了 ?t= ⇒ messages.html 會走①舊路（瀏覽器直接打 hub）');
+  assert.equal(/[?&]t=/.test(fn), false, '入口帶了 ?t= ⇒ line-messages.html 會走①舊路（瀏覽器直接打 hub）');
 });

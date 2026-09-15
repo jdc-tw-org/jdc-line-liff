@@ -157,7 +157,7 @@ test('⬛ 零點：後端產的那一份讀得到，而且真的有分流頁那�
     'action-roles.json 沒有 dispatchPages ⇒ 副本是舊版，在 jdc-line-gas 重產一次');
   assert.ok(矩陣.dispatchPages.length >= 2,
     '後端只給了 ' + 矩陣.dispatchPages.length + ' 列 ⇒ 下面的斷言在一個太小的清單上跑');
-  ['board.html', 'messages.html'].forEach((p) => {
+  ['board.html', 'line-messages.html'].forEach((p) => {
     assert.ok(矩陣.dispatchPages.some((r) => r.page === p),
       '後端那份裡沒有 ' + p + '，而下面有斷言指名它 ⇒ 那幾條會紅在看不懂的地方');
   });
@@ -228,8 +228,8 @@ test('🔴 lineReady:true → 真的可點的 <a>；lineReady:false → 沒有 <
     assert.match(h, /<a class="card" href="board\.html">/,
       '已遷移的頁沒做成連結 ⇒ 他明明進得去，卻沒有入口');
     assert.match(h, /人事異動看板/);
-    assert.match(h, /<a class="card" href="messages\.html">/,
-      'messages.html（lineReady:true）沒做成連結 ⇒ 分流頁翻了可點，畫面卻還是灰的');
+    assert.match(h, /<a class="card" href="line-messages\.html">/,
+      'line-messages.html（lineReady:true）沒做成連結 ⇒ 分流頁翻了可點，畫面卻還是灰的');
     // 🔴 未遷移的頁（示例列）：出現在畫面上，但不是連結。
     assert.match(h, /示例：尚未遷移的頁/, '未遷移的頁被藏起來了 ⇒ 「沒權限」與「還沒做好」變同一個畫面');
     assert.equal(/<a[^>]+href="__未遷移示例__\.html"/.test(h), false,
@@ -248,7 +248,7 @@ test('⬛ 對照組：把 lineReady 反過來，可點／不可點必須整個�
   try {
     const h = r.get('list').innerHTML;
     assert.equal(/<a[^>]+href="board\.html"/.test(h), false, 'lineReady 反過來了，board 卻還是連結 ⇒ 這一格根本沒看 lineReady');
-    assert.equal(/<a[^>]+href="messages\.html"/.test(h), false, 'lineReady 反過來了，messages 卻還是連結');
+    assert.equal(/<a[^>]+href="line-messages\.html"/.test(h), false, 'lineReady 反過來了，messages 卻還是連結');
     assert.match(h, /<a class="card" href="__未遷移示例__\.html">/, '示例列反成 true 卻沒變連結');
   } finally { r.cleanup(); }
 });
@@ -465,7 +465,7 @@ test('🔴 LIFF SDK 根本沒載進來 → 出聲，不要停在「確認身分�
 test('🔴 頁面清單不得寫死在前端（寫死＝兩份會分歧，而分歧長成「點了被擋」）', () => {
   const html = fs.readFileSync(path.join(ROOT, 'me.html'), 'utf8');
   const 去註解 = html.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
-  ['board.html', 'stats.html', 'hr-stats.html', 'messages.html', 'staff.html'].forEach((p) => {
+  ['board.html', 'stats.html', 'hr-stats.html', 'line-messages.html', 'staff.html'].forEach((p) => {
     assert.equal(去註解.indexOf("'" + p + "'") >= 0 || 去註解.indexOf('"' + p + '"') >= 0, false,
       'me.html 的程式碼裡寫死了 ' + p + ' ⇒ 它開始自己維護一份清單了');
   });

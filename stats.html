@@ -2556,7 +2556,7 @@ var MSG_LOG_UI_ON = true;
   if(!MSG_LOG_UI_ON) return;
   var mt=new URLSearchParams(location.search).get('mt')||'';
   var a=document.getElementById('msgLogLink');
-  if(mt){ a.href='messages.html?t='+encodeURIComponent(mt); a.hidden=false; }
+  if(mt){ a.href='line-messages.html?t='+encodeURIComponent(mt); a.hidden=false; }
 })();
 
 // 未送出警語的呼叫**排在第二發批次之後、且包 queueRead**（2026-08-23，T279）。

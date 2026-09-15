@@ -1,10 +1,10 @@
 /**
- * messages-search.js — LINE 訊息紀錄頁的即時搜尋（messages.html 用）。
+ * messages-search.js — LINE 訊息紀錄頁的即時搜尋（line-messages.html 用）。
  * 純函式、無 DOM 依賴：瀏覽器直接當全域用，node 下由 module.exports 供測試。
  *
  * 為何自己寫、不引程式庫（2026-08-22）：
  * 這頁跑在 GitHub Pages，多一個 CDN 就多一個「它掛掉整頁停擺」的相依，
- * 而全站已經因為外部相依吃過虧（見 messages.html 裡 AbortController 那段註解）。
+ * 而全站已經因為外部相依吃過虧（見 line-messages.html 裡 AbortController 那段註解）。
  * 需要的東西也就四樣，加起來不到 150 行。
  *
  * 四樣是：
