@@ -1,5 +1,5 @@
 /**
- * messages.html 的兩條進來的路（訊息平台多人化「乙」liff 端，線 ML，2026-09-13）。
+ * line-messages.html 的兩條進來的路（訊息平台多人化「乙」liff 端，線 ML，2026-09-13）。
  *
  * 🔴 **為何非在真瀏覽器看不可**：單元測試（`msglog-line-wiring.test.js`）的 DOM 是假的，
  *    證明不了「畫面上真的出現那句話」與「清單真的畫出來」。
@@ -50,7 +50,7 @@ async function open(page, search, { reply = () => OK, liff = {} } = {}) {
     await route.fulfill({ status: 200, contentType: 'application/javascript',
       body: 'cb(' + JSON.stringify(reply(s)) + ')' });
   });
-  await page.goto('/messages.html' + search);
+  await page.goto('/line-messages.html' + search);
   await page.waitForTimeout(1200);
   return { logs, sent };
 }
@@ -110,7 +110,7 @@ test('②成功但回應沒帶 logSince（hub 或 gas 尚未上線）→ 顯示�
 
 test('②還沒登入 → 去 LINE 登入（保留 query），一個請求都沒送', async ({ page }) => {
   const { sent } = await open(page, '?from=welfare&days=180', { liff: { loggedIn: false } });
-  expect(await page.evaluate(() => window.__liffLoginCalled)).toContain('messages.html?from=welfare&days=180');
+  expect(await page.evaluate(() => window.__liffLoginCalled)).toContain('line-messages.html?from=welfare&days=180');
   expect(sent).toEqual([]);
   expect(await visible(page)).toContain('正在前往 LINE 登入');
 });
@@ -148,7 +148,7 @@ test('🔴 ①舊連結：LINE CDN 延遲 5 秒也不拖慢 hub 請求（SDK 只
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(OK) + ')' });
   });
   const t0 = Date.now();
-  await page.goto('/messages.html?t=STUBMT', { waitUntil: 'commit' });
+  await page.goto('/line-messages.html?t=STUBMT', { waitUntil: 'commit' });
   await expect.poll(() => hubAt, { timeout: 9000 }).not.toBeNull();
   const ms = hubAt - t0;
   console.log(`【CDN 延遲 5000ms】①hub 請求於 ${ms}ms 發出；SDK 請求 ${sdkRequests} 次`);
@@ -178,7 +178,7 @@ test('②沒有替身時真的去 CDN 動態載入 SDK（慢 1 秒也等得到�
     sent.push({ at: Date.now(), params: p });
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(OK) + ')' });
   });
-  await page.goto('/messages.html');
+  await page.goto('/line-messages.html');
   await expect.poll(() => sent.length, { timeout: 8000 }).toBe(1);
   expect(sdkRequests).toBe(1);
   expect(sent[0].at).toBeGreaterThanOrEqual(sdkServedAt);
@@ -206,7 +206,7 @@ test('🔴 空的 ?t=（舊書籤 ?t=&days=180）→ 走②：去 CDN 載 SDK、
       method: req.method(), params: p });
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(OK) + ')' });
   });
-  await page.goto('/messages.html?t=&days=180');
+  await page.goto('/line-messages.html?t=&days=180');
   await expect.poll(() => sent.length, { timeout: 8000 }).toBe(1);
   await page.waitForTimeout(500);
   expect(sdkRequests, '空 t 被當成舊路 ⇒ 沒去載 SDK').toBe(1);
@@ -224,7 +224,7 @@ test('② CDN 載入失敗 → 紅字「LINE 的元件沒有載入成功」，�
   const sent = [];
   await page.route(/static\.line-scdn\.net/, (route) => route.abort('failed'));
   await page.route(/script\.google\.com/, async (route) => { sent.push(route.request().url()); await route.abort(); });
-  await page.goto('/messages.html');
+  await page.goto('/line-messages.html');
   await expect(page.locator('#msg')).toContainText('LINE 的元件沒有載入成功');
   await page.waitForTimeout(500);
   expect(sent).toEqual([]);

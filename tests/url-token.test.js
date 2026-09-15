@@ -10,7 +10,7 @@
  *    ① board.html:231 `getToken`
  *    ② attend/hr-stats/stats/checkin/wall/welfare 的 `q(k)`
  *    ③ admin.html:91 的裸 match
- *    ④ staff.html:190／messages.html:485 的 URLSearchParams
+ *    ④ staff.html:190／line-messages.html:485 的 URLSearchParams
  */
 const { test } = require('node:test');
 const assert = require('node:assert');

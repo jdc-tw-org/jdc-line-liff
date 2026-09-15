@@ -129,7 +129,7 @@ test('三頁都把 denyNoRole 接在 jsonp 的解析出口（少接一頁＝那�
   assert.deepEqual(沒接的, [],
     `這幾頁沒有接上 denyNoRole：${沒接的.join('、')}`
     + '——那幾頁拿錯連結的人只會看到普通的載入失敗。'
-    + '（messages.html 刻意不接，理由寫在它自己的 callApi 檔頭，不要加進這張清單。）');
+    + '（line-messages.html 刻意不接，理由寫在它自己的 callApi 檔頭，不要加進這張清單。）');
 });
 
 test('stats.html 的 surfaceErr 不會把 reason 吃掉（它多包了一層，另兩頁沒有）', () => {

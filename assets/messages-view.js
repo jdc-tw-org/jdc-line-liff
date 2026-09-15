@@ -1,5 +1,5 @@
 /**
- * messages-view.js — LINE 訊息紀錄頁的共用渲染（messages.html 用）。
+ * messages-view.js — LINE 訊息紀錄頁的共用渲染（line-messages.html 用）。
  * 純函式、無 DOM 依賴：呼叫端自己把回傳的字串塞進自己的節點。
  * 雙環境：瀏覽器直接當全域用，node 下由 module.exports 供測試。
  *

@@ -1096,21 +1096,24 @@ function showServerReject(r) {
 
 /**
  * 🔴 **2026-09-13（訊息平台多人化「乙」，線 ML）改成走 LINE 登入，不再帶 hub 的 token。**
- *    連結只帶 `from=welfare`（＋天數）：`messages.html` 看到它就改打 gas 的
+ *    連結只帶 `from=welfare`（＋天數）：`line-messages.html` 看到它就改打 gas 的
  *    `getWelfareMessageLog`，**只帶 idToken**——與本頁 `wfCall` 同一條路（本頁已經只走 LINE 登入）。
  *    誰看得到什麼由 gas 的守門與角色過濾決定，`from` 不是授權。
  *
  * ⚠️ **刻意不再讀 `r.msgLogToken`／`r.msgLogWhy`**（`getWelfareAudience` 仍會回，並行期後端不動）。
- *    讀了就會把 `?t=` 帶回網址 ⇒ `messages.html` 走①舊路、瀏覽器又拿 hub token 直接打 hub，
- *    正是這一刀要消滅的東西。舊的 `messages.html?t=` 書籤仍然能用（那是 messages.html 的①）。
+ *    讀了就會把 `?t=` 帶回網址 ⇒ `line-messages.html` 走①舊路、瀏覽器又拿 hub token 直接打 hub，
+ *    正是這一刀要消滅的東西。①那條路本身還在，只是那一頁 2026-09-15 改名了。
+ *    🔴 **改名前這裡寫的是「舊的 `messages.html?t=` 書籤仍然能用」——改名之後那句是假的**
+ *       （`#17` 拍板不轉址 ⇒ 舊書籤現在就是 404，那是知情選的）。
+ *       仍然成立的是：**`?t=` 那條路沒有被拿掉，只是網址換了名字**（`line-messages.html?t=`）。
  * ⚠️ 入口因此**不再依賴換發成功**：以前 `msgLogToken` 換不到就不給連結；現在連結永遠在，
- *    讀不到的原因改由 messages.html 那一頁講（hub 讀不到、角色不符都有一句話）。
+ *    讀不到的原因改由 line-messages.html 那一頁講（hub 讀不到、角色不符都有一句話）。
  */
 function renderMsgLogEntry(r) {
   var el = document.getElementById('msglog-entry');
   el.innerHTML = '';
   var a = document.createElement('a');
-  a.href = 'messages.html?from=welfare&days=180';
+  a.href = 'line-messages.html?from=welfare&days=180';
   a.textContent = '訊息紀錄';
   el.appendChild(a);
 }

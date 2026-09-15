@@ -52,7 +52,7 @@
     <div class="d">年資／年齡分佈・單位結構・退休預警</div>
   </a>
   <!-- 帶了 mt 顯示這張（可點）；沒帶則顯示下面那張說明，不會整個不見 -->
-  <a class="card" id="go-messages" href="messages.html" hidden>
+  <a class="card" id="go-messages" href="line-messages.html" hidden>
     <div class="t">✉️ LINE 訊息紀錄</div>
     <div class="d">每一則 LINE 通知的發送紀錄・依批次摺疊</div>
   </a>
@@ -105,7 +105,7 @@ if(t){
 //   2. 沒帶 mt 但有 t → 跟後端換一顆（舊書籤直接生效，不必要求任何人改網址）
 //   3. 連 t 都沒有 → 說明卡
 var ml=document.getElementById('go-messages');
-function showMsgLog(tok){ ml.href='messages.html?t='+encodeURIComponent(tok); ml.hidden=false; }
+function showMsgLog(tok){ ml.href='line-messages.html?t='+encodeURIComponent(tok); ml.hidden=false; }
 function showNote(title,desc){
   document.getElementById('msg-note-t').textContent=title;
   document.getElementById('msg-note-d').textContent=desc;
@@ -140,7 +140,7 @@ function jsonp(action,params,timeoutMs){
 // 換來的 mt 存進既有的加密快取（T280，2026-08-22 使用者拍板方案 D）。
 // 第二次之後開這一頁，LINE 訊息紀錄入口**一趟 API 都不用打**、直接可點。
 // ⚠️ 存的是一顆憑證。可接受的理由：mt 本來就會出現在網址列
-//    （`messages.html?t=<mt>`），而同一份 board-cache 已經在存人事看板的姓名資料，
+//    （`line-messages.html?t=<mt>`），而同一份 board-cache 已經在存人事看板的姓名資料，
 //    沒有新的洩漏類型。加密＝AES-GCM、7 天 TTL、依 t 的指紋分格。
 var MSG_TOKEN_SLICE='getMsgLogToken';
 if(mt){

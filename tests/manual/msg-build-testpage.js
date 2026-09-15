@@ -1,7 +1,7 @@
 /**
- * 產生 LINE 訊息紀錄（messages.html）UI 宋幼安的測試頁。
+ * 產生 LINE 訊息紀錄（line-messages.html）UI 宋幼安的測試頁。
  *
- * 手法沿用 wall-build-testpage.js：把 messages.html 原封複製，只在 <head> 最前面插一段
+ * 手法沿用 wall-build-testpage.js：把 line-messages.html 原封複製，只在 <head> 最前面插一段
  * script 覆寫 window.fetch，讓 hub 的 listMessageLog 回一份假紀錄。
  * **只換網路層，不碰 DOM**——頁面仍走自己的啟動流程，所以語法錯誤、初始化早退、
  * CSS 破版這些都還驗得到。
@@ -111,7 +111,7 @@ const rows = BATCHES.reduce((acc, o) => acc.concat(batch(o)), []);
 const payload = { ok: true, header: LOG_HEADER, rows: rows, logSince: '2026-07-01' };
 
 /* ── 組測試頁 ─────────────────────────────────────────── */
-const src = path.join(__dirname, '..', '..', 'messages.html');
+const src = path.join(__dirname, '..', '..', 'line-messages.html');
 let html = fs.readFileSync(src, 'utf8');
 
 const stub = `<script>

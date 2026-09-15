@@ -63,7 +63,16 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    多了一個 `"admin"`。**`who` 一格都沒動**（實測：diff 是 84 加 0 減，加的全是 `"admin"`），
  *    因為 `roleAllows` 本來就讓 admin 通吃 ⇒ 前端守門的判定零變化。
  */
-const PIN = 'dfdd0bcebaf8a8d1b192136f0d2b2962f16d9fa39647d33d6b27624d41510bd4';
+/**
+ * 🔴 2026-09-15（liff #17 ＋ gas #18）：分流表的**兩列改名**，副本跟著重產。
+ *    diff 恰好 3 行，全在 `dispatchPages` 底下，**`actions` 一個字沒動**：
+ *      `messages.html` → `line-messages.html`（liff `#17`，不轉址，舊網址就是 404）
+ *      `welfare.html`  → `line.html`、title `LINE 傳送平台` → `line訊息發訊`（liff `#18` 整頁改名）
+ *    ⇒ **沒有任何人的權限變了**：`ACTION_ROLES` 未動、gas 的矩陣基準檔差異只有被量檔的 sha256。
+ *    ⚠️ 第二列是在補一個**已經存在的洞**：liff `#18` 2026-09-14 就合了，而 gas 的表沒跟著改名
+ *      ⇒ 從那天起分流頁上「LINE 傳送平台」那個連結點下去是 404。
+ */
+const PIN = 'a342a43aa0d8216371621443917394ff79d1816893b1a21153937b39b4966f21';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
