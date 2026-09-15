@@ -99,7 +99,7 @@ test('🔴 別的 reason 不蓋整頁（只有 role_mismatch 這一種該蓋）'
   //      另外 `verify_*` 與 `identity_*` 是**動態拼出來的**（`'verify_' + v.reason`）。
   //    🔴 動態拼的那兩支**列不完** ⇒ 判準只能是白名單（「只有 role_mismatch 蓋」），
   //       不能是黑名單。這一條測的就是白名單這個形狀。
-  //    ⚠️ 第二套今天走不到這三頁：`welfare.html` 沒有載入本檔（2026-09-08 實測，
+  //    ⚠️ 第二套今天走不到這三頁：`line.html` 沒有載入本檔（2026-09-08 實測，
   //       `grep -ln deny-no-role *.html` 只有 board／stats／hr-stats／messages）。
   //       列在這裡是防判準日後被放寬成「有 reason 就蓋」，不是宣稱這三頁會收到它。
   //    「沒有 reason 欄位」則是今天最常見的一種：`gateAction` 8 處拒絕裡有 5 處

@@ -137,8 +137,8 @@ test('🔴 messages.html 不可以再同步載入 LINE SDK（頁尾 <script src=
   const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'messages.html'), 'utf8');
   const tags = html.match(/<script[^>]*\bsrc="[^"]*static\.line-scdn\.net[^"]*"[^>]*>/g) || [];
   assert.deepEqual(tags, []);
-  // ⬛ 對照組：同一條樣式抓得到 welfare.html 的同步載入（否則上面的空陣列恆真）
-  const w = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'welfare.html'), 'utf8');
+  // ⬛ 對照組：同一條樣式抓得到 line.html 的同步載入（否則上面的空陣列恆真）
+  const w = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'line.html'), 'utf8');
   assert.equal((w.match(/<script[^>]*\bsrc="[^"]*static\.line-scdn\.net[^"]*"[^>]*>/g) || []).length, 1);
 });
 
@@ -296,8 +296,8 @@ test('②憑證過期（line_bad_token）→ 接上 liff-relogin：真的 logout
 
 /* ══ 發訊頁入口 ═════════════════════════════════════════════════════════ */
 
-test('🔴 welfare.html 的訊息紀錄入口：連到 messages.html?from=welfare，不帶 ?t=、不讀 msgLogToken', () => {
-  const fn = S.stripComments(S.fnSrc('renderMsgLogEntry', 'welfare.html'));
+test('🔴 line.html 的訊息紀錄入口：連到 messages.html?from=welfare，不帶 ?t=、不讀 msgLogToken', () => {
+  const fn = S.stripComments(S.fnSrc('renderMsgLogEntry', 'line.html'));
   assert.ok(fn.length > 40, '⬛ 抽不到 renderMsgLogEntry ⇒ 下面的「不含」恆真');
   assert.match(fn, /'messages\.html\?from=welfare&days=180'/);
   assert.equal(/msgLogToken/.test(fn), false, '入口又讀了 msgLogToken ⇒ 會把 hub token 帶回網址');

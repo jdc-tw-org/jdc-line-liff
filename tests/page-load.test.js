@@ -227,7 +227,7 @@ test('⬛ 零點：掃目錄真的掃得到頁面——回 0 頁的話上面整�
     `只掃到 ${PAGES.length} 頁（${PAGES.join(', ')}）——掃描壞掉時上面的 for 迴圈會一支測試都不產生，而檔案照樣全綠`);
   // 錨點：這幾頁壞掉的代價最高（index 掛了全公司進不來、staff 掛了現場整隊卡住、
   // welfare 是唯一「按下去就發 137 則收不回來」的頁）。掃描漏了它們必須是紅的。
-  for (const must of ['index.html', 'staff.html', 'welfare.html', 'board.html', 'checkin.html']) {
+  for (const must of ['index.html', 'staff.html', 'line.html', 'board.html', 'checkin.html']) {
     assert.ok(PAGES.includes(must), `${must} 不在掃描結果裡——掃描的定義域壞了`);
   }
 });

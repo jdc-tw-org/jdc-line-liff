@@ -914,7 +914,7 @@ var LIFF_SDK_URL = 'https://static.line-scdn.net/liff/edge/2/sdk.js';
  *      300ms 內顯示「無權限或連結已失效。」⇒ 沒帶 t 的人在 main 是**秒回無權限**，在本版是**要等 SDK**。
  *      （`f2ef5bf` 曾同步載入 SDK，但那一版從沒進 main，不是「改動前」。）
  *    · 本版②的這個等待，與全站其他同步載入 SDK 的 LIFF 頁一致。發訊承辦人從發訊頁入口走不到這一格：
- *      `welfare.html` 自己同步載 SDK，CDN 不回應時她整頁停在「正在確認身分…」，根本點不到入口。
+ *      `line.html` 自己同步載 SDK，CDN 不回應時她整頁停在「正在確認身分…」，根本點不到入口。
  *    · 這一刀只保證①（帶 ?t=）不等 CDN；要不要替②加逾時是另一件事，這裡沒做。
  */
 function loadLiffSdk() {
@@ -958,7 +958,7 @@ function startLine() {
  * ②的呼叫。傳輸走全站共用的 `assets/gas-call.js`（POST、永遠 resolve），不在這頁再 inline 一份。
  *
  * 🔴 **只帶 idToken，而且在呼叫當下才取**（它只有效一小時）。呼叫端塞進來的 `token`／`t` 一律拿掉
- *    ——後端 `doGet` 的分流是「token 非空就走舊守門」，留一個縫等於沒改（同 welfare.html 的 `wfCall`）。
+ *    ——後端 `doGet` 的分流是「token 非空就走舊守門」，留一個縫等於沒改（同 line.html 的 `wfCall`）。
  * 重試：與①的 `callApi` 同一個策略——**只對傳輸失敗**重試一次、隔 2 秒；伺服器說不行（含 hub_unreadable）不重試。
  *    這一支唯讀，重送沒有副作用。
  * 解析出口接 `liff-relogin.js`：憑證過期（`line_bad_token`）時真的重新登入一次。

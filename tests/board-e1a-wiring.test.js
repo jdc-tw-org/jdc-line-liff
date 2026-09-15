@@ -278,7 +278,7 @@ for (const [路, search, want] of [['②新路', '', 'stats.html'], ['⬛①舊�
 test('LIFF ID 與 index／welfare 同一條（tools.md：不多開 LIFF ID）', () => {
   const pick = (f, re) => (fs.readFileSync(path.join(ROOT, f), 'utf8').match(re) || [])[1];
   const b = pick('board.html', /^var LIFF_ID='([^']+)';/m);
-  const w = pick('welfare.html', /^var LIFF_ID = '([^']+)';/m);
+  const w = pick('line.html', /^var LIFF_ID = '([^']+)';/m);
   const i = pick('index.html', /^\s*var LIFF_ID = '([^']+)';/m);
   assert.ok(b, 'board.html 找不到 LIFF_ID');
   assert.equal(b, w, 'board 與 welfare 的 LIFF ID 不同');

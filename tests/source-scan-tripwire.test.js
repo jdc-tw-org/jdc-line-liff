@@ -25,7 +25,7 @@ const S = require('./helpers/source-scan.js');
 
 const F = 'tests/fixtures/scan-cases.fixture.html';
 const F文 = S.scriptText(F);
-const 頁文 = S.scriptText('welfare.html');
+const 頁文 = S.scriptText('line.html');
 
 /** 近似變體 A：`^function N(` 到行首 `}`——`welfare-page-wiring` 等 5 個檔在用的那種。 */
 const 近似A = (src, n) => {
@@ -49,9 +49,9 @@ test('⬛ 零點：抽 `<script>` 真的抽到東西，而且是這一頁的量�
   // 🔴 抽 script 是絆線（字串裡的 `</script>` 會提早截斷），失效方向是**少取**，
   //    而少取跟「這一頁沒有那支函式」一模一樣。所以零點要問「取到多少」。
   assert.ok(頁文.length > 20000,
-    'welfare.html 只抽到 ' + 頁文.length + ' 字元 ⇒ 抽 script 被提早截斷了');
-  assert.ok(S.fnNames('welfare.html').length > 40,
-    '只列到 ' + S.fnNames('welfare.html').length + ' 支函式 ⇒ 任何「對每一支都成立」的斷言會變成裝飾品');
+    'line.html 只抽到 ' + 頁文.length + ' 字元 ⇒ 抽 script 被提早截斷了');
+  assert.ok(S.fnNames('line.html').length > 40,
+    '只列到 ' + S.fnNames('line.html').length + ' 支函式 ⇒ 任何「對每一支都成立」的斷言會變成裝飾品');
 });
 
 test('⬛ 零點：精確取法只取那一支，不會吃到隔壁', () => {
@@ -63,7 +63,7 @@ test('⬛ 零點：精確取法只取那一支，不會吃到隔壁', () => {
   assert.ok(b.endsWith('}'), '取到的結尾不是 `}` ⇒ 被截斷了：' + b.slice(-60));
   assert.match(b, /gasCall/, '取到的不是 wfCall 的本體');
   // ⬛ 不會吃到下一支頂層函式：拿實際排在它後面的那支的名字當哨兵
-  const 名單 = S.fnNames('welfare.html');
+  const 名單 = S.fnNames('line.html');
   const 後面的 = 名單.filter((n) => n !== 'wfCall' && 頁文.indexOf('function ' + n + '(') > 頁文.indexOf('function wfCall('));
   assert.ok(後面的.length > 0, '前提不成立：wfCall 後面沒有別的函式了，這格哨兵失效');
   後面的.forEach((n) => {
@@ -92,19 +92,19 @@ test('🔴 反例 C：巢狀區塊的 `}` 讓「到第一個 \\n} 為止」提�
     'helper 也提早收手了 ⇒ 它退回近似了');
 });
 
-test('🔴 反例①b 不是假想：welfare.html 現在就有一行寫法的函式，近似 A 對它們全錯', () => {
+test('🔴 反例①b 不是假想：line.html 現在就有一行寫法的函式，近似 A 對它們全錯', () => {
   // 2026-09-10 實測 5 支（q／bumpUiGen／showOtpInput／hideOtpInput／otpValue），
   // 最惡的 `q` 近似取到 2032 字元、實際 113 ⇒ **多吞 1,919 字元**。
   // ⚠️ **不斷言「有幾支」**——那是今天的事實，會腐爛，而且改成多行寫法是合法的。
-  const 一行的 = S.fnNames('welfare.html')
-    .filter((n) => S.fnSrc(n, 'welfare.html').indexOf('\n') < 0);
+  const 一行的 = S.fnNames('line.html')
+    .filter((n) => S.fnSrc(n, 'line.html').indexOf('\n') < 0);
   assert.ok(一行的.length > 0,
     '一支一行寫法的函式都沒有了 ⇒ 這條反例在這一頁上失去對象。'
     + '它不是壞了，是沒對象了：確認之後可以刪，但先確認不是 fnSrc 壞掉。');
   一行的.forEach((n) => {
     const 近 = 近似A(頁文, n);
     if (近 === null) return;   // 近似連找都找不到，那是另一種失效，不在這條的範圍
-    assert.notStrictEqual(近.trim(), S.fnSrc(n, 'welfare.html').trim(),
+    assert.notStrictEqual(近.trim(), S.fnSrc(n, 'line.html').trim(),
       n + ' 的近似取法竟然跟引擎一致 ⇒ 這條反例對它失效了');
   });
 });
@@ -134,9 +134,9 @@ test('🔴 取不到就要吵，不可以靜默回空', () => {
  * ════════════════════════════════════════════════════════════════════ */
 
 test('⬛ 零點：頂層碼真的會中途拋例外（liff 版整個手法架在這件事上）', () => {
-  const d = S.loadDiag('welfare.html');
+  const d = S.loadDiag('line.html');
   assert.ok(d.error,
-    'welfare.html 的頂層碼在空 context 裡跑完了 ⇒ 前提變了。'
+    'line.html 的頂層碼在空 context 裡跑完了 ⇒ 前提變了。'
     + '這不是壞消息，但 helper 檔頭那段「跑不完是常態」要改，'
     + '而且下面那條 `var f = function` 的盲區可能已經消失。');
   assert.ok(d.line > 0 && d.line < d.totalLines,
@@ -157,7 +157,7 @@ test('絆線：`var f = function () {}` 寫在載入例外之後 ⇒ **靜默**�
     '例外之後的 function 宣告拿不到 ⇒ hoisting 沒發生，整個手法的前提不成立');
 });
 
-test('絆線：welfare.html 今天沒有頂層 `var f = function`，所以上面那個盲區沒在咬', () => {
+test('絆線：line.html 今天沒有頂層 `var f = function`，所以上面那個盲區沒在咬', () => {
   // 🔴 **「現在沒有在咬」與「不會咬」是兩件事，而前者會腐爛。**
   //    它會在有人寫出第一個頂層 `var f = function () {}` 那天開始咬，
   //    而那天**不會有任何訊號**——fnSrc 只會說「找不到函式」，讀起來像打錯字。
@@ -389,7 +389,7 @@ test('⬛ 零點：這道掃描真的掃得到東西（否則上面兩條在空�
  * ⭐ **那是「有東西可以吃」，不是「正在被吃」。** 兩者中間差一步：
  *    多吞的那一段被 `runInContext` 執行之後，才會真的蓋掉測試放進去的替身。
  *
- * 這一節就是那一步。當天實測 `welfare.html` 的結果，**寫在這裡當背景，不當斷言**：
+ * 這一節就是那一步。當天實測 `line.html` 的結果，**寫在這裡當背景，不當斷言**：
  *
  *   | 用近似取這一支 | 多吞     | 蓋到（當時只種一個替身） | 結果          |
  *   |---------------|---------|-----------|------------------------|
@@ -445,11 +445,11 @@ function 污染實測(取法, name, file, 名單) {
 }
 
 test('🔴 不變量：精確取法載入任何一支，都不會蓋掉 context 裡別的名字', () => {
-  const 名單 = S.fnNames('welfare.html');
+  const 名單 = S.fnNames('line.html');
   assert.ok(名單.length > 40, '只列到 ' + 名單.length + ' 支 ⇒ 這條在小集合上幾乎恆真');
   const 出事的 = [];
   名單.forEach((n) => {
-    const r = 污染實測((x) => S.fnSrc(x, 'welfare.html'), n, 'welfare.html', 名單);
+    const r = 污染實測((x) => S.fnSrc(x, 'line.html'), n, 'line.html', 名單);
     if (r.被蓋掉.length) 出事的.push(n + ' 蓋掉了 ' + r.被蓋掉.join('、'));
   });
   assert.deepStrictEqual(出事的, [],
@@ -458,7 +458,7 @@ test('🔴 不變量：精確取法載入任何一支，都不會蓋掉 context 
 });
 
 test('⬛ 零點：同一個量法對近似取法會回「有被蓋掉」——否則上面那條在量不到的東西上恆真', () => {
-  // 受測物刻意是**夾具**不是 welfare.html：夾具由我們控制，這條不會因為頁面重構而失去對象。
+  // 受測物刻意是**夾具**不是 line.html：夾具由我們控制，這條不會因為頁面重構而失去對象。
   const 名單 = S.fnNames(F);
   const r = 污染實測((x) => 近似A(F文, x), '一行的_', F, 名單);
   assert.ok(r.被蓋掉.indexOf('下一支_') >= 0,
@@ -494,11 +494,11 @@ test('⬛ 零點：同一個量法對近似取法會回「有被蓋掉」——�
 });
 
 test('🔴 這一頁今天真的在被吃：近似取法至少污染一支（列出是哪幾支、哪幾支是靜默的）', () => {
-  const 名單 = S.fnNames('welfare.html');
+  const 名單 = S.fnNames('line.html');
   const 靜默 = [];
   const 吵的 = [];
   名單.forEach((n) => {
-    const r = 污染實測((x) => 近似A(頁文, x), n, 'welfare.html', 名單);
+    const r = 污染實測((x) => 近似A(頁文, x), n, 'line.html', 名單);
     if (!r || !r.被蓋掉.length) return;
     (r.靜默污染 ? 靜默 : 吵的).push(
       n + '（近似取到 ' + r.段長 + ' 字元，蓋掉 ' + r.被蓋掉.join('、')

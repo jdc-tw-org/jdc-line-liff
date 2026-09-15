@@ -19,7 +19,7 @@ module.exports = {
     // 零相依的自製 server。`npx --yes http-server` 第一次要下載套件，
     // 本機實測會卡在那裡（測試永遠不開始，而且沒有任何輸出）。
     command: 'node tests/e2e/serve.js',
-    url: 'http://127.0.0.1:4173/welfare.html',
+    url: 'http://127.0.0.1:4173/line.html',
     // 🔴 **刻意不 reuse。** 2026-08-23 踩過：port 被另一個 session 的伺服器佔住，
     //    自己的 server 沒 bind 就死了，瀏覽器連到對方工作樹的檔案
     //    ——受測物是別人的檔案，而測試照樣有結果。
