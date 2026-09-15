@@ -29,6 +29,24 @@
     "previewPassBroadcast"
   ],
   "actions": {
+    "__authzDomain": {
+      "roles": [
+        "admin",
+        "public"
+      ],
+      "who": [
+        "admin",
+        "activity",
+        "hr",
+        "hrstats",
+        "view",
+        "staff",
+        "welfare",
+        "future",
+        "messaging",
+        "unknown"
+      ]
+    },
     "__whoami": {
       "roles": [
         "admin",
