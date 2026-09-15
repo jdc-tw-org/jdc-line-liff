@@ -44,8 +44,11 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
 /**
  * 本 repo 宣告的那一份副本的 sha256（raw bytes）。
  * 2026-09-14：對應後端整合完（拿掉 welfare／broadcast ＋ 分流表加一列）之後重產的那一份。
+ * 🔴 2026-09-15（gas #15）：後端把 `admin` 寫進 `ACTION_ROLES` 的 91 格 ⇒ 每一支的 `roles`
+ *    多了一個 `"admin"`。**`who` 一格都沒動**（實測：diff 是 84 加 0 減，加的全是 `"admin"`），
+ *    因為 `roleAllows` 本來就讓 admin 通吃 ⇒ 前端守門的判定零變化。
  */
-const PIN = 'b9041f301a2891112f25fe3fef39a1ab94defbfe2a55d8ca60e7984f4fe90745';
+const PIN = 'd987d1fe5747907ed8f8bc72875ec3cde6a3932c7934ad276a92197a7777bd71';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
