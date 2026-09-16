@@ -7,6 +7,11 @@
   /* 整頁鋪滿的方格牆。單位靠**顏色**分辨（使用者原始需求），格子在流向上依單位相鄰，
      所以同色會聚成一片區域——即使兩個單位的色相接近，位置也分得開。
      色票走同一族的綠→青，只變色相與明度，不亂跳彩度：整面牆才不會花。 */
+  /* 🔴 淺色那一半的值**與 `assets/ui.css` 逐字相同**（全站語彙的唯一副本）。
+     ⚠️ **這一頁不 `<link>` 進去**：`ui.css` 的 `body` 帶 `max-width:480px`，
+        而這一頁是**整個視窗的投影牆**（`#stage` position:fixed inset:0）。
+     ⇒ `tests/ui-token-parity.test.js` 釘住它們相等；改 `ui.css` 而沒改這裡會紅。
+     `--done`／`--scrim` 是這一頁自己的，不在共用那份裡。 */
   :root {
     --r: #ac1335;
     --ink: #2c2c2b; --ink2: #6b6b68; --ink3: #9a9a96;
@@ -136,11 +141,11 @@
   .n b { font-size: clamp(20px, 3.6vw, 52px); font-weight: 600; line-height: 1;
          font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
   .n span { font-size: clamp(10px, 1vw, 14px); color: var(--ink3); }
-  .n.arrived b { color: #3f7a5e; }
+  .n.arrived b { color: #4a7c62; }   /* ＝ `assets/ui.css` 的 --g（原本 #3f7a5e，差一階、沒有理由） */
   .n.left b { color: var(--r); }
   .n.total b { color: var(--ink3); }
   @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .n.arrived b { color: #8ab79c; }
+    :root:not([data-theme="light"]) .n.arrived b { color: #8fb8a1; }   /* 與 staff.html 深色的 --ok-fg 同值 */
   }
 
   /* 錯誤才出現。正常運作時畫面上只有四個資訊 */

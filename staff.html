@@ -12,23 +12,32 @@
   /* 淺色值全數沿用平台既有語言（index.html／checkin.html 同源）：主色 #06c755、
      語意四色 msg-ok/warn/err、白卡 12px 圓角、480 置中。
      深色是本頁新增的——平台原本沒有深色定義，色相沿用、只換明度，語意不變。 */
+  /* 🔴 淺色那一半的值**逐字取自 `assets/ui.css`**（全站語彙的唯一副本，2026-09-16）。
+     ⚠️ **這一頁不 `<link>` 進去**，理由是硬的：`ui.css` 的 `body` 帶 `max-width:480px`
+        與 20/16/40 的內距，而這一頁是**滿版的掃描介面**（`#top` sticky、`#cam` 38vh）
+        ⇒ 接上去會把相機框壓成 480 寬。
+     ⇒ 代價是這裡有一份副本。**`tests/ui-token-parity.test.js` 釘住它們相等**——
+        改 `ui.css` 而沒改這裡，那條測試會紅。沒有那條測試的話這就是散在多處的第五份。
+     深色那一半是這一頁自己的（會場燈光昏暗時掃描用），色相跟著上面走、只換明度。 */
   :root{
-    --bg:#f7f7f7; --card:#fff; --sub:#fafafa; --line:#eee; --line2:#ddd;
-    --ink:#1a1a1a; --txt:#333; --mut:#888; --faint:#aaa;
-    --ok-bg:#e6f9ee; --ok-fg:#1a7d44;
-    --wa-bg:#fff4e5; --wa-fg:#8a5300;
-    --er-bg:#fdecea; --er-fg:#b71c1c;
-    --primary:#06c755;
+    --bg:#fbfbfa; --card:#fff; --sub:#f6f6f4; --line:#ececea; --line2:#d9d9d6;
+    --ink:#2c2c2b; --txt:#2c2c2b; --mut:#6b6b68; --faint:#9a9a96;
+    --ok-bg:#eff4f1; --ok-fg:#4a7c62;
+    --wa-bg:#f7f2e6; --wa-fg:#8a6a2f;
+    --er-bg:#fbeef1; --er-fg:#8f3040;
+    --primary:#2f4858;
     --shadow:0 1px 4px rgba(0,0,0,.08);
     --frame:rgba(255,255,255,.85);
   }
+  /* 深色：色相與上面同一族、只換明度。灰階與 `wall.html` 的深色對齊
+     （那一頁也是會場用的，兩塊螢幕同時亮著時不該是兩種灰）。 */
   :root[data-theme="dark"]{
-    --bg:#121415; --card:#1c1f21; --sub:#191c1e; --line:#2a2e30; --line2:#3a4143;
-    --ink:#f0f2f2; --txt:#d6dadb; --mut:#8f9698; --faint:#6d7476;
-    --ok-bg:#102a1d; --ok-fg:#5fd48f;
-    --wa-bg:#2e2210; --wa-fg:#e9b063;
-    --er-bg:#2e1614; --er-fg:#f0908f;
-    --primary:#06c755;
+    --bg:#141413; --card:#1e1e1c; --sub:#1a1a18; --line:#2b2b28; --line2:#3b3b37;
+    --ink:#e8e8e5; --txt:#c9c9c4; --mut:#a9a9a4; --faint:#7c7c78;
+    --ok-bg:#1b2b22; --ok-fg:#8fb8a1;
+    --wa-bg:#2b2417; --wa-fg:#d4b078;
+    --er-bg:#2e1a1f; --er-fg:#d99aa6;
+    --primary:#7a97a8;
     --shadow:0 1px 4px rgba(0,0,0,.5);
     --frame:rgba(255,255,255,.75);
   }
@@ -77,6 +86,11 @@
   #frame .tr{top:0;right:0;border-left:0;border-bottom:0;border-radius:0 4px 0 0}
   #frame .bl{bottom:0;left:0;border-right:0;border-top:0;border-radius:0 0 0 4px}
   #frame .br{bottom:0;right:0;border-left:0;border-top:0;border-radius:0 0 4px 0}
+  /* 🔴 **這三顆刻意維持高飽和，不跟著語彙降飽和。**
+     它們不是裝飾，是**功能訊號**：工作人員在會場嘈雜環境下**不讀字**，
+     只看對焦框閃什麼顏色就知道成不成。降飽和＝在強光與斜視角下分不出綠與琥珀。
+     ⚠️ 判準是「這個顏色要不要在不看字的情況下被認出來」——
+        是 ⇒ 留高飽和；否 ⇒ 走語彙。頁面上其餘的顏色都屬於後者。 */
   #frame.hit-ok  span{border-color:#06c755}
   #frame.hit-dup span{border-color:#f5a524}
   #frame.hit-bad span{border-color:#e5484d}
