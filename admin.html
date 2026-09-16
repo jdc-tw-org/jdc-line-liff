@@ -105,7 +105,13 @@ if(t){
 //   2. 沒帶 mt 但有 t → 跟後端換一顆（舊書籤直接生效，不必要求任何人改網址）
 //   3. 連 t 都沒有 → 說明卡
 var ml=document.getElementById('go-messages');
-function showMsgLog(tok){ ml.href='line-messages.html?t='+encodeURIComponent(tok); ml.hidden=false; }
+// 🪦 **不再把 token 接進網址**（`jdc-tw-org/jdc-line-hub#27`，2026-09-16）：訊息紀錄頁只剩 LINE 登入一條路。
+//    卡片的 href 本來就寫著不帶 token 的 `line-messages.html`（見上面的 markup），這裡只負責顯示它。
+// ⚠️ **三條路的分流、`getMsgLogToken` 那一發、加密快取全部逐字不變**——
+//    誰看得到這張卡一個人都沒有變（票上改過的閘門：「打 gas 的呼叫逐字不變」）。
+//    留著參數 `tok` 是刻意的：呼叫端兩處（有 mt／跟後端換一顆）不必動，diff 只有鑄造那一段。
+// 🔘 留給擁有者的後續：`getMsgLogToken` 換來的那顆 token 現在沒有人用了（見票 #27）。
+function showMsgLog(tok){ ml.hidden=false; }
 function showNote(title,desc){
   document.getElementById('msg-note-t').textContent=title;
   document.getElementById('msg-note-d').textContent=desc;
@@ -139,9 +145,14 @@ function jsonp(action,params,timeoutMs){
 //    （見下一段註解）。排在預取之前是刻意的——這支決定畫面上看不看得到入口，優先。
 // 換來的 mt 存進既有的加密快取（T280，2026-08-22 使用者拍板方案 D）。
 // 第二次之後開這一頁，LINE 訊息紀錄入口**一趟 API 都不用打**、直接可點。
-// ⚠️ 存的是一顆憑證。可接受的理由：mt 本來就會出現在網址列
-//    （`line-messages.html?t=<mt>`），而同一份 board-cache 已經在存人事看板的姓名資料，
-//    沒有新的洩漏類型。加密＝AES-GCM、7 天 TTL、依 t 的指紋分格。
+// ⚠️ 存的是一顆憑證。加密＝AES-GCM、7 天 TTL、依 t 的指紋分格。
+//    🔴 **2026-09-16（`jdc-tw-org/jdc-line-hub#27`）：原本的理由已經有一半是假的，照現況重寫。**
+//       原文是「mt 本來就會出現在網址列（`line-messages.html?t=<mt>`），沒有新的洩漏類型」。
+//       `?t=` 那條路拆掉之後，**mt 不再出現在任何一條網址上** ⇒ 那半句不成立了。
+//       現在撐著這個決定的只剩另外半句：同一份 board-cache 已經在存人事看板的姓名資料，
+//       所以這裡沒有引進新的**類型**。而它現在存的是一顆**已經沒有人用的** token
+//       （hub 那側 `listMessageLog` 已是墓碑）⇒ 它的價值也同步降到 0。
+//    🔘 這一格是否還要留著，是擁有者的決定，不在本票範圍（本票只拆鑄造出來的網址）。
 var MSG_TOKEN_SLICE='getMsgLogToken';
 if(mt){
   showMsgLog(mt);                       // 這一頁的後端是 hub，吃的是 mt
