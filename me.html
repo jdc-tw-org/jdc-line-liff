@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-<title>我的頁面</title>
+<title>員工入口</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/gas-call.js"></script>
@@ -16,6 +16,11 @@
     margin: 0; padding: 24px 16px 48px; font-size: 16px; line-height: 1.6;
     color: #333; background: #f7f7f7; max-width: 480px; margin-left: auto; margin-right: auto;
   }
+  /* 品牌區：**逐字沿用 index.html 的 `.brand`**（同一份 logo、同一個 max-width）。
+     刻意不另發明一套——兩頁是同一個入口的兩半（未綁定看 index、有角色看這裡），
+     長得不一樣會讓人以為走錯地方了。 */
+  .brand { text-align: center; margin: 2px 0 14px; }
+  .brand img { width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto; }
   h1 { font-size: 20px; margin: 0 0 4px; color: #1a1a1a; }
   #who { font-size: 14px; color: #777; margin: 0 0 20px; min-height: 22px; }
   #who.err { color: #c00; }
@@ -53,7 +58,8 @@
 </style>
 </head>
 <body>
-<h1>我的頁面</h1>
+<div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
+<h1>員工入口</h1>
 <p id="who">確認身分中…</p>
 <div id="list"></div>
 <div class="foot" id="foot"></div>
