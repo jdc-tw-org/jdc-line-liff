@@ -233,3 +233,55 @@ test('⬛ 對照組：沒點「診斷」就不量——量測本身不送 /exec�
   expect(await page.locator('#content').innerText(), '量測把畫面弄壞了').toContain('不參加');
   noLeak(r);
 });
+
+/* ══ 三條路徑（票上第二條檢核）══ 本機量不到，這一條就是那個「量不到」的證據 ══
+ *
+ * 想做的事：把正式站的 `max-age=600` 造出來，開著分頁時換掉伺服器上的位元組，
+ * 再走冷啟動／一般重整／強制最新版三條路徑，看量法分不分得出三者拿到的不是同一份。
+ *
+ * 🔴 **做不到，而且原因要留下來。** 這個測試環境裡，`page.route` 回的回應即使帶
+ *    `Cache-Control: max-age=600` 也**沒有被瀏覽器快取**（重整時仍然連網，見下面的
+ *    請求計數）。造不出快取 ⇒ 造不出「手上是舊版、伺服器是新版」那個世界 ⇒
+ *    三條路徑必然印出一樣的東西。
+ *
+ *    ⚠️ 第一版寫成「跑三條路徑、印三份報告」，三份全是「不同版 0」——
+ *    **對照組沒有差異，那一輪什麼都沒測到**，而它看起來像三條路徑都健康。
+ *    是這個計數（3→4）把它擋下來的，不是報告本身。
+ *
+ * ⇒ 三條路徑的真實比較**只能在正式站上按頁尾「診斷」做**。這一條留著當看門的：
+ *    哪天這個環境真的快取了（計數不再增加），它會變紅，提醒有人回來把比較做完。
+ *
+ * 📌 為什麼不去改 `tests/e2e/serve.js` 讓它送快取標頭：那支是所有 spec 共用的，
+ *    而它刻意送 `no-store`（檔頭寫著「改了 asset 卻驗到舊版是零徵兆的」）。
+ *    為了一條測試把全站的驗收基礎換掉，代價不對稱。
+ */
+test('⬛ 三條路徑：先確認這個環境有沒有快取——沒有，所以比較要在正式站做', async ({ page }) => {
+  let hits = 0;
+  const logs = [];
+  page.on('pageerror', (e) => logs.push('[pageerror] ' + e.message));
+  await page.route((url) => url.hostname !== '127.0.0.1', (r) => r.abort());
+  await page.route(/static\.line-scdn\.net/, (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: '' }));
+  await page.route(/script\.google\.com/, async (route) => {
+    const u = new URL(route.request().url());
+    await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(happy(u)) + ')' });
+  });
+  await page.route('**' + TARGET, async (route) => {
+    hits++;
+    await route.fulfill({
+      status: 200, contentType: 'text/javascript; charset=utf-8',
+      headers: { 'Cache-Control': 'max-age=600', 'Last-Modified': 'Tue, 16 Sep 2026 09:00:00 GMT' },
+      body: TARGET_BYTES,
+    });
+  });
+
+  await page.goto('/stats.html?t=STUBTOKEN&act=A1');
+  await page.waitForTimeout(800);
+  const 重整前 = hits;
+  await page.reload();
+  await page.waitForTimeout(800);
+  console.log('\n[⬛ 本機有沒有快取] 帶 max-age=600 的資源，重整前後請求數 '
+    + 重整前 + ' → ' + hits + '（相等＝有快取，增加＝沒有快取）\n');
+  expect(hits, '這個環境現在會快取了 ⇒ 造得出版本不一致的世界了，請回來把三條路徑的比較補完')
+    .toBeGreaterThan(重整前);
+  expect(logs).toEqual([]);
+});
