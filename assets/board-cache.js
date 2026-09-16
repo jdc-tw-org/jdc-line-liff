@@ -25,20 +25,85 @@ function cacheExpired(savedAt, now) {
 }
 
 /**
+ * 🔴 **「被撤權了」的代號**——認到就清掉本機加密快取、蓋上覆蓋層。
+ *
+ * ⚠️ 值域的權威在後端（`jdc-line-gas` `roles.js` 的 `GATE_REJECT`），本檔只宣告
+ *    「哪幾個代號該清快取」。這張表由 `tests/board-cache.test.js` 對著後端產出的
+ *    `tests/fixtures/action-roles.json` 逐列驗——**代號打錯一個字母會紅**。
+ *
+ * ⭐ 判準只有一句：**他的權限是不是被收回了？** 不是「這次請求成不成功」。
+ *
+ *   `role_unresolved` 認得他，但算不出他的角色。**撤權就落在這一格**
+ *                     （把他從授權名冊拿掉，`?t=` 與 LINE 兩條路都落這裡）。
+ *                     ⚠️ 它還涵蓋「這把 token 沒有內部碼」與「接線漏了」兩種設定錯誤
+ *                     ——那兩種也會清快取。**這是刻意的取捨**：快取只是速度，
+ *                     清掉的代價是一次慢的開頁；不清的代價是他看得到不該看的資料。
+ *   `token_invalid`   這把 token 在白名單裡驗不過（打錯、過期、**被撤掉**）。
+ *                     ⚠️ 這一格是 2026-09-17 之前唯一會清快取的那條路（舊的撤權手法）。
+ *
+ * 🔴 **沒有列進來的一律不清**，而且下面三個是特別點名的：
+ *   `role_mismatch`   身分還在，只是這支不開給他 ⇒ **不得清**。
+ *                     2026-07-30 線上事故：看到權限訊息就蓋整頁，害人事看板
+ *                     因一支附屬 action 被擋而整頁消失。
+ *   `line_upstream`   「我們不知道」（打不到 LINE／讀不到名單）⇒ 上游一抖就清光全體。
+ *   `line_needs_sheet` 角色來源的**回退鈕**。判成撤銷＝按下回退鈕就清光所有人的快取。
+ */
+var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
+
+/**
  * 權威驗證請求的回應該怎麼處置快取。
  *
- * ⚠️ 用前綴比對，不可用完全相等：全站有四種離線字串變體
- * （hr-stats.html:73 那句沒有「伺服器喚醒中」，board.html 有一句只有「連線失敗」）。
- * 完全相等比對會讓 hr-stats 整頁判不出離線。
+ * ══ 🔴 為何改吃代號（2026-09-17，gas #113）═══════════════════════════════
+ *
+ * 這一支原本靠 `msg.indexOf('無權限或連結已失效') === 0` 認「被撤權」。
+ * ⬛ 實測（把後端 `roles.js` 真正的常數餵進這一支）：後端九句拒絕文案裡
+ *    **只有一句**會判成 `revoked`，其餘八句全是 `ok`。
+ * 🔴 **而權限被收回時，LINE 登入那條路吐的不是那一句**
+ *    （它落在「系統目前讀不到您的權限設定。…」）⇒ 判 `ok` ⇒ **不清快取、不蓋覆蓋層**。
+ *    ⚠️ 舊的 `?t=` 連結那條路沒有這個問題 ⇒ **同一個判斷、兩條路、結果相反。**
+ *    （細節在私有票 `jdc-tw/jdc-line-gas#113`——本檔是公開 repo，不在這裡展開。）
+ *
+ * ⇒ 現在吃 `reason`。後端兩條路對撤權事件都送 `role_unresolved`，兩條路因此相等，
+ *   而且 `tests/board-cache.test.js` 拿後端產出的信封表逐列釘住這件事。
+ *
+ * ══ ⚠️ 為何**還留著**那個字串比對（而不是拿掉）══════════════════════════
+ *
+ * 因為**還有不帶 `reason` 的生產者**，數得出來：
+ *   · `jdc-line-gas` `Code.js` 的 handler 層 ⬛ **72 行**（2026-09-17 量，剝註解後數含該句的行；
+ *     ⬛ 對照組：同一條量法把 needle 換成 `validateBoardToken_`，`roles.js` 回 0 ⇒ 剝註解那步有在作用）。
+ *     那一層失敗的意思是「守門放行了、但這支功能要看板身分」，與守門層不是同一件事。
+ *   · `roles.js` 兩支守門的 `allow === null` 那一格（action 不認得）**刻意不帶代號**
+ *     ——帶了就會對外洩漏哪些 action 存在。
+ * ⇒ 拿掉字串比對＝那些路徑的撤銷遮蔽**靜默消失**。所以它留著，但**只在沒有代號時才問**：
+ *   帶了代號就以代號為準，不再看文字。
+ *
+ * 🪦 **`jdc-line-hub` 那個第二生產者已經不在這條路上了**（2026-09-16，hub#27）：
+ *    `line-messages.html` 的 `EXEC_URL` 與 `callApi` 被整個刪掉，這一頁結構上
+ *    再也拿不到 hub 的網址。⇒ 後端 `roles.js` 那句「同一句話有第二個生產者」已經過期。
+ *
+ * ⏳ **退場條件（可證偽，不是日期）**：上面那 72 行全部改走帶 `reason` 的出口
+ *    （同一條量法回 0）之後，`!reason` 那條退路就可以刪。
+ *    ⚠️ 刪之前要重跑一次那條量法，不要憑這段文字——它自帶保存期限。
+ *
+ * ⚠️ 離線那一段**一個字都沒動**，而且仍然排在最前面。它用前綴比對不可改成完全相等：
+ * 全站有四種離線字串變體（hr-stats.html:73 那句沒有「伺服器喚醒中」，
+ * board.html 有一句只有「連線失敗」）。完全相等會讓 hr-stats 整頁判不出離線。
+ * 🔴 離線的判斷**刻意留在這一次改動之外**：兩個判斷擠進一次改動，突變就分不出
+ *    是哪一個在擋。
  *
  * ⚠️ 回 'ok' 的意思是「不需要對快取做任何事」，不是「請求成功」。
- * 角色不符（此連結非您的權限範圍）刻意歸在這裡——2026-07-30 的線上事故就是
- * 「看到權限訊息就蓋整頁」，害雅慧的人事看板因一支附屬 action 被擋而整頁消失。
  */
 function cacheVerdict(resp) {
   if (resp && resp.ok === true) return 'ok';
   var msg = String((resp && resp.msg) || '');
   if (msg.indexOf('連線逾時') === 0 || msg.indexOf('連線失敗') === 0) return 'offline';
+  var reason = String((resp && resp.reason) || '');
+  // 帶了代號就以代號為準——**沒列進 REVOKE_REASONS 的一律 'ok'**（fail-safe：
+  // 日後後端多一個代號，預設是「什麼都不做」，不是「清光他的快取」）。
+  if (reason) {
+    return Object.prototype.hasOwnProperty.call(REVOKE_REASONS, reason) ? 'revoked' : 'ok';
+  }
+  // 沒有代號的生產者（Code.js handler 層、不認得的 action）只剩這句話可以認。見上面的退場條件。
   if (msg.indexOf('無權限或連結已失效') === 0) return 'revoked';
   return 'ok';
 }
@@ -525,6 +590,7 @@ if (typeof module !== 'undefined') module.exports = {
   CACHE_TTL_MS: CACHE_TTL_MS,
   cacheExpired: cacheExpired,
   cacheVerdict: cacheVerdict,
+  REVOKE_REASONS: REVOKE_REASONS,
   N: N,
   nameOfSlice: nameOfSlice,
   cacheFingerprint: cacheFingerprint,

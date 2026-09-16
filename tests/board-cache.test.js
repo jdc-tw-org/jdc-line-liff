@@ -2,6 +2,32 @@ const { test } = require('node:test'); const assert = require('node:assert');
 const BC = require('../assets/board-cache.js');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/* ══ 🔴 守門拒絕的信封，**從後端讀，不手寫**（2026-09-17，gas #113 的 Ｄ）════
+ *
+ * 這一檔原本逐字寫死中文句子當標準答案：
+ *     assert.equal(BC.cacheVerdict({ ok:false, msg:'無權限或連結已失效。' }), 'revoked');
+ * ⬛ 實測：那幾條 fixture 是**自足的**——不讀後端任何東西 ⇒ **後端改文案永遠不會紅**，
+ *    而「全綠」與「線上那道撤銷遮蔽已經對不上了」完全相容。
+ *    2026-09-16 線上真的對不上了（LINE 登入那條路撤權之後快取不清），**而這一檔全綠**。
+ *
+ * ⇒ 改吃 `tests/fixtures/action-roles.json` 的 `gateContract`：那是 `jdc-line-gas`
+ *   的 `ci/roles-matrix/gate-denials.js` **真的跑過兩支守門**之後吐出來的信封，
+ *   由 `ci/roles-matrix/copy-guard.js` 逐字守著（後端改一個字，那道守門就紅）。
+ *   本 repo 這一側另有 `tests/fixture-pin.test.js` 的 PIN 守著「副本沒被偷換」。
+ *
+ * ⚠️ **本 repo 刻意不抄一份代號表**。要清快取的代號寫在 `board-cache.js` 的
+ *    `REVOKE_REASONS`（那是本 repo 的處置決定）；**哪個情境送哪個信封**是後端的事實，
+ *    只有一份、在後端。兩邊各寫一份的話，分歧的症狀就是今天這個洞。
+ */
+const 契約 = require('./fixtures/action-roles.json').gateContract;
+/** 拿後端某個情境**真的送出來的那個信封**。找不到就紅——不要靜靜回 undefined。 */
+function 信封(key) {
+  const r = (契約.denials || []).find((x) => x.key === key);
+  if (!r) throw new Error('契約表裡沒有 `' + key + '` ⇒ 後端的案例表改過了，'
+    + '在 jdc-line-gas 重產副本，或確認這個情境是不是已經不存在');
+  return r.envelope;
+}
+
 test('cacheExpired：剛好 7 天不算過期，多一毫秒才算', () => {
   const t0 = 1000000;
   assert.equal(BC.cacheExpired(t0, t0 + BC.CACHE_TTL_MS), false);
@@ -27,9 +53,68 @@ test('cacheVerdict：四種離線字串全部要判成 offline（禁用完全相
   });
 });
 
-test('cacheVerdict：token 失效 → revoked；角色不符與不明訊息 → ok（不得清快取）', () => {
+/* ══ 🔴 `cacheVerdict` 對後端每一個拒絕出口的處置 ═══════════════════════
+ * 逐列吃後端產出的信封表。**這一節一個中文句子都不手寫。** */
+
+test('⬛ 零點：契約表真的載進來了，而且是這個系統的量級', () => {
+  // 沒有這一格，下面每一條都可能在空陣列上 forEach 零次 ⇒ 全綠而什麼都沒測到。
+  assert.ok(契約 && Array.isArray(契約.denials),
+    'action-roles.json 沒有 gateContract ⇒ 副本是舊版，在 jdc-line-gas 重產一次：\n'
+    + '  node ci/roles-matrix/export-json.js --out <這裡>/tests/fixtures/action-roles.json');
+  assert.ok(契約.denials.length >= 10,
+    '契約只有 ' + 契約.denials.length + ' 列 ⇒ 產生器的案例表被砍過');
+  // ⬛ 兩種期望值都要有。全是 revoked 或全是 ok 的話，下面那條逐列斷言是恆真的。
+  const v = new Set(契約.denials.map((r) => r.verdict));
+  assert.ok(v.has('revoked') && v.has('ok'),
+    '契約表的 verdict 只有一種（' + [...v].join('、') + '）⇒ 逐列斷言沒有鑑別力');
+});
+
+test('🔴 逐列：後端每一個拒絕出口，處置都必須與契約相符', () => {
+  契約.denials.forEach((r) => {
+    assert.equal(BC.cacheVerdict(r.envelope), r.verdict,
+      '\n  情境：' + r.key + '\n  ' + r.why
+      + '\n  信封：' + JSON.stringify(r.envelope)
+      + '\n  契約要求：' + r.verdict + '　實際：' + BC.cacheVerdict(r.envelope));
+  });
+});
+
+test('🔴🔴 撤權：`?t=` 與 LINE 兩條路必須回同一個答案（今天這張票就是它們不相等）', () => {
+  const 撤權 = 契約.denials.filter((r) => r.verdict === 'revoked');
+  // ⬛ 先證明「撤權」這個集合不是空的——空集合上「全部相等」恆真。
+  assert.ok(撤權.length >= 3,
+    '契約裡只有 ' + 撤權.length + ' 條撤權路徑 ⇒ 兩條路那件事沒有被涵蓋');
+  const 答案 = new Set(撤權.map((r) => BC.cacheVerdict(r.envelope)));
+  assert.equal(答案.size, 1,
+    '同一個「被撤權」事件在不同路徑上得到不同處置：\n'
+    + 撤權.map((r) => '  ' + r.key + ' → ' + BC.cacheVerdict(r.envelope)).join('\n')
+    + '\n  ⇒ 其中判成 ok 的那條，他手機上那份快取不會被清掉（TTL 7 天）。');
+  assert.equal([...答案][0], 'revoked');
+
+  // ⬛ 對照組：這把尺分得出「不是撤權」。沒有這一格，上面那句「全部相等」
+  //    也可能是因為 `cacheVerdict` 恆回同一個值。
+  const 非撤權 = 契約.denials.filter((r) => r.verdict === 'ok');
+  assert.ok(非撤權.length > 0);
+  非撤權.forEach((r) => {
+    assert.notEqual(BC.cacheVerdict(r.envelope), 'revoked', r.key + '：' + r.why);
+  });
+});
+
+test('🔴 代號打錯一個字母 → 不清快取（fail-safe），而且契約裡的代號都是認得的', () => {
+  // `role_unresolvd` 在信封表裡長得跟正確的一模一樣 ⇒ 只靠肉眼看不出來。
+  assert.equal(BC.cacheVerdict({ ok: false, msg: '無權限或連結已失效。', reason: 'role_unresolvd' }),
+    'ok', '打錯字的代號竟然清了快取 ⇒ 它是靠 msg 過的，代號那條路沒在作用');
+  // 反過來：本 repo 要清快取的每一個代號，後端的值域裡都要有。
+  Object.keys(BC.REVOKE_REASONS).forEach((code) => {
+    assert.ok(Object.values(契約.reject).indexOf(code) >= 0,
+      'REVOKE_REASONS 裡的 `' + code + '` 不在後端的 GATE_REJECT 值域裡'
+      + '（後端有：' + Object.values(契約.reject).join('、') + '）'
+      + ' ⇒ 它永遠不會被送來，這一格是死的');
+  });
+});
+
+test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 層 72 行、不認得的 action）', () => {
+  // 退場條件寫在 board-cache.js 的 cacheVerdict 檔頭：那 72 行全部帶上 reason 之後刪掉這條。
   assert.equal(BC.cacheVerdict({ ok: false, msg: '無權限或連結已失效。' }), 'revoked');
-  assert.equal(BC.cacheVerdict({ ok: false, msg: '此連結非您的權限範圍。' }), 'ok');
   assert.equal(BC.cacheVerdict({ ok: false, msg: '找不到員工名冊' }), 'ok');
   assert.equal(BC.cacheVerdict({ ok: true }), 'ok');
 });
@@ -346,19 +431,24 @@ test('queueRead 回傳值就是 fn 的回傳值', async () => {
   assert.equal(v, 42);
 });
 
-test('handleVerdict：撤銷 → 清持久快取、清記憶體、之後 cacheGet 恆 null', async () => {
-  const st = fakeStore(); BC.__setStoreForTest(st);
-  await BC.cacheSave('tok-A', 'listOptions', { ok: true, v: 'x' });
-  await BC.cacheBootstrap('tok-A');
-  assert.ok(BC.cacheGet('listOptions'));
+/* 🔴 撤權的每一條路都要真的把磁碟清空——`?t=` 那條路 2026-09-16 之前就會清，
+ *    LINE 那兩條不會。逐條跑，不要只跑其中一條。 */
+['revoked_token_path', 'revoked_line_path', 'revoked_line_path_local', 'token_removed']
+  .forEach((key) => {
+    test('handleVerdict：撤銷（' + key + '）→ 清持久快取、清記憶體、之後 cacheGet 恆 null', async () => {
+      const st = fakeStore(); BC.__setStoreForTest(st);
+      await BC.cacheSave('tok-A', 'listOptions', { ok: true, v: 'x' });
+      await BC.cacheBootstrap('tok-A');
+      assert.ok(BC.cacheGet('listOptions'), '⬛ 零點：快取要先存得進去，否則下面清不清都一樣');
 
-  const v = await BC.handleVerdict('tok-A', { ok: false, msg: '無權限或連結已失效。' });
-  assert.equal(v, 'revoked');
-  assert.equal(st.length, 0, '磁碟要清空');
-  assert.equal(BC.cacheGet('listOptions'), null, '記憶體也要清');
-  assert.equal(BC.isRevoked(), true);
-  BC.__resetForTest();
-});
+      const v = await BC.handleVerdict('tok-A', 信封(key));
+      assert.equal(v, 'revoked', key + ' 判成 ' + v + ' ⇒ 他裝置上那份快取不會被清掉');
+      assert.equal(st.length, 0, '磁碟要清空');
+      assert.equal(BC.cacheGet('listOptions'), null, '記憶體也要清');
+      assert.equal(BC.isRevoked(), true);
+      BC.__resetForTest();
+    });
+  });
 
 test('handleVerdict：離線 → 保留快取，不標撤銷', async () => {
   const st = fakeStore(); BC.__setStoreForTest(st);
@@ -372,16 +462,24 @@ test('handleVerdict：離線 → 保留快取，不標撤銷', async () => {
   BC.__resetForTest();
 });
 
-test('handleVerdict：角色不符 → 什麼都不做（2026-07-30 事故的迴歸測試）', async () => {
-  const st = fakeStore(); BC.__setStoreForTest(st);
-  await BC.cacheSave('tok-A', 'listOptions', { ok: true, v: 'x' });
-  await BC.cacheBootstrap('tok-A');
+/* ⬛ 對照組②：**沒有被撤權**的人，行為一格都不能變。
+ *    角色不符是 2026-07-30 線上事故（看到權限訊息就蓋整頁）的迴歸測試；
+ *    上游故障與回退鈕那兩格更貴——判成撤銷就是清光全體的離線資料。 */
+['role_mismatch_token', 'role_mismatch_line', 'line_upstream', 'line_needs_sheet',
+ 'line_unbound', 'line_bad_token']
+  .forEach((key) => {
+    test('handleVerdict：⬛ 不是撤權（' + key + '）→ 什麼都不做', async () => {
+      const st = fakeStore(); BC.__setStoreForTest(st);
+      await BC.cacheSave('tok-A', 'listOptions', { ok: true, v: 'x' });
+      await BC.cacheBootstrap('tok-A');
 
-  const v = await BC.handleVerdict('tok-A', { ok: false, msg: '此連結非您的權限範圍。' });
-  assert.equal(v, 'ok');
-  assert.ok(BC.cacheGet('listOptions'), '角色不符不得清快取');
-  BC.__resetForTest();
-});
+      const v = await BC.handleVerdict('tok-A', 信封(key));
+      assert.equal(v, 'ok');
+      assert.ok(BC.cacheGet('listOptions'), key + ' 竟然清了快取');
+      assert.equal(BC.isRevoked(), false, key + ' 竟然標成撤銷 ⇒ 之後整頁被蓋掉');
+      BC.__resetForTest();
+    });
+  });
 
 test('offlineLabel：把時間戳講成人看得懂的一句話', () => {
   const s = BC.offlineLabel(new Date(2026, 7, 19, 9, 5).getTime());

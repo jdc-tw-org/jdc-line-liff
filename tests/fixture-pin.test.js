@@ -72,7 +72,18 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 第二列是在補一個**已經存在的洞**：liff `#18` 2026-09-14 就合了，而 gas 的表沒跟著改名
  *      ⇒ 從那天起分流頁上「LINE 傳送平台」那個連結點下去是 404。
  */
-const PIN = '25ea65d9afa99e7295dc0bfc51ea23ba0a1d82a4dd885b8b94cce089498dffa1';
+/**
+ * 🔴 2026-09-17（gas #113）：副本多了 **`gateContract`** 這一段——後端「守門拒絕的信封表」，
+ *    15 個情境各真的跑過一次 `gateAction`／`gateActionByLine`，出的是**要送進瀏覽器的
+ *    那個信封**（`gateDenial` 的輸出），不是常數。
+ *    ⚠️ **`actions`／`identities`／`batchAllowed`／`dispatchPages` 一個字都沒動**：
+ *      重產前拿後端守門對這份副本比過，差異**只有「副本那份沒有 gateContract 這個鍵」**
+ *      ⇒ **沒有任何人的權限變了**。diff 是 163 加 1 減（那 1 是 `]` 變 `],`）。
+ *    為何而生：`board-cache.test.js` 那幾條是**手寫中文字串**、不讀後端任何東西
+ *      ⇒ 後端改文案永遠不會紅。2026-09-16 線上真的對不上了
+ *      （權限收回後 LINE 那條路不清快取），**而它全綠**。細節在私有票 `jdc-tw/jdc-line-gas#113`。
+ */
+const PIN = 'd4ddee96e140c0907e5a04aeacd505837943c7efa4e12c8e52fcd45ae5d3c368';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
