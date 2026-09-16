@@ -18,29 +18,50 @@
      （擁有者 2026-09-16：「不要寫員工入口，寫上使用者名字就好」）。
      還沒確認出身分時它放狀態句 ⇒ 退回小字，用 19px 粗體喊
      「正在前往 LINE 登入…」會蓋過整頁。 */
-  h1 { margin-bottom: 20px; min-height: 28px; }
+  /* 身分列：名字 ＋ 右上角一枚「使用者」。`align-items: flex-start` 讓小標貼齊
+     名字的**上緣**，不是垂直置中——「右上角」是擁有者指定的位置。 */
+  .me { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 20px; min-height: 28px; }
+  h1 { margin: 0; }
   h1.state { font-size: 14px; font-weight: 400; color: var(--ink2); }
   h1.err { color: var(--bad); }
+  /* 🔴 這一枚用 `.utag` 不用共用的 `.tag`：`.tag` 是**狀態**標籤（綠正常／紅例外／琥珀待辦），
+     而這一枚講的是「這個名字是誰」——借 `.tag` 會讓它看起來像一個狀態。 */
+  .utag { font-size: 11px; line-height: 1.6; padding: 0 6px; border-radius: 3px;
+          background: var(--g-bg); color: var(--g); font-weight: 600; flex: none;
+          position: relative; top: 2px; }
 
-  /* 清單卡：共用的 `.card` 是容器（18px 內距），這一頁的是可點的列。 */
+
+  /* 🔴 九宮格（擁有者 2026-09-16 指定）。**固定三欄**，不用 auto-fill——
+     `auto-fill` 會隨寬度把欄數變來變去，同一個人在手機與桌機看到不同的排法。 */
+  #list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   a.card, .card {
-    display: block; padding: 15px 16px; margin-bottom: 10px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    aspect-ratio: 1; padding: 10px 8px; margin: 0; text-align: center;
     text-decoration: none; color: inherit;
   }
-  a.card:active { border-color: var(--b); }
-  .card .name { font-size: 16px; font-weight: 600; color: var(--ink); }
-  a.card .name::after { content: ' ›'; color: var(--b); }
-  .card .sub { font-size: 13px; color: var(--ink3); margin-top: 4px; }
+  a.card:active { border-color: var(--b); background: var(--g-bg); }
+  .card .name { font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.45; }
+  .card .sub { font-size: 11px; color: var(--ink3); margin-top: 6px; }
   /* 🔴 不可點的那幾列刻意做成看得出「這是一個頁面、但現在進不去」，
      不是灰掉到看不見——看不見＝他會以為自己沒有那個權限。 */
-  .card.off { background: #f4f4f2; border-style: dashed; }
-  .card.off .name { color: var(--ink2); }
+  /* 🔴 不可點的那幾格**不做成方塊，占滿整列**。
+     理由：方塊裡放不下「為什麼進不去、該怎麼辦」那句話，而那句話正是這一格存在的意義
+     （檔頭第 ③ 條：藏起來的話「我沒權限」與「那頁還沒做好」在畫面上長得一樣）。
+     刻意做成看得出「這是一個頁面、但現在進不去」，不是灰掉到看不見。 */
+  .card.off {
+    grid-column: 1 / -1; aspect-ratio: auto; align-items: flex-start; text-align: left;
+    padding: 14px 16px; background: #f4f4f2; border-style: dashed;
+  }
+  .card.off .name { color: var(--ink2); font-size: 15px; }
+  .card.off .sub { font-size: 12px; line-height: 1.6; }
   .tag { margin-left: 6px; vertical-align: 1px; }
   .tag-off  { background: #f0f0ee; color: var(--ink2); }
   .tag-note { background: var(--warn-bg); color: var(--warn); }
 
   /* 整頁換成一段話時用的方塊（`showMsg`）。共用的 `.msg` 是行內小字，
      這一頁要的是一個有底色的區塊 ⇒ 在這裡加厚，不改共用那份。 */
+  /* 🔴 `#list` 是 grid ⇒ 放進去的整段訊息要占滿整列，否則會被擠成三分之一寬。 */
+  .msg, .btn { grid-column: 1 / -1; }
   .msg { padding: 14px 16px; border-radius: 8px; font-size: 15px; margin: 0 0 14px; }
   .msg-err  { background: var(--bad-bg); color: var(--bad); }
   .msg-info { background: var(--g-bg); color: var(--g); }
@@ -53,7 +74,7 @@
 </head>
 <body>
 <div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
-<h1 id="who" class="state">確認身分中…</h1>
+<div class="me"><h1 id="who" class="state">確認身分中…</h1></div>
 <div id="list"></div>
 <div class="foot" id="foot"></div>
 
@@ -129,10 +150,20 @@ function esc(s) {
 /** 狀態句（確認中／導頁中／失敗）。**不是名字** ⇒ 退回小字，見 CSS 的 `h1.state`。 */
 function setWho(t, isErr) {
   var w = el('who'); w.textContent = t; w.className = isErr ? 'state err' : 'state';
+  // 狀態句不是一個人 ⇒ 不掛「使用者」那一枚。
+  var old = w.parentNode.querySelector('.utag');
+  if (old) w.parentNode.removeChild(old);
 }
 /** 成功：這一格只放名字。`class` 清空 ⇒ 回到 `h1` 的大字。 */
 function setName(who) {
   var w = el('who'); w.textContent = who || '已登入'; w.className = '';
+  // 🔴 用 DOM 建、不用 `hidden` 屬性：`hidden` 會被作者 CSS 的 display 蓋掉，
+  //    而「斷言 hidden===true」的測試照樣綠、使用者照樣看得見（2026-09-16 實測過的坑）。
+  var box = w.parentNode, old = box.querySelector('.utag');
+  if (old) box.removeChild(old);
+  var t = document.createElement('span');
+  t.className = 'utag'; t.textContent = '使用者';
+  box.appendChild(t);
 }
 /** 把整頁換成一段話。**永遠說得出「接下來該做什麼」**，不留純粹的「失敗」。 */
 function showMsg(msg, reason) {
