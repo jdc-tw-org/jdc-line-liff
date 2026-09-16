@@ -483,6 +483,7 @@
   <script src="assets/qr-badge.js"></script>
 <script src="assets/board-cache.js"></script>
 <script src="assets/tpl-editor.js"></script>
+<script src="assets/version-probe.js"></script>
 <script>
 // esc() 住在 assets/stats-view.js，本頁 40 幾處在用（含各種錯誤訊息的組字串）。
 // 那支若沒載進來，連「顯示錯誤」的路徑都會拋例外，畫面只會靜靜停住＝壞掉時沒有任何人看得見
@@ -574,6 +575,10 @@ var AUTH_READY=startAuth();
 // 開頁時解密該指紋的全部持久快取；cacheGet 在它 resolve 前都讀不到值。
 // ⚠️ 排在 AUTH_READY 之後：②的指紋（sub）要登入完才知道。①只差一個微任務。
 var CACHE_READY=AUTH_READY.then(function(){return cacheBootstrap(FP);});
+/* 📏 量法（票 #103）：這兩條**不 resolve 就是整頁不動**，而「不 resolve」與「還沒回來」
+   在畫面上一模一樣。掛上追蹤才問得出來是哪一種。⚠️ track 內部用兩個參數的 then，
+   不會多生出沒人接的拒絕；對頁面行為零影響。 */
+if(typeof JDCProbe!=='undefined'){JDCProbe.track('AUTH_READY',AUTH_READY);JDCProbe.track('CACHE_READY',CACHE_READY);}
 
 /* ── 活動選擇器：橫向滑動的純文字 ─────────────────────────────────────────
    原生 <select> 留在 DOM 裡當值的載體（全頁十幾處讀 .value、寫 .value，
@@ -2534,6 +2539,7 @@ var FIRST=queueRead(function(){
     });
   });
 });
+if(typeof JDCProbe!=='undefined')JDCProbe.track('FIRST(首載批次)',FIRST);
 function pick(a){return FIRST.then(function(r){
   return (r&&r.ok&&r.results&&r.results[a])||{ok:false,msg:(r&&r.msg)||'連線失敗'};});}
 // 報到分頁的 planCheckinBundle 要知道「離線」不只「撤銷」——isRevoked() 只追蹤撤銷，
@@ -2629,6 +2635,7 @@ var SECOND=FIRST.then(function(first){
     });
   });
 });
+if(typeof JDCProbe!=='undefined')JDCProbe.track('SECOND(預取批次)',SECOND);
 var SECOND_DONE=false;
 SECOND.then(function(){SECOND_DONE=true;},function(){SECOND_DONE=true;});
 wireUndeliveredAlert(SECOND);   // 見上面 wireUndeliveredAlert 的註解：必須在 SECOND 賦值之後
@@ -2704,5 +2711,9 @@ loadStats(q('act'));
 dlMenuInit();
 rosterDlInit({ jsonp: jsonp, token: q('t'), leaversId: 's-dl-leavers',
   msg: function (t, ty) { setMsg('s-dl-msg', t, ty === 'info' ? '' : ty); } });
+/* 📏 量法（票 #103）：頁尾的「診斷」。**預設收合、不發任何請求**，點了才量、而且不重載
+   ——症狀一重載就消失，所以答案必須在還沒重載之前就拿得到。
+   ⚠️ 與頁尾「抓最新版」刻意分開：那一支最後會 location.reload()，按下去就毀證。 */
+if(typeof JDCProbe!=='undefined')JDCProbe.mount({gasUrl:GAS_URL,queueRead:queueRead});
 </script><script src="assets/page-version.js" defer></script>
 </body></html>
