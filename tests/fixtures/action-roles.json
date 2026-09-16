@@ -179,6 +179,14 @@
         "activity"
       ]
     },
+    "checkAuthzDraft": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "clearGuests": {
       "roles": [
         "admin",
@@ -281,6 +289,14 @@
         "admin",
         "activity",
         "view"
+      ]
+    },
+    "getAuthzList": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
       ]
     },
     "getBindLink": {
@@ -961,6 +977,14 @@
         "admin"
       ]
     },
+    "saveAuthzList": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "savePassTemplate": {
       "roles": [
         "admin",
@@ -1234,6 +1258,13 @@
       "page": "line.html",
       "title": "LINE訊息發訊",
       "gateAction": "getWelfareAudience",
+      "lineReady": true,
+      "note": ""
+    },
+    {
+      "page": "authz.html",
+      "title": "授權名單維護",
+      "gateAction": "getAuthzList",
       "lineReady": true,
       "note": ""
     }
