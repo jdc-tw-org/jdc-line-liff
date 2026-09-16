@@ -7,58 +7,48 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <title>日本國土開發</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
+<link rel="stylesheet" href="assets/ui.css">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/gas-call.js"></script>
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans TC", sans-serif;
-    margin: 0; padding: 24px 16px 48px; font-size: 16px; line-height: 1.6;
-    color: #333; background: #f7f7f7; max-width: 480px; margin-left: auto; margin-right: auto;
-  }
-  /* 品牌區：**逐字沿用 index.html 的 `.brand`**（同一份 logo、同一個 max-width）。
-     刻意不另發明一套——兩頁是同一個入口的兩半（未綁定看 index、有角色看這裡），
-     長得不一樣會讓人以為走錯地方了。 */
-  .brand { text-align: center; margin: 2px 0 14px; }
-  .brand img { width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto; }
-  /* 🔴 `h1#who` 是**身分槽**，不是標題。成功時放的就是那個人的名字
+  /* 🔴 色票、body、.card、.btn、.tag、.msg 全部來自 `assets/ui.css`。
+     這裡只放**分流頁自己的**東西——不要把共用的再抄一份回來。 */
+
+  /* `h1#who` 是身分槽，不是標題。成功時放的就是那個人的名字
      （擁有者 2026-09-16：「不要寫員工入口，寫上使用者名字就好」）。
-     還沒確認出身分的時候它放狀態句——那時要退回小字，
-     用 20px 粗體喊一句「正在前往 LINE 登入…」會蓋過整頁。 */
-  h1 { font-size: 20px; margin: 0 0 20px; color: #1a1a1a; min-height: 28px; }
-  h1.state { font-size: 14px; font-weight: 400; color: #777; margin-bottom: 20px; }
-  h1.err { color: #c00; }
-  .card {
-    display: block; background: #fff; border-radius: 12px; padding: 16px 18px;
-    margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
-    text-decoration: none; color: inherit; border: 1px solid transparent;
+     還沒確認出身分時它放狀態句 ⇒ 退回小字，用 19px 粗體喊
+     「正在前往 LINE 登入…」會蓋過整頁。 */
+  h1 { margin-bottom: 20px; min-height: 28px; }
+  h1.state { font-size: 14px; font-weight: 400; color: var(--ink2); }
+  h1.err { color: var(--bad); }
+
+  /* 清單卡：共用的 `.card` 是容器（18px 內距），這一頁的是可點的列。 */
+  a.card, .card {
+    display: block; padding: 15px 16px; margin-bottom: 10px;
+    text-decoration: none; color: inherit;
   }
-  a.card:active { border-color: #06c755; }
-  .card .name { font-size: 17px; font-weight: 700; color: #1a1a1a; }
-  a.card .name::after { content: ' ›'; color: #06c755; }
-  .card .sub { font-size: 13px; color: #888; margin-top: 4px; }
+  a.card:active { border-color: var(--b); }
+  .card .name { font-size: 16px; font-weight: 600; color: var(--ink); }
+  a.card .name::after { content: ' ›'; color: var(--b); }
+  .card .sub { font-size: 13px; color: var(--ink3); margin-top: 4px; }
   /* 🔴 不可點的那幾列刻意做成看得出「這是一個頁面、但現在進不去」，
      不是灰掉到看不見——看不見＝他會以為自己沒有那個權限。 */
-  .card.off { background: #f2f2f2; box-shadow: none; border: 1px dashed #d5d5d5; }
-  .card.off .name { color: #777; font-weight: 600; }
-  .card.off .sub { color: #999; }
-  .tag {
-    display: inline-block; font-size: 12px; font-weight: 700; border-radius: 4px;
-    padding: 1px 6px; margin-left: 6px; vertical-align: 2px;
-  }
-  .tag-off  { background: #ececec; color: #777; }
-  .tag-note { background: #fff4e5; color: #8a5300; }
-  .msg { padding: 14px 16px; border-radius: 10px; font-size: 15px; margin-bottom: 14px; }
-  .msg-err  { background: #fdecea; color: #b71c1c; }
-  .msg-info { background: #e8f0fe; color: #1a56c4; }
+  .card.off { background: #f4f4f2; border-style: dashed; }
+  .card.off .name { color: var(--ink2); }
+  .tag { margin-left: 6px; vertical-align: 1px; }
+  .tag-off  { background: #f0f0ee; color: var(--ink2); }
+  .tag-note { background: var(--warn-bg); color: var(--warn); }
+
+  /* 整頁換成一段話時用的方塊（`showMsg`）。共用的 `.msg` 是行內小字，
+     這一頁要的是一個有底色的區塊 ⇒ 在這裡加厚，不改共用那份。 */
+  .msg { padding: 14px 16px; border-radius: 8px; font-size: 15px; margin: 0 0 14px; }
+  .msg-err  { background: var(--bad-bg); color: var(--bad); }
+  .msg-info { background: var(--g-bg); color: var(--g); }
   /* 空清單那段有三小段，段落之間要看得出斷點；最後一段不留尾巴以免方塊下緣過胖。 */
   .msg p { margin: 0 0 10px; }
   .msg p:last-child { margin-bottom: 0; }
-  .btn {
-    display: block; width: 100%; padding: 13px; border: none; border-radius: 8px;
-    font-size: 16px; font-weight: 700; background: #06c755; color: #fff; cursor: pointer;
-  }
-  .foot { font-size: 13px; color: #999; margin-top: 24px; line-height: 1.8; }
+
+  .foot { font-size: 13px; color: var(--ink3); margin-top: 24px; line-height: 1.8; }
 </style>
 </head>
 <body>
@@ -148,7 +138,9 @@ function setName(who) {
 function showMsg(msg, reason) {
   var html = '<div class="msg msg-err">' + esc(msg) + '</div>';
   if (reason && Object.prototype.hasOwnProperty.call(重登有用的, reason)) {
-    html += '<button class="btn" id="relogin">重新登入</button>';
+    // 🔴 `btn-pri`：共用的 `.btn` 是次要灰鈕（inline-block）。這一顆是整頁唯一的動作，
+    //    要滿版主色——改動前它就是滿版的，只掛 `.btn` 會靜靜縮成一顆小灰鈕。
+    html += '<button class="btn btn-pri" id="relogin">重新登入</button>';
   }
   el('list').innerHTML = html;
   var b = el('relogin');

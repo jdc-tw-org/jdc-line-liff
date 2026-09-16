@@ -6,42 +6,43 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>活動出席狀況</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<link rel="stylesheet" href="assets/ui.css">
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans TC", sans-serif;
-    padding: 20px 16px 40px; font-size: 17px; line-height: 1.6; color: #333;
-    background: #f7f7f7; max-width: 480px; margin: 0 auto;
-  }
-  .brand { text-align: center; margin: 0 0 14px; }
-  .brand img { width: 100%; max-width: 240px; height: auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; color: #1a1a1a; }
-  .meta { font-size: 14px; color: #888; margin-bottom: 18px; }
-  .picker { width: 100%; font-size: 15px; padding: 8px 10px; border: 1px solid #ddd;
-    border-radius: 8px; margin-bottom: 10px; display: none; background: #fff; }
-  .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  /* 🔴 色票、body、.card、.empty、.meta 來自 `assets/ui.css`。這裡只放這一頁自己的。 */
+
+  /* 會場用：字級大一階，下面有 768px 斷點再放大。 */
+  body { font-size: 17px; }
+  .brand { margin: 0 0 14px; }
+  .brand img { max-width: 240px; }
+  h1 { margin-bottom: 4px; }
+  .meta { font-size: 14px; }
+  .picker { width: 100%; font-size: 15px; padding: 8px 10px; border: 1px solid var(--ln);
+    border-radius: 8px; margin-bottom: 10px; display: none; background: #fff; color: var(--ink); }
+  .card { padding: 20px; margin-bottom: 16px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; text-align: center; }
-  .num { font-size: 26px; font-weight: 700; color: #1a1a1a; }
-  .num.green { color: #06a04a; } .num.red { color: #c62828; } .num.grey { color: #888; }
-  .cap { font-size: 13px; color: #888; }
-  .sub { font-size: 14px; color: #666; margin-top: 12px; text-align: center; }
-  .sec { font-size: 16px; color: #666; margin: 24px 0 10px; font-weight: 600; }
-  .grp { background: #fff; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08); margin-bottom: 8px; overflow: hidden; }
+  .num { font-size: 26px; font-weight: 700; color: var(--ink); }
+  /* 三色職責（見 ui.css 檔頭）：綠＝正常與已完成、紅＝例外與注意、灰＝尚未。 */
+  .num.green { color: var(--g); } .num.red { color: var(--bad); } .num.grey { color: var(--ink3); }
+  .cap { font-size: 13px; color: var(--ink3); }
+  .sub { font-size: 14px; color: var(--ink2); margin-top: 12px; text-align: center; }
+  .sec { font-size: 16px; color: var(--ink2); margin: 24px 0 10px; font-weight: 600; }
+  /* `.grp` 是可展開的群組，不是 `.card`（它要 overflow:hidden 才收得住 summary 的底色）。 */
+  .grp { background: #fff; border: 1px solid var(--ln); border-radius: 3px; margin-bottom: 8px; overflow: hidden; }
   .grp summary { padding: 12px 14px; cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: baseline; gap: 8px; }
   .grp summary::-webkit-details-marker { display: none; }
-  .grp summary::before { content: '▸'; color: #bbb; font-size: 13px; transition: transform .15s; }
+  .grp summary::before { content: '▸'; color: var(--ink3); font-size: 13px; transition: transform .15s; }
   .grp[open] summary::before { transform: rotate(90deg); }
-  .grp .cnt { color: #888; font-weight: 400; font-size: 14px; }
+  .grp .cnt { color: var(--ink3); font-weight: 400; font-size: 14px; }
   .grp .body { padding: 0 14px 12px 30px; }
-  .names { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 15px; color: #444; }
-  .p { padding: 4px 0; border-bottom: 1px solid #f2f2f2; }
+  .names { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 15px; color: var(--ink2); }
+  .p { padding: 4px 0; border-bottom: 1px solid var(--ln); }
   .p:last-child { border-bottom: none; }
   .p .n { font-weight: 600; }
-  .p .att { font-size: 12px; padding: 1px 7px; border-radius: 10px; margin-left: 8px; }
-  .att-y { background: #e6f9ee; color: #1a7d44; }
-  .att-n { background: #fdecea; color: #b71c1c; }
-  .p .op { font-size: 14px; color: #444; display: block; margin-top: 2px; }
-  .empty { text-align: center; color: #888; padding: 30px 0; font-size: 15px; }
+  .p .att { font-size: 12px; padding: 1px 7px; border-radius: 3px; margin-left: 8px; }
+  .att-y { background: var(--g-bg); color: var(--g); }
+  .att-n { background: var(--bad-bg); color: var(--bad); }
+  .p .op { font-size: 14px; color: var(--ink2); display: block; margin-top: 2px; }
+  /* 🔴 大螢幕斷點：會場投影用。一致的是語彙（顏色、線、圓角），不是尺寸。 */
   @media (min-width: 768px) {
     body { max-width: 720px; padding: 32px 24px 60px; font-size: 18px; }
     h1 { font-size: 25px; } .num { font-size: 32px; } .cap { font-size: 14px; }

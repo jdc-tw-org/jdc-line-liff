@@ -6,34 +6,32 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>報到看板</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<link rel="stylesheet" href="assets/ui.css">
 <style>
-  *, *::before, *::after { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans TC", sans-serif;
-    padding: 20px 16px 40px; font-size: 17px; line-height: 1.6; color: #333;
-    background: #f7f7f7; max-width: 480px; margin: 0 auto;
-  }
-  .brand { text-align: center; margin: 0 0 14px; }
-  .brand img { width: 100%; max-width: 240px; height: auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; color: #1a1a1a; text-align: center; }
-  .meta { font-size: 13px; color: #888; margin-bottom: 18px; text-align: center; }
-  .card { background: #fff; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-  .big { font-size: 30px; font-weight: 700; color: #1a1a1a; text-align: center; margin-bottom: 10px; }
-  .st { font-size: 15px; color: #666; text-align: center; margin-bottom: 12px; }
-  .units { display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: center; font-size: 15px; color: #444; }
-  .units .u { background: #f2f2f2; border-radius: 8px; padding: 6px 12px; }
+  /* 🔴 色票、body、.card、.btn、.empty 來自 `assets/ui.css`。這裡只放這一頁自己的。 */
+
+  /* 這一頁是**投影在大螢幕上的報到看板**，不是手機頁 ⇒ 字級整體大一階，
+     且下面有 768px 的斷點把整頁再放大。共用的 16px 在會場看不清楚。 */
+  body { font-size: 17px; }
+  .brand { margin: 0 0 14px; }
+  .brand img { max-width: 240px; }
+  h1 { text-align: center; margin-bottom: 4px; }
+  .meta { text-align: center; }
+  .card { padding: 20px; margin-bottom: 16px; }
+  .big { font-size: 30px; font-weight: 700; color: var(--ink); text-align: center; margin-bottom: 10px; }
+  .st { font-size: 15px; color: var(--ink2); text-align: center; margin-bottom: 12px; }
+  .units { display: flex; flex-wrap: wrap; gap: 8px 14px; justify-content: center; font-size: 15px; color: var(--ink2); }
+  .units .u { background: var(--g-bg); color: var(--g); border-radius: 3px; padding: 6px 12px; }
   details { margin-top: 16px; }
-  summary { cursor: pointer; font-weight: 600; color: #666; font-size: 15px; list-style: none; }
+  summary { cursor: pointer; font-weight: 600; color: var(--ink2); font-size: 15px; list-style: none; }
   summary::-webkit-details-marker { display: none; }
-  summary::before { content: '▸'; color: #bbb; font-size: 13px; margin-right: 4px; }
+  summary::before { content: '▸'; color: var(--ink3); font-size: 13px; margin-right: 4px; }
   details[open] summary::before { content: '▾'; }
-  details ul { margin: 10px 0 0; padding-left: 20px; font-size: 15px; color: #444; }
+  details ul { margin: 10px 0 0; padding-left: 20px; font-size: 15px; color: var(--ink2); }
   details li { padding: 2px 0; }
-  .btn { display: block; width: 100%; padding: 13px; border: none; border-radius: 8px;
-    font-size: 16px; font-weight: 700; cursor: pointer; background: #06c755; color: #fff; }
-  .btn:active { background: #05a847; }
-  .empty { text-align: center; color: #888; padding: 30px 0; font-size: 15px; }
-  .updated { text-align: center; font-size: 12px; color: #aaa; margin-top: 10px; }
+  .updated { text-align: center; font-size: 12px; color: var(--ink3); margin-top: 10px; }
+  /* 🔴 大螢幕斷點：會場投影用。**不要為了「和手機頁一致」拿掉它**
+     ——一致的是語彙（顏色、線、圓角），不是尺寸。 */
   @media (min-width: 768px) {
     body { max-width: 720px; padding: 32px 24px 60px; font-size: 18px; }
     h1 { font-size: 25px; } .big { font-size: 40px; } .card { padding: 26px 30px; }
@@ -43,7 +41,7 @@
 <h1>報到看板</h1>
 <div id="meta" class="meta">載入中…</div>
 <div id="content"><div class="empty">載入中…</div></div>
-<button id="refresh" class="btn">立即刷新</button>
+<button id="refresh" class="btn btn-pri">立即刷新</button>
 <div id="updated" class="updated"></div>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/url-token.js"></script>
