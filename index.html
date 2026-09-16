@@ -9,6 +9,7 @@
   <meta http-equiv="Expires" content="0" />
   <title>日本國土開發 LINE 平台</title>
   <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
+  <link rel="stylesheet" href="assets/ui.css">
   <script src="assets/groups.js"></script>
   <script src="assets/qrcode-gen.js"></script>
   <script src="assets/qr-badge.js"></script>
@@ -16,121 +17,93 @@
   <script src="assets/lottery-card.js"></script>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans TC", sans-serif;
-      padding: 20px 16px 40px;
-      font-size: 16px;
-      line-height: 1.6;
-      color: #333;
-      background: #f7f7f7;
-      max-width: 480px;
-      margin: 0 auto;
-    }
-    h1 { font-size: 20px; margin: 0 0 20px; color: #1a1a1a; }
-    h2 { font-size: 17px; margin: 0 0 14px; color: #222; }
-    .card {
-      background: #fff;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
-      box-shadow: 0 1px 4px rgba(0,0,0,.08);
-    }
-    label { display: block; margin-bottom: 6px; font-size: 14px; color: #555; font-weight: 600; }
+    /* 🔴 色票、body、.card、h1/h2、.tag 來自 `assets/ui.css`。這裡只放這一頁自己的。
+       ⚠️ 這一頁的按鈕與訊息**沿用自己的類名**（`.btn-primary`／`.msg-ok`…），
+          不改成共用那組——改類名要同時動 JS 的字串，那是另一件事、另一種風險。
+          這裡只換「長相」，不換名字。 */
+
+    /* 表單頁：欄位與焦點色。焦點用墨藍（＝可以按的動作），不用 LINE 綠——
+       LINE 綠是那個 app 的品牌色，不是本系統的語彙（ui.css 檔頭三色職責）。 */
+    label { display: block; margin-bottom: 6px; font-size: 14px; color: var(--ink2); font-weight: 600; }
     select, textarea, #sel-name {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      font-size: 15px;
-      font-family: inherit;
-      background: #fafafa;
-      margin-bottom: 14px;
-      -webkit-appearance: none;
+      width: 100%; padding: 10px 12px; border: 1px solid var(--ln); border-radius: 8px;
+      font-size: 15px; font-family: inherit; background: #fff; color: var(--ink);
+      margin-bottom: 14px; -webkit-appearance: none;
     }
-    select:focus, textarea:focus, #sel-name:focus { outline: none; border-color: #06c755; background: #fff; }
+    select:focus, textarea:focus, #sel-name:focus { outline: none; border-color: var(--b); }
     textarea { resize: vertical; min-height: 80px; }
+    .card { padding: 20px; margin-bottom: 16px; }
+
     .btn {
-      display: block;
-      width: 100%;
-      padding: 13px;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 700;
-      cursor: pointer;
-      letter-spacing: .02em;
+      display: block; width: 100%; padding: 13px; border: none; border-radius: 8px;
+      font-size: 16px; font-weight: 600; cursor: pointer; letter-spacing: .02em;
     }
-    .btn-primary { background: #06c755; color: #fff; }
-    .btn-primary:active { background: #05a847; }
-    .btn-primary:disabled { background: #aaa; cursor: not-allowed; }
-    .btn-secondary { background: #eee; color: #444; margin-top: 10px; }
-    .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 14px; }
-    .msg-ok   { background: #e6f9ee; color: #1a7d44; }
-    .msg-err  { background: #fdecea; color: #b71c1c; }
-    .msg-info { background: #e8f0fe; color: #1a56c4; }
-    .msg-warn { background: #fff4e5; color: #8a5300; }   /* 畫面可能不準（非操作失敗）＝與 msg-err 語意不同 */
+    .btn-primary { background: var(--b); color: #fff; }
+    .btn-primary:active { background: var(--b-dk); }
+    .btn-primary:disabled { background: var(--ink3); color: #fff; cursor: not-allowed; }
+    .btn-secondary { background: #f0f0ee; color: var(--ink); margin-top: 10px; }
+
+    /* ⚠️ 這一組是**區塊訊息**（有底色的方塊），與 ui.css 的行內 `.msg`（小字）不同用途。
+       本頁的宣告排在 ui.css 之後 ⇒ 蓋得過去，這是刻意的。 */
+    .msg { padding: 12px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 14px; min-height: 0; }
+    .msg-ok   { background: var(--g-bg); color: var(--g); }
+    .msg-err  { background: var(--bad-bg); color: var(--bad); }
+    .msg-info { background: #eaeef1; color: var(--b); }
+    .msg-warn { background: var(--warn-bg); color: var(--warn); }   /* 畫面可能不準（非操作失敗）＝與 msg-err 語意不同 */
+
     /* 載入畫面（2026-08-21）：原本只有一行灰字「載入中，請稍候…」，實測同仁會以為當掉
        ——LIFF 握手＋GAS 首載本來就要好幾秒，而畫面完全靜止。放會動的吉祥物是為了讓
        「還在跑」看得出來，文案分階段是為了讓等待有盡頭感。 */
-    #loading { text-align: center; padding: 32px 0; color: #888; font-size: 15px; }
+    #loading { text-align: center; padding: 32px 0; color: var(--ink3); font-size: 15px; }
     #loading img { width: 96px; height: auto; image-rendering: auto; }
-    #loading .lead { margin-top: 10px; font-size: 16px; font-weight: 700; color: #555; }
-    #loading .sub  { margin-top: 6px; font-size: 13px; color: #999; line-height: 1.6; }
+    #loading .lead { margin-top: 10px; font-size: 16px; font-weight: 600; color: var(--ink2); }
+    #loading .sub  { margin-top: 6px; font-size: 13px; color: var(--ink3); line-height: 1.6; }
     #main { display: none; }
     .email-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
     .email-row input {
       margin-bottom: 0; flex: 1; min-width: 0;
-      padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
-      font-size: 15px; font-family: inherit; background: #fafafa; box-sizing: border-box;
+      padding: 10px 12px; border: 1px solid var(--ln); border-radius: 8px;
+      font-size: 15px; font-family: inherit; background: #fff; color: var(--ink); box-sizing: border-box;
     }
-    .email-row .suffix { font-size: 14px; color: #777; white-space: nowrap; }
+    .email-row .suffix { font-size: 14px; color: var(--ink2); white-space: nowrap; }
     .radio-group { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
     .radio-group label {
-      flex: 1;
-      min-width: 80px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 15px;
-      font-weight: normal;
-      color: #333;
-      cursor: pointer;
-      padding: 9px 12px;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      background: #fafafa;
+      flex: 1; min-width: 80px; display: flex; align-items: center; gap: 6px;
+      font-size: 15px; font-weight: normal; color: var(--ink); cursor: pointer;
+      padding: 9px 12px; border: 1px solid var(--ln); border-radius: 8px; background: #fff;
     }
-    .radio-group input[type="radio"] { accent-color: #06c755; }
-    .radio-group label:has(input:checked) { border-color: #06c755; background: #e6f9ee; }
-    .hint { font-size: 13px; color: #888; margin-bottom: 14px; }
-    .hint a { color: #06c755; font-weight: 700; white-space: nowrap; }   /* 提示文字裡的電話等連結：品牌綠標示可點，且不從中間斷行 */
-    hr { border: none; border-top: 1px solid #eee; margin: 20px 0; }
+    .radio-group input[type="radio"] { accent-color: var(--b); }
+    .radio-group label:has(input:checked) { border-color: var(--b); background: #eaeef1; }
+    .hint { font-size: 13px; color: var(--ink3); margin-bottom: 14px; }
+    /* 提示文字裡的電話等連結：用動作色標示可點，且不從中間斷行。 */
+    .hint a { color: var(--b); font-weight: 600; white-space: nowrap; }
+    hr { border: none; border-top: 1px solid var(--ln); margin: 20px 0; }
     #section-report { margin-top: 8px; }
     /* logo 是裝飾：LIFF 標頭本身已經寫了「日本國土開發 LINE 平台」，這裡不必再喊一次公司名，
        所以只留一個小尺寸的視覺定錨（2026-08-18 使用者指出原本 260px 太搶版面）。 */
-    .brand { text-align: center; margin: 2px 0 10px; }
-    .brand img { width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto; }
+    .brand { margin: 2px 0 10px; }
     .mascot { display: block; width: 116px; height: auto; margin: 2px auto 12px; }
     #ob-birth, #bind-birth {
       /* 必須 appearance:none——iOS 原生日期欄會用固有寬度撐破容器(width/max-width 都壓不住)。
          代價：空值時不顯示「年/月/日」(欄位看似空白)→ 下方補提示文字。有值時仍正常顯示日期。 */
       -webkit-appearance: none; appearance: none;
       display: block; width: 100%; box-sizing: border-box;
-      padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px;
-      font-size: 15px; font-family: inherit; background: #fafafa; color: #333;
+      padding: 10px 12px; border: 1px solid var(--ln); border-radius: 8px;
+      font-size: 15px; font-family: inherit; background: #fff; color: var(--ink);
       margin-bottom: 4px; min-height: 44px;
     }
     #ob-birth::-webkit-date-and-time-value, #bind-birth::-webkit-date-and-time-value { text-align: left; }  /* 有值時日期靠左，與其他欄一致 */
-    #ob-birth-hint, #bind-birth-hint { font-size: 13px; color: #888; margin: 0 0 14px; }
-    /* ── 長者友善：放大預設字級（2026-06-26，集中於此方便日後調整）────────────── */
+    #ob-birth-hint, #bind-birth-hint { font-size: 13px; color: var(--ink3); margin: 0 0 14px; }
+    /* ── 長者友善：放大預設字級（2026-06-26，集中於此方便日後調整）──────────────
+       🔴 **不可以被「全站統一字級」洗掉**——這一頁是全體同仁（含長輩）唯一的入口。 */
     body { font-size: 17px; }
     select, textarea, #sel-name, #ob-birth, #bind-birth, .email-row input { font-size: 16px; }
     label { font-size: 15px; }
     .hint { font-size: 14px; }
     .btn { font-size: 17px; }
     .msg, #loading, .radio-group label { font-size: 16px; }
-    h2 { font-size: 18px; }
+    h1 { font-size: 20px; margin-bottom: 20px; }
+    h2 { font-size: 18px; margin-bottom: 14px; }
     .email-row .suffix { font-size: 15px; }
     .email-row input { min-width: 55%; }   /* 放大後前綴框不被後綴擠到看不見 */
   </style>
@@ -145,7 +118,7 @@
     <div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
     <!-- 樂觀渲染的畫面沒被真實狀態校正到時的警示（見 showStateError） -->
     <div id="state-warn"></div>
-    <p id="greeting" style="display:none; font-size:16px; color:#06c755; font-weight:700; margin:6px 0 16px"></p>
+    <p id="greeting" style="display:none; font-size:16px; color:var(--g); font-weight:600; margin:6px 0 16px"></p>
 
     <!-- 未綁定：綁定表單。2026-07-29 起不再是預設入口，只在 ?mode=bind 或「重新填寫」時出現。 -->
     <div id="section-bind" class="card" style="display:none">
@@ -154,7 +127,7 @@
            沒加好友 pushLine_ 送不到——綁定成功通知收不到、之後所有推播也收不到，
            而他自己不會發現。與報到頁共用 ensureFriendThen。 -->
       <div id="bind-gate" style="display:none">
-        <p class="hint" style="font-size:16px;color:#444;line-height:1.7">完成驗證前，請先加入公司官方帳號為好友 🙇<br><b>加了好友，系統才能把驗證結果與活動通知傳給您。</b></p>
+        <p class="hint" style="font-size:16px;color:var(--ink2);line-height:1.7">完成驗證前，請先加入公司官方帳號為好友 🙇<br><b>加了好友，系統才能把驗證結果與活動通知傳給您。</b></p>
         <button class="btn btn-primary" type="button" id="btn-addfriend-bind">① 加入官方帳號好友</button>
         <button class="btn btn-secondary" type="button" id="btn-recheck-bind" style="margin-top:10px">已加好友了？點此重新整理</button>
       </div>
@@ -201,7 +174,7 @@
     <!-- 已驗證：活動問卷 -->
     <div id="section-activity" class="card" style="display:none">
       <h2 id="act-title">活動出席回覆</h2>
-      <p id="act-dates" class="hint" style="display:none; margin-bottom:6px; color:#555"></p>
+      <p id="act-dates" class="hint" style="display:none; margin-bottom:6px; color:var(--ink2)"></p>
       <p id="act-refill-note" class="hint" style="display:none; margin-bottom:10px; padding:10px 12px; background:#fff8e8; border-left:4px solid #b9863f; border-radius:6px; color:#7a5320; font-weight:700"></p>
       <p id="act-question" class="hint"></p>
       <label>出席狀況</label>
@@ -231,7 +204,7 @@
     <!-- 活動已截止：本人回覆唯讀（桌次發布後一併顯示） -->
     <div id="section-closed" class="card" style="display:none">
       <h2 id="closed-act-name"></h2>
-      <p id="closed-act-date" class="hint" style="display:none; margin-bottom:6px; color:#555"></p>
+      <p id="closed-act-date" class="hint" style="display:none; margin-bottom:6px; color:var(--ink2)"></p>
       <p style="margin:8px 0">您的回覆：<b id="closed-attend"></b>　<span id="closed-diet"></span></p>
       <p id="closed-table-row" style="display:none; margin:8px 0">您的桌次：<b id="closed-table" style="font-size:1.5em"></b></p>
       <p class="hint">回覆已截止；資料如需異動請洽承辦同仁。</p>
@@ -242,7 +215,7 @@
       <h2>新人報到</h2>
       <img class="mascot" src="assets/mascot.png" alt="">
       <div id="ob-gate" style="display:none">
-        <p class="hint" style="font-size:16px;color:#444;line-height:1.7">完成報到前，請先加入公司官方帳號為好友 🙇<br><b>① 點下方綠色鈕加入官方帳號<br>② 加好友後，回官方帳號聊天室點「新進同仁報到」卡片即可報到</b></p>
+        <p class="hint" style="font-size:16px;color:var(--ink2);line-height:1.7">完成報到前，請先加入公司官方帳號為好友 🙇<br><b>① 點下方綠色鈕加入官方帳號<br>② 加好友後，回官方帳號聊天室點「新進同仁報到」卡片即可報到</b></p>
         <button class="btn btn-primary" type="button" id="btn-addfriend">① 加入官方帳號好友</button>
         <button class="btn btn-secondary" type="button" id="btn-friend-recheck" style="margin-top:10px">已加好友了？點此重新整理</button>
       </div>
@@ -278,8 +251,8 @@
       <div id="pass-msg"></div>
       <div id="pass-seat" style="display:none;text-align:center;margin:8px 0 12px">
         <div id="pass-name" style="font-size:20px;font-weight:700;color:#333"></div>
-        <div><span id="pass-table" style="font-size:64px;font-weight:700;line-height:1.05;color:#06c755"></span><span
-              id="pass-table-unit" style="font-size:17px;color:#555;margin-left:4px">桌</span></div>
+        <div><span id="pass-table" style="font-size:64px;font-weight:700;line-height:1.05;color:var(--g)"></span><span
+              id="pass-table-unit" style="font-size:17px;color:var(--ink2);margin-left:4px">桌</span></div>
       </div>
       <div id="pass-qr" style="text-align:center"></div>
       <p class="hint" id="pass-hint" style="text-align:center">出示給工作人員掃描</p>

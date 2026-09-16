@@ -1,0 +1,114 @@
+/* ui.css — 全站共用的設計語彙。
+ *
+ * ══ 這個檔為何存在（2026-09-16）════════════════════════════════════════
+ *
+ * 這套語彙 2026-08-16 在 `stats.html` 定案（使用者要的四個字：低調、簡約、扁平、
+ * 有設計感），之後被**逐字手抄**到 `line-messages.html`、`hr-stats.html`、`line.html`。
+ * 抄到第四份時它已經是「同一個判斷散在多處而沒有任何東西要求它們相等」的標準形狀：
+ * 改一處顏色，另外三頁不會跟著動，而且**不會有任何錯誤訊息**。
+ *
+ * ⇒ 這個檔是那份語彙的唯一副本。新頁面 `<link rel="stylesheet" href="assets/ui.css">`
+ *   就有整套基礎層，不要再抄一次。
+ *
+ * ⚠️ **本檔只放「每一頁都成立」的東西**：色票、字級、body、卡片、按鈕、標籤、訊息。
+ *    頁面自己的元件（表格、掃描器、座位圖、時間軸）留在那一頁的 `<style>`，
+ *    搬進來會變成一份沒有人用得完的大雜燴，而且每加一頁就更難刪。
+ *
+ * ⏳ **退場／收斂條件**：`stats.html`／`line-messages.html`／`hr-stats.html`／`line.html`
+ *    四頁今天仍各自帶著自己那份 `:root`。它們接上本檔、刪掉自己那份之後，
+ *    這段話要改寫。**在那之前，改色票要同時改五個地方**——
+ *    這正是本檔要消滅的東西，所以它是待辦，不是現況描述。
+ *    ⬛ 量法：`grep -c -- '--ink: *#2c2c2b' *.html`（今天回 1 的就是還沒接上的）
+ *
+ * ── 設計語彙（2026-08-16 定案，理由逐字沿用 stats.html）─────────────────
+ *  ① 綠色降飽和 —— #1a5c3a 太濃，整頁一多就沉。改用 sage #4a7c62。
+ *  ② 按鈕全扁平 —— 無陰影、無漸層。**每一顆都明寫 color**：不寫的話 iOS 會給
+ *     系統藍，那正是使用者說「藍色很難看」的來源（button 預設色 ≠ 繼承）。
+ *  ③ 去除全部 emoji —— 標題與按鈕都不再用圖案代替字。
+ *  ④ 卡片去陰影改細線 —— 陰影是擬物殘留，1px #ececea 就夠分層。
+ *  三色職責：藍＝可以按的動作、綠＝正常與已完成、紅＝例外與注意。
+ *  刻意單一亮色主題——沒有深色版，所有頁要長得一樣。
+ */
+
+:root {
+  --g: #4a7c62;          /* 主綠（比原 #1a5c3a 淡、降飽和） */
+  --g-dk: #3b6650;       /* 按下／強調 */
+  --g-bg: #eff4f1;       /* 極淡綠底 */
+  --g-ln: #d5e2da;       /* 綠色系細線 */
+  --ink: #2c2c2b;        /* 主文字 */
+  --ink2: #6b6b68;       /* 次文字 */
+  --ink3: #9a9a96;       /* 弱文字 */
+  --bg: #fbfbfa;         /* 頁面底（帶一點暖，不用純灰） */
+  --ln: #ececea;         /* 一般細線 */
+  --warn: #8a6a2f;       /* 提醒（降飽和的琥珀） */
+  --warn-bg: #f7f2e6;
+  /* 補償色＝logo 那道紅（實測 logo-full.svg 取得 #ac1335）。
+     用在「另一類東西」而不是只用在錯誤上——來賓（相對於員工）、錯誤、刪除。 */
+  --r: #ac1335;
+  --r-dim: #8f3040;      /* 大面積文字用，純 logo 紅在小字上太跳 */
+  --r-bg: #fbeef1;
+  /* 主要動作色＝墨藍。藍不在 logo 裡，是刻意引進的第三色——
+     logo 只有紅與深綠，兩者都已經有語意，再拿其中一個當按鈕就會跟語意打架。 */
+  --b: #2f4858;
+  --b-dk: #24363f;
+  --bad: var(--r-dim);   /* 錯誤沿用同一族紅，不再另開一個磚紅 */
+  --bad-bg: var(--r-bg);
+
+  /* ⚠️ 安全區**收成變數再用**，不要各處直接寫 env()。
+     為何：env() 在桌機瀏覽器恆為 0，版面算式對不對在 Chromium 完全驗不到——
+     只能靠「注入一個假值」來測，而 env() 沒辦法被覆寫，變數可以
+     （驗收腳本注入 `:root{--sat:59px}` 就模擬得出 iPhone 的狀態列高度）。 */
+  --sat: env(safe-area-inset-top, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans TC", sans-serif;
+  padding: 20px 16px 40px; font-size: 16px; line-height: 1.65; color: var(--ink);
+  background: var(--bg); max-width: 480px; margin: 0 auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 品牌區。`max-width` 比 stats.html 的 210px 小一階——那一頁的 logo 是頁面主體的
+   一部分，入口頁的 logo 是識別，不該比使用者的名字還搶。要放大就在那一頁覆寫。 */
+.brand { text-align: center; margin: 0 0 16px; }
+.brand img { width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto; }
+
+h1 { font-size: 19px; font-weight: 600; margin: 0 0 10px; color: var(--ink); letter-spacing: .01em; }
+h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; color: var(--ink); letter-spacing: .01em; }
+.meta { font-size: 13px; color: var(--ink3); margin-bottom: 18px; }
+
+.card { background: #fff; border: 1px solid var(--ln); border-radius: 3px; padding: 18px; margin-bottom: 14px; }
+.empty { text-align: center; color: var(--ink3); padding: 26px 0; font-size: 14px; }
+
+/* 🔴 每一顆按鈕都明寫 `color`——見檔頭 ②。 */
+.btn { display: inline-block; padding: 9px 16px; font-size: 14.5px; font-weight: 600; border: none;
+       border-radius: 8px; background: #f0f0ee; color: var(--ink); cursor: pointer;
+       text-decoration: none; text-align: center; }
+.btn:active { background: #e4e4e1; }
+.btn-pri, .btn-pri2 { background: var(--b); color: #fff; }
+.btn-pri:active, .btn-pri2:active { background: var(--b-dk); }
+.btn-pri { width: 100%; }
+.btn-sm { padding: 4px 11px; font-size: 12.5px; background: #f0f0ee; color: var(--ink); margin: 4px 6px 0 0; }
+.btn-sm.warn { background: var(--bad-bg); color: var(--bad); }
+.btn-up { background: #fff; color: var(--ink); border: 1px solid var(--ln); }
+.btn-amber { background: var(--warn-bg); color: var(--warn); }
+.btn-red { background: var(--bad-bg); color: var(--bad); }
+.btn-grey { background: #f4f4f2; color: var(--ink2); }
+.btnrow { display: flex; gap: 8px; margin-top: 10px; }
+.btnrow .btn { flex: 1; padding: 10px 4px; font-size: 14px; }
+
+.msg { font-size: 13.5px; margin-top: 8px; min-height: 1em; }
+.msg.ok { color: var(--g); }
+.msg.err { color: var(--bad); }
+
+/* .tag 預設中性灰；g/r/w 三個變體對應綠（正常）／紅（外部・例外）／琥珀（待處理）。 */
+.tag { display: inline-block; font-size: 11px; line-height: 1.75; padding: 0 6px;
+       border-radius: 3px; background: #f0f0ee; color: var(--ink2); font-weight: 600; }
+.tag.g { background: var(--g-bg); color: var(--g); }
+.tag.r { background: var(--r-bg); color: var(--r-dim); }
+.tag.w { background: var(--warn-bg); color: var(--warn); }
