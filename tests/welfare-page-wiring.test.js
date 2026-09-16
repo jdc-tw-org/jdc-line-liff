@@ -1080,8 +1080,14 @@ test('🔴 全頁只能有一個地方直接叫 gasCall，而且它在 wfCall �
  *    ——都是註解），**命中第四處才是真的漏改**：畫面上還留著舊名字。
  *    ⚠️ 本檔讀的是 `line.html`，不是自己 ⇒ 本檔寫著舊名不會讓這條紅（同 OLD_NAME 的理由）。
  */
-const TAB_NAME = 'line訊息發訊';      // 分頁標題 <title>＝分流表那一格的名字
-const DISPLAY_NAME = 'line訊息發訊';  // 畫面上的名字（<h1> 與身分閘）。2026-09-14 起與上面同值
+// 🔴 2026-09-16 使用者指定**英文全大寫**（`line` → `LINE`）。
+//    ⬛ 舊值（改寫不刪）：兩者都是 `line訊息發訊`（2026-09-14 整頁改名時定的）。
+//    ⚠️ **這兩個常數不是這個名字的權威**——分流頁上那張卡片讀的是
+//       `jdc-line-gas` `DISPATCH_PAGES` 的 `title`，不是這裡。這一條只管
+//       「`line.html` 自己那三處有沒有一起改」。跨 repo 那一格由
+//       `tests/fixtures/action-roles.json`（有 PIN）與 gas 的 `roles-matrix-guard` 守。
+const TAB_NAME = 'LINE訊息發訊';      // 分頁標題 <title>＝分流表那一格的名字
+const DISPLAY_NAME = 'LINE訊息發訊';  // 畫面上的名字（<h1> 與身分閘）。2026-09-14 起與上面同值
 const OLD_NAME = '福委會 LINE 發送';
 
 test('頁面名稱是新的：分頁標題、身分閘標題、主標題三處都要', () => {
