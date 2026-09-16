@@ -72,7 +72,18 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 第二列是在補一個**已經存在的洞**：liff `#18` 2026-09-14 就合了，而 gas 的表沒跟著改名
  *      ⇒ 從那天起分流頁上「LINE 傳送平台」那個連結點下去是 404。
  */
-const PIN = '25ea65d9afa99e7295dc0bfc51ea23ba0a1d82a4dd885b8b94cce089498dffa1';
+/**
+ * 🔴 2026-09-17（gas `#100`）：授權名單維護頁 `authz.html`。副本重產，diff 恰好兩塊：
+ *      `actions`        **多三支**：`getAuthzList`／`checkAuthzDraft`／`saveAuthzList`，
+ *                       三支的 `roles` 都是 `["admin"]`、`who` 都是 `["admin"]`
+ *                       ⇒ **沒有任何既有 action 的格子被動到**（104 → 107 支）。
+ *      `dispatchPages`  **多一列**：`authz.html`／`授權名單維護`／門 `getAuthzList`／`lineReady:true`。
+ *    ⇒ 既有的人權限零變化；只有 `admin` 的分流頁多一列（6 → 7）。
+ *    ⚠️ 這一列的 `lineReady:true` 前提是**本 repo 的 `authz.html` 已經發布**。
+ *      gas 那一列的旁邊寫著同一件事：**liff 的副本先合、gas 後合**
+ *      （`roles-matrix-guard.yml` 檔頭）。
+ */
+const PIN = '264e6a8dd7ecb7533e5b23ca4cf3a5f30cfa52cf59c4a32258e7e89a7b50b61a';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
