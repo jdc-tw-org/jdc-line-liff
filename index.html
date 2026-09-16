@@ -127,7 +127,7 @@
            沒加好友 pushLine_ 送不到——綁定成功通知收不到、之後所有推播也收不到，
            而他自己不會發現。與報到頁共用 ensureFriendThen。 -->
       <div id="bind-gate" style="display:none">
-        <p class="hint" style="font-size:16px;color:#444;line-height:1.7">完成驗證前，請先加入公司官方帳號為好友 🙇<br><b>加了好友，系統才能把驗證結果與活動通知傳給您。</b></p>
+        <p class="hint" style="font-size:16px;color:var(--ink2);line-height:1.7">完成驗證前，請先加入公司官方帳號為好友 🙇<br><b>加了好友，系統才能把驗證結果與活動通知傳給您。</b></p>
         <button class="btn btn-primary" type="button" id="btn-addfriend-bind">① 加入官方帳號好友</button>
         <button class="btn btn-secondary" type="button" id="btn-recheck-bind" style="margin-top:10px">已加好友了？點此重新整理</button>
       </div>
@@ -174,7 +174,7 @@
     <!-- 已驗證：活動問卷 -->
     <div id="section-activity" class="card" style="display:none">
       <h2 id="act-title">活動出席回覆</h2>
-      <p id="act-dates" class="hint" style="display:none; margin-bottom:6px; color:#555"></p>
+      <p id="act-dates" class="hint" style="display:none; margin-bottom:6px; color:var(--ink2)"></p>
       <p id="act-refill-note" class="hint" style="display:none; margin-bottom:10px; padding:10px 12px; background:#fff8e8; border-left:4px solid #b9863f; border-radius:6px; color:#7a5320; font-weight:700"></p>
       <p id="act-question" class="hint"></p>
       <label>出席狀況</label>
@@ -204,7 +204,7 @@
     <!-- 活動已截止：本人回覆唯讀（桌次發布後一併顯示） -->
     <div id="section-closed" class="card" style="display:none">
       <h2 id="closed-act-name"></h2>
-      <p id="closed-act-date" class="hint" style="display:none; margin-bottom:6px; color:#555"></p>
+      <p id="closed-act-date" class="hint" style="display:none; margin-bottom:6px; color:var(--ink2)"></p>
       <p style="margin:8px 0">您的回覆：<b id="closed-attend"></b>　<span id="closed-diet"></span></p>
       <p id="closed-table-row" style="display:none; margin:8px 0">您的桌次：<b id="closed-table" style="font-size:1.5em"></b></p>
       <p class="hint">回覆已截止；資料如需異動請洽承辦同仁。</p>
@@ -215,7 +215,7 @@
       <h2>新人報到</h2>
       <img class="mascot" src="assets/mascot.png" alt="">
       <div id="ob-gate" style="display:none">
-        <p class="hint" style="font-size:16px;color:#444;line-height:1.7">完成報到前，請先加入公司官方帳號為好友 🙇<br><b>① 點下方綠色鈕加入官方帳號<br>② 加好友後，回官方帳號聊天室點「新進同仁報到」卡片即可報到</b></p>
+        <p class="hint" style="font-size:16px;color:var(--ink2);line-height:1.7">完成報到前，請先加入公司官方帳號為好友 🙇<br><b>① 點下方綠色鈕加入官方帳號<br>② 加好友後，回官方帳號聊天室點「新進同仁報到」卡片即可報到</b></p>
         <button class="btn btn-primary" type="button" id="btn-addfriend">① 加入官方帳號好友</button>
         <button class="btn btn-secondary" type="button" id="btn-friend-recheck" style="margin-top:10px">已加好友了？點此重新整理</button>
       </div>

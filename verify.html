@@ -16,8 +16,14 @@
     .brand img { max-width: 240px; }
     /* 整頁置中：這一頁沒有清單，只有一句結果。 */
     body { padding: 40px 20px; text-align: center; }
-    .card { padding: 32px 24px; }
-    .icon { font-size: 48px; margin-bottom: 12px; }
+    /* 🔴 狀態靠**卡片上緣那道色條**，不靠 emoji（設計語彙第 ③ 條：去除全部 emoji，
+       不用圖案代替字）。原本這裡是一顆 48px 的表情符號（沙漏／打勾／警告三角）。
+       ⚠️ 換法不是「刪掉就好」——這一頁是長輩單獨開的驗證頁，那個圖是**狀態的主要載體**。
+          色條的資訊量相同（綠＝成功、紅＝失敗、灰＝進行中）、看得更遠，
+          而且它不依賴任何字型有沒有那顆 emoji（Android 舊機實際會缺字變成方框）。 */
+    .card { padding: 32px 24px; border-top: 4px solid var(--ln); }
+    .card.ok  { border-top-color: var(--g); }
+    .card.err { border-top-color: var(--bad); }
     p { color: var(--ink2); }
     .ok h1 { color: var(--g); }
     .err h1 { color: var(--bad); }
@@ -31,7 +37,6 @@
 <body>
   <div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
   <div class="card" id="box">
-    <div class="icon">⏳</div>
     <h1>驗證中…</h1>
     <p>正在確認您的身分，請稍候。</p>
   </div>
@@ -74,12 +79,13 @@
     function render(ok, title, msg) {
       var box = document.getElementById('box');
       box.className = 'card ' + (ok ? 'ok' : 'err');
-      var html = '<div class="icon">' + (ok ? '✅' : '⚠️') + '</div><h1>' + title + '</h1><p>' + msg + '</p>';
+      // 狀態由 box 的 `ok`／`err` class 決定（卡片上緣的色條＋標題顏色），不放 emoji。
+      var html = '<h1>' + title + '</h1><p>' + msg + '</p>';
       if (ok) {
         // 用「按鈕(使用者點擊)」回 LINE：點擊才會觸發 iOS 的 LINE universal link、開回 LINE app。
         // 不用 JS 自動跳轉——那只會在 Safari 內開 LIFF、反而卡住。
         html += '<a class="btn btn-pri" href="' + LIFF_LINK + '">回 LINE 填寫出席調查</a>';
-        html += '<p style="font-size:13px;color:#999;margin-top:10px">點上方按鈕回 LINE 填寫；或回到 LINE 點剛收到的通知。</p>';
+        html += '<p style="font-size:13px;color:var(--ink3);margin-top:10px">點上方按鈕回 LINE 填寫；或回到 LINE 點剛收到的通知。</p>';
       }
       box.innerHTML = html;
     }
