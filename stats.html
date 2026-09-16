@@ -2549,14 +2549,23 @@ FIRST.then(function(env){LAST_VERDICT=(env&&env._verdict)||'ok';});
 //       ——那是安全機制，斷了會讓小字永遠空白（後端已不回舊的 SN.sent），故意不放進來。
 var MSG_LOG_UI_ON = true;
 
-// 連結用 ?mt= 帶 hub 的 viewer token，與看板自己的 ?t= 分開：
+// `?mt=` 帶的是 hub 的 viewer token，與看板自己的 `?t=` 分開：
 // 一顆給 line-platform、一顆給 hub，權限來源不同，不可共用。
-// 沒帶 mt 就不顯示連結——顯示一個點了必定失敗的連結比不顯示更糟。
+// 🔴 **這兩種 `?t=` 同名不同物**——本頁自己那顆（查 gas 的看板清單）與下面這件事無關，一個字都沒動。
+//
+// 🪦 連結**不再帶 `?t=`**（`jdc-tw-org/jdc-line-hub#27`，2026-09-16）：訊息紀錄頁只剩 LINE 登入一條路。
+// ⚠️ `?mt=` 照舊讀、照舊當「顯不顯示這個連結」的門——**這一段刻意只改鑄造出來的網址**，
+//    誰看得到入口一個人都沒有變（票上改過的閘門：「打 gas 的呼叫逐字不變，diff 只有鑄造那一段」）。
+//    🔴 原本這個門的理由是「沒帶 mt 就不顯示——顯示一個點了必定失敗的連結比不顯示更糟」。
+//       **那個理由現在只剩一半**：不帶 token 的連結點下去會走 LINE 登入，不再「必定失敗」，
+//       擋不擋得住改由 gas 的守門決定。留著這個門是為了**不擴大誰看得到入口**（那是另一個決定），
+//       不是因為原本那句話還成立。
+// 🔘 留給擁有者的後續：`mt` 現在只剩「門」這一個用途，它換來的那顆 token 已經沒有人用了（見票 #27）。
 (function(){
   if(!MSG_LOG_UI_ON) return;
   var mt=new URLSearchParams(location.search).get('mt')||'';
   var a=document.getElementById('msgLogLink');
-  if(mt){ a.href='line-messages.html?t='+encodeURIComponent(mt); a.hidden=false; }
+  if(mt){ a.href='line-messages.html'; a.hidden=false; }
 })();
 
 // 未送出警語的呼叫**排在第二發批次之後、且包 queueRead**（2026-08-23，T279）。

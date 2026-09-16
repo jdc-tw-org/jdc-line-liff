@@ -479,25 +479,34 @@
 <script src="assets/messages-view.js"></script>
 <script src="assets/messages-search.js"></script>
 <script>
-/* ══ 這一頁有兩條進來的路（2026-09-13，訊息平台多人化「乙」liff 端，線 ML）══════════
+/* ══ 這一頁**只剩一條**進來的路（2026-09-16，`jdc-tw-org/jdc-line-hub#27`）══════════
  *
- *   ① 網址帶 `?t=`  → **舊路，送出去的請求與改動前逐字相同**：瀏覽器拿 hub 的 viewer token
- *                      直接打 hub 的 `listMessageLog`（admin.html 換來的、stats／board 的 `?mt=`
- *                      轉貼過來的、書籤）。新舊並行，跨過下一場活動再拔（使用者拍板）。
- *   ② 網址沒有 `?t=` → **LINE 登入**，打 line-platform（gas）的新 action，gas 以呼叫者的角色過濾後轉一手：
+ *   ② 網址沒有 `?t=` → **LINE 登入**，打 line-platform（gas）的 action，gas 以呼叫者的角色過濾後轉一手：
  *                      · 預設 `getMessageLog`（admin／activity／hr）
  *                      · `?from=welfare`（只有發訊頁的入口會帶）→ `getWelfareMessageLog`（發訊三名）
- *                      🔴 兩支都**只帶 idToken**：帶了 token 後端 `doGet` 會把請求改道回舊守門。
+ *                      🔴 只帶 idToken：帶了 token 後端 `doGet` 會把請求改道回舊守門。
+ *
+ *   🪦 網址帶 `?t=`  → **那條路已經停用**（見下方 `retireTokenPath`）。
+ *                      原本它是「瀏覽器拿 hub 的 viewer token 直接打 hub 的 `listMessageLog`」，
+ *                      而那個身分來自 hub 一份**人手維護的對照表**。
+ *                      ⚠️ 那份表的名字與內容都在另一個（非公開的）repo，**這裡刻意不寫**——
+ *                         本 repo 是 public，細節請看票。
+ *                      擁有者 2026-09-16 拍板：身分不該靠一份要有人維護的表 ⇒ 整條拿掉。
  *
  * ⚠️ `from` 不是授權：誰看得到什麼由 gas 的第一道守門決定，手打 `from=welfare` 的人會被擋下。
- * ⚠️ `?t=` 與 `from=welfare` 同時出現時走①——分流依據只有「網址上有沒有 t」。
+ * ⚠️ `?t=` 與 `from=welfare` 同時出現時仍然走 🪦——分流依據只有「網址上有沒有 t」，沒有變。
  */
-// ②的後端：line-platform（與 attend／stats／welfare 同一條 /exec）。
+// 唯一的後端：line-platform（與 attend／stats／welfare 同一條 /exec）。
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
 var LIFF_ID = '2010451233-a781rqsm';   // 與 index／welfare／board／attend 同一條，不多開 LIFF ID
 
-// ①的後端是 jdc-line-hub（獨立的 GAS 專案），不是本站其他頁用的 line-platform。
-var EXEC_URL = 'https://script.google.com/macros/s/AKfycbwCMxy9K3A8ZE56yJrGW1C9ee1iZnsMRHosBygDHcm8qJD9UeyUINnRuh3aKX9QMqR8/exec';
+/* 🪦 **`EXEC_URL`（hub 的 /exec）與 `callApi` 在這一次被整個刪掉，不是留著不呼叫。**
+ *    差別不是潔癖：留著的話「停用之後不會再把 token 送出去」只是一句註解，
+ *    刪掉之後這一頁**結構上沒有 hub 的網址可用** ⇒ 那句話變成做不到，不必靠紀律。
+ *    （同一個理由 PR-A 在 hub 那側也用了一次：墓碑排在任何 `cfg_()` 之前，
+ *      那條路讀不到任何一顆 token。）
+ *    ⚠️ 要回復舊路的話：`EXEC_URL` 的值在 `cfbe75f:line-messages.html:500`。
+ */
 
 // 一次全拿，前端自己分月。hub 的 readLog_ 是 `Number(days) || 30`，沒有上限。
 // 為何全拿：左側月份滑桿點下去要能立刻到位，逐月再打一次 GAS 會等 8–17 秒，
@@ -506,53 +515,13 @@ var DAYS_ALL = '3650';
 
 function qs(k) { return new URLSearchParams(location.search).get(k) || ''; }
 
-/**
- * 呼叫 hub。行為照抄本站 board.html 的 jsonp()，兩邊必須一致。
- *
- * ⚠️ 一律 fetch + credentials:'omit'，不可用 script 標籤 JSONP——
- *    script 標籤必帶瀏覽器的 Google 帳號 cookies，帳號 session 半殘的電腦
- *    會被 Google 拒絕回 Drive 錯誤頁，症狀是「特定人永遠失敗、無痕就好」。
- *
- * ⚠️ 逾時**不可用 AbortController**：iOS 12.1 以前沒有它，`new AbortController()`
- *    會直接 ReferenceError，讓整段初始化同步當掉 → 畫面永遠停在「載入中」
- *    且不顯示任何錯誤（2026-07-31 於 attend.html 查出，全站已移除）。
- *    改用 Promise.race 計時，代價只是底層請求不會真的被取消。
- *
- * 30 秒逾時＋逾時/斷線自動重試一次（隔 2 秒）：GAS 偶發 8–17 秒長尾會踩斷頭線。
- * 正常回應（含 ok:false）不重試。回應仍是 JSONP 包裝，這裡剝殼。
- *
- * 📌 刻意不掛 assets/deny-no-role.js（board/stats/hr-stats 有掛，這頁沒有）：
- *    那支攔的是後端 roles.js 回的「此連結非您的權限範圍。」，而 hub 的 doGet
- *    只回「無權限或連結已失效。」，掛了也不會觸發；且它為了「附屬功能被擋不該
- *    蓋整頁」而延遲 2.5 秒判定，這一頁只有單一 action，沒有那個情境。
+/* 🪦 `callApi()`（hub 的 JSONP 呼叫）在這一次整個刪掉——見上面 `EXEC_URL` 那段。
+ *    📌 順帶：它的註解裡有一段「刻意不掛 assets/deny-no-role.js」的理由，
+ *       那段講的是 hub 的「無權限或連結已失效。」。**那個主詞已經被抽走了**
+ *       （這一頁再也不打 hub）⇒ 不把它搬到別處當殘影。②走 gas，
+ *       gas 的「此連結非您的權限範圍。」照舊由後端的 msg 直接畫在畫面上
+ *       （見 `logFailText`），行為沒有變。
  */
-function callApi(params) {
-  var url = EXEC_URL + '?' + new URLSearchParams(params).toString() + '&callback=cb';
-  function attempt() {
-    var timer;
-    var timeout = new Promise(function (_, rej) {
-      timer = setTimeout(function () {
-        var e = new Error('timeout'); e.name = 'AbortError'; rej(e);
-      }, 30000);
-    });
-    return Promise.race([timeout,
-      fetch(url, { credentials: 'omit', redirect: 'follow' })
-        .then(function (r) { return r.text(); })
-        .then(function (t) {
-          var a = t.indexOf('('), b = t.lastIndexOf(')');
-          if (a === -1 || b === -1) throw new Error('回應格式不正確');
-          return JSON.parse(t.slice(a + 1, b));
-        })])
-      .then(function (v) { clearTimeout(timer); return v; },
-            function (e) { clearTimeout(timer); throw e; });
-  }
-  return attempt().catch(function () {
-    return new Promise(function (res) { setTimeout(res, 2000); }).then(attempt);
-  }).catch(function (e) {
-    return { ok: false, msg: (e && e.name === 'AbortError')
-      ? '連線逾時（伺服器喚醒中），請重新整理再試。' : '連線失敗' };
-  });
-}
 
 /* ═══ 狀態 ═══════════════════════════════════════════════ */
 var TOKEN = qs('t');
@@ -927,8 +896,11 @@ function loadLiffSdk() {
     (document.head || document.body).appendChild(s);
   });
 }
+/* 🪦 原本第一行是 `if (TOKEN) return Promise.resolve('token');`（①舊路不載 SDK）。
+ *    現在帶 `t` 的請求在啟動段就被 `retireTokenPath()` 接走，**根本進不到這裡** ⇒ 那一行是死枝，拿掉。
+ *    「舊路不載 LINE SDK」這件事沒有被放棄，只是換了更強的保證：墓碑那條路
+ *    連 `loadLiffSdk()` 都不呼叫（e2e 有一條在釘它，連一發請求都不准送）。 */
 function startAuth() {
-  if (TOKEN) return Promise.resolve('token');            // ①舊路：不碰 LIFF、連 SDK 都不載
   return loadLiffSdk().then(startLine);
 }
 function startLine() {
@@ -959,7 +931,8 @@ function startLine() {
  *
  * 🔴 **只帶 idToken，而且在呼叫當下才取**（它只有效一小時）。呼叫端塞進來的 `token`／`t` 一律拿掉
  *    ——後端 `doGet` 的分流是「token 非空就走舊守門」，留一個縫等於沒改（同 line.html 的 `wfCall`）。
- * 重試：與①的 `callApi` 同一個策略——**只對傳輸失敗**重試一次、隔 2 秒；伺服器說不行（含 hub_unreadable）不重試。
+ * 重試：**只對傳輸失敗**重試一次、隔 2 秒；伺服器說不行（含 hub_unreadable）不重試。
+ *    （這個策略原本與已刪除的 `callApi` 共用一句註解描述，主詞被抽走後照現況重寫，不留殘影。）
  *    這一支唯讀，重送沒有副作用。
  * 解析出口接 `liff-relogin.js`：憑證過期（`line_bad_token`）時真的重新登入一次。
  */
@@ -984,9 +957,8 @@ function callGas(action, params) {
   }).then(reloginOnDeadCredential);
 }
 
-/** 首載那一發。①的那一行與改動前逐字相同。 */
+/** 首載那一發。只剩②一條路——帶 `t` 的在啟動段就被墓碑接走，走不到這裡。 */
 function fetchLog() {
-  if (TOKEN) return callApi({ action: 'listMessageLog', t: TOKEN, days: qs('days') || DAYS_ALL });
   return callGas(LOG_ACTION, { days: qs('days') || DAYS_ALL });
 }
 
@@ -1001,8 +973,91 @@ function logFailText(res) {
   return (res && res.msg) || '無法載入。';
 }
 
+/* ═══ 🪦 `?t=` 那條路的墓碑 ══════════════════════════════════════════════
+ *
+ * **判準是「網址上有沒有 `t`」，不是後端回了什麼字。** 兩個理由：
+ *
+ * ① 這一頁的 `t` **只有一個來源**——`var TOKEN = qs('t')` 是全檔唯一一處讀它，
+ *    而它唯一的用途就是打 hub 的 `listMessageLog`。那條路死了，`t` 就沒有別的正當理由存在。
+ *    ⬛ 自證**不要用 `git grep -c`**：它數的是「行」，而這段註解自己就提到了 `qs('t')`
+ *       ⇒ 實跑回 3，不是 1（我第一版就把 1 寫進來，數字是假的）。
+ *       真正的量法是**剝掉註解之後再數**，釘在 `tests/msglog-line-wiring.test.js`
+ *       的「`t` 在這一頁只有一個來源」那一條（附反向零點）。
+ *    ②（`?from=welfare` 與一般 LINE 登入）不讀 `t`、也不帶 `t`（`callGas` 還會 `delete p.t`）⇒ 誤傷不了。
+ *
+ * ② 🔴 **拿後端文案當判準會靜默消失。** `deny-no-role` 那次實測：11 種措辭有 9 種
+ *    會讓處置整個不觸發，而畫面上看起來完全合理。PR-A 也明寫「分辨力放 `msg` 不放 `reason`」
+ *    ——那句話的意思是 **hub 那側刻意沒有給前端任何機器可讀的判準**，
+ *    它只保證「人看得懂」。前端要自己有一個結構性的判準，不能去比對那串字。
+ *
+ * 🔴 **為什麼連打都不打一發。** 這條路上已經沒有 hub 的網址了（`EXEC_URL`／`callApi` 都刪了）。
+ *    順帶三個結果：
+ *    · 手上那顆 token 不會再被送去任何地方；
+ *    · liff 這一半**不依賴 hub PR-A 有沒有合併**——兩邊各自獨立生效，先後順序不影響；
+ *    · 「畫面停在舊紀錄」在結構上不可能發生——這段跑在 `cacheBootstrap`／`adopt` 之前，
+ *      `BATCHES` 永遠是空的，`settleRefresh` 那條早退路徑根本沒有機會被走到。
+ *      ⚠️ 那正是原本的病：**舊紀錄先被畫出來 ⇒ `BATCHES.length` 非 0 ⇒ `settleRefresh`
+ *      把停用訊息包進「⚠️ 這裡顯示的是 … 的資料，目前無法更新：」那行琥珀小字就早退**。
+ *      停用訊息並不是沒出現，而是**被裱進「暫時無法更新」的框裡**——那比不出現更糟，
+ *      因為它告訴使用者「等一下再試」，而他等再久都不會好。
+ *
+ * ⚠️ 空字串不算：`qs()` 找不到就回 `''`，舊書籤 `?t=&days=180` 現行分流本來就走②，這裡不改它。
+ * ⚠️ hub 只講得出文字（它回的是純 JSON），**可點的出口是這一頁做的**。
+ */
+function retireTokenPath() {
+  // 畫面收乾淨。不是「蓋掉舊紀錄」——這裡本來就還沒畫過任何東西。
+  listEl.innerHTML = '';
+  railEl.hidden = true;
+  warnEl.textContent = '';
+  warnEl.className = 'warnbar';
+  // 沒有清單可搜 ⇒ 收起搜尋鈕。
+  // 🔴 **`hidden` 在這一顆按鈕上無效**：`.sdot` 的作者樣式寫了 `display: flex`，
+  //    優先序高過 `[hidden]` 那條 UA 規則 ⇒ 屬性設了、按鈕照樣看得見。
+  //    第一版就是只寫 `dotEl.hidden = true`，**單元測試斷言 `hidden === true` 還是綠的**
+  //    （假 DOM 沒有 CSS），是 e2e 的截圖才看出來按鈕還在。兩個一起設：
+  //    `hidden` 給輔助技術與語意，行內 `display:none` 才真的蓋得過那條 class。
+  dotEl.hidden = true;
+  dotEl.style.display = 'none';
+  // 就用既有的 `#msg` 當容器（它本來就是這一頁講話的地方，位置在清單正上方），
+  // **不另外 insertBefore 到 parentNode**——`markRefreshFail` 那支為了同一件事
+  // 寫了 `if (!box.parentNode.insertBefore) return` 的防呆，那種 fail-open 的守門
+  // 會讓「這句話沒畫出來」變成靜默的。appendChild 到一個一定存在的容器就沒有那一格。
+  msgEl.style.display = '';
+  msgEl.innerHTML = '';
+
+  var box = document.createElement('div');
+  box.id = 'retired';
+  box.setAttribute('role', 'status');
+  box.setAttribute('style', 'margin:8px 0 0;padding:14px 16px;border:1px solid var(--ln);'
+    + 'border-radius:3px;background:#fff;font-size:15px;line-height:1.75;color:var(--ink)');
+
+  var h = document.createElement('div');
+  h.setAttribute('style', 'font-weight:600;margin:0 0 6px');
+  h.textContent = '這個連結已經停用。';
+  var p = document.createElement('p');
+  p.setAttribute('style', 'margin:0 0 12px;color:var(--ink2);font-size:14px');
+  p.textContent = '訊息紀錄改用 LINE 登入，網址上不再需要帶 token。'
+    + '你原本看得到的內容，登入後一樣看得到。';
+  // 出口用 <a> 不用 button：長按可以複製、可以另開分頁，而且沒有 JS 也還是一個連結。
+  var a = document.createElement('a');
+  a.href = 'line-messages.html';       // 同站台相對路徑，與各入口鑄造連結時的寫法一致
+  a.setAttribute('style', 'display:inline-block;padding:8px 14px;border-radius:3px;'
+    + 'background:var(--b);color:#fff;text-decoration:none;font-size:15px;font-weight:600');
+  a.textContent = '用 LINE 登入開啟訊息紀錄';
+  box.appendChild(h); box.appendChild(p); box.appendChild(a);
+  msgEl.appendChild(box);
+
+  /* 🔴 **只清這一頁、這一顆 token 的那一份。**
+   *    `cacheClear(FP)` 會清掉同指紋下別的切片（admin 換來的 `getMsgLogToken` 就在那裡）、
+   *    `cacheClearAll()` 會清掉 board／attend／hr-stats／stats 全部人的加密快取。
+   *    `cacheDrop` 是單鍵刪除，刻意不做前綴掃描——正是這一格要的。
+   *    ⬛ e2e 用四把哨兵鍵（一把同指紋、三把不同指紋）把這三種寫法的差別量出來。 */
+  return cacheDrop(FP, CACHE_NAME).then(syncClearBtn);
+}
+
 var MSG_HIT = null;   // 畫面上那份快取（失敗提示要它的寫入時間）
-// ⚠️ 快取排在身分確認之後：②的指紋（sub）要登入完才知道。①只差一個微任務。
+if (TOKEN) { retireTokenPath(); } else {
+// ⚠️ 快取排在身分確認之後：②的指紋（sub）要登入完才知道。
 startAuth().then(function () {
   return cacheBootstrap(FP);
 }).then(function () {
@@ -1011,7 +1066,7 @@ startAuth().then(function () {
   if (hit && hit.value && hit.value.header) { adopt(hit.value, true); MSG_HIT = hit; }
   return fetchLog();
 }).then(function (res) {
-  // 失敗的話一律用 logFailText 的文字（①的回應沒有 hub_unreadable ⇒ ①的文字與改動前相同）。
+  // 失敗的話一律用 logFailText 的文字。
   if (res && res.ok !== true) res = Object.assign({}, res, { msg: logFailText(res) });
   // 🔴 2026-09-13：失敗而畫面上是快取（BATCHES 有東西）時原本一個字都不說 ⇒ 清單上方掛提示、不改畫面
   if (!settleRefresh('list', res, BATCHES.length ? MSG_HIT : null)) return;
@@ -1021,7 +1076,7 @@ startAuth().then(function () {
     }
     return;
   }
-  // ⚠️ logSince：gas 會原樣轉回 hub 的 logSince（hub f40744b＋gas 1495533 起），②與①走同一個 adopt。
+  // ⚠️ logSince：gas 會原樣轉回 hub 的 logSince（hub f40744b＋gas 1495533 起）。
   //    hub 或 gas 任一邊還沒上線時回應沒有這一格 ⇒ adopt 照舊掛「紀錄起始日未設定」（不隱藏）。
   adopt(res, false);
   // 存快取：含姓名與內容，使用者已知並拍板。cacheSave 只收 ok:true 的物件。
@@ -1033,6 +1088,7 @@ startAuth().then(function () {
     markRefreshFail('list', MSG_HIT && MSG_HIT.savedAt, (e && e.message) ? e.message : String(e));
   }
 });
+}
 </script>
 <script src="assets/page-version.js" defer></script>
 </body>

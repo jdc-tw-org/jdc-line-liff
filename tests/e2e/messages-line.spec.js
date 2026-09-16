@@ -1,5 +1,7 @@
 /**
- * line-messages.html 的兩條進來的路（訊息平台多人化「乙」liff 端，線 ML，2026-09-13）。
+ * line-messages.html 的進來的路（訊息平台多人化「乙」liff 端，線 ML，2026-09-13）。
+ * 🪦 2026-09-16（`jdc-tw-org/jdc-line-hub#27`）`?t=` 那條路退場，本檔①的兩條**改寫**成墓碑的斷言。
+ *    墓碑本身的完整驗收（有快取／清快取的界線／可點的出口）在 `msglog-retire-t.spec.js`。
  *
  * 🔴 **為何非在真瀏覽器看不可**：單元測試（`msglog-line-wiring.test.js`）的 DOM 是假的，
  *    證明不了「畫面上真的出現那句話」與「清單真的畫出來」。
@@ -125,37 +127,35 @@ for (const search of ['?from=abc', '?from=WELFARE', '?from=']) {
 }
 
 /**
- * 🔴 LINE CDN 慢的時候，①舊連結不可以跟著等（VML 量到：同步載入 SDK 時 CDN 延遲 5 秒 ⇒ hub 請求 5028ms 才發）。
- * ⚠️ 量法：`goto` 用 `waitUntil:'commit'`（不等 load——同步載入時 load 本身就被 SDK 卡住），
- *    時間取「goto 之前」到「hub 請求被攔到」。對照數字（faf0c50／f2ef5bf）用同一支量法另跑，附在交件。
+ * 🪦 **改寫，不刪。** 原本這一條量的是「①舊連結不可以被 LINE CDN 拖住」
+ *    （VML：同步載入 SDK 時 CDN 延遲 5 秒 ⇒ hub 請求 5028ms 才發）。
+ *    `?t=` 退場之後那個前提不在了，但**它防的東西還在**：帶 `t` 的人不該等任何外部資源。
+ *    ⇒ 同一個輸入、同一個延遲，斷言換成「畫面上的停用訊息不等 CDN，而且一發請求都不送」。
+ * ⚠️ 量法照舊：`goto` 用 `waitUntil:'commit'`（不等 load——SDK 慢時 load 本身就被卡住）。
  */
-test('🔴 ①舊連結：LINE CDN 延遲 5 秒也不拖慢 hub 請求（SDK 只在②才載），送出的參數逐字不變', async ({ page }) => {
+test('🪦 帶 ?t=：LINE CDN 延遲 5 秒也立刻看到停用訊息，SDK 不載、一發請求都不送', async ({ page }) => {
   const logs = [];
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   let sdkRequests = 0;
-  let hubAt = null;
-  let params = null;
+  const sent = [];
   await page.route(/static\.line-scdn\.net/, async (route) => {
     sdkRequests++;
     await new Promise((r) => setTimeout(r, 5000));
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: '' }).catch(() => {});
   });
   await page.route(/script\.google\.com/, async (route) => {
-    const u = new URL(route.request().url());
-    if (hubAt === null) hubAt = Date.now();
-    params = {};
-    u.searchParams.forEach((v, k) => { params[k] = v; });
+    sent.push(route.request().url());
     await route.fulfill({ status: 200, contentType: 'application/javascript', body: 'cb(' + JSON.stringify(OK) + ')' });
   });
   const t0 = Date.now();
   await page.goto('/line-messages.html?t=STUBMT', { waitUntil: 'commit' });
-  await expect.poll(() => hubAt, { timeout: 9000 }).not.toBeNull();
-  const ms = hubAt - t0;
-  console.log(`【CDN 延遲 5000ms】①hub 請求於 ${ms}ms 發出；SDK 請求 ${sdkRequests} 次`);
-  expect(ms, 'hub 請求被 LINE CDN 拖住了').toBeLessThan(2000);
-  expect(sdkRequests, '①舊路去載了 LINE SDK').toBe(0);
-  expect(params).toEqual({ action: 'listMessageLog', t: 'STUBMT', days: '3650', callback: 'cb' });
-  await expect(page.locator('#list')).toContainText('塗小明');
+  await expect(page.locator('#retired')).toBeVisible({ timeout: 4000 });
+  const ms = Date.now() - t0;
+  console.log(`【CDN 延遲 5000ms】🪦 停用訊息於 ${ms}ms 可見；SDK 請求 ${sdkRequests} 次；後端請求 ${sent.length} 發`);
+  expect(ms, '停用訊息被 LINE CDN 拖住了').toBeLessThan(4000);
+  expect(sdkRequests, '墓碑那條路去載了 LINE SDK').toBe(0);
+  expect(sent, '停用之後還把 token 送出去了').toEqual([]);
+  await expect(page.locator('#list')).toBeEmpty();
   expect(logs).toEqual([]);
 });
 
@@ -230,15 +230,16 @@ test('② CDN 載入失敗 → 紅字「LINE 的元件沒有載入成功」，�
   expect(sent).toEqual([]);
 });
 
-test('①舊連結 ?t= → GET hub listMessageLog 帶 t、不碰 LIFF、不帶 idToken，照常畫出來', async ({ page }) => {
+/* 🪦 **改寫，不刪。** 原本斷言「①舊連結 → GET hub listMessageLog 帶 t、照常畫出來」。
+ *    同一個輸入，斷言換成現在該發生的事：出墓碑、不碰 LIFF、不打任何後端、不畫清單。 */
+test('🪦 舊連結 ?t= → 出停用訊息：不碰 LIFF、不打任何後端、清單是空的', async ({ page }) => {
   const { logs, sent } = await open(page, '?t=STUBMT', { liff: { loggedIn: false } });
   expect(await page.evaluate(() => window.__liffLoginCalled)).toBeFalsy();
-  expect(sent.length).toBe(1);
-  expect(sent[0].backend).toBe('hub');
-  expect(sent[0].method).toBe('GET');
-  expect(sent[0].params).toEqual({ action: 'listMessageLog', t: 'STUBMT', days: '3650', callback: 'cb' });
+  expect(sent, '停用之後還送了請求：' + JSON.stringify(sent)).toEqual([]);
   const txt = await visible(page);
-  expect(txt).toContain('塗小明');
-  expect(txt).not.toContain('紀錄起始日未設定');   // 舊路有 logSince
+  expect(txt).toContain('這個連結已經停用');
+  expect(txt).not.toContain('塗小明');
+  expect(txt).not.toContain('載入中');
+  await expect(page.locator('#retired a[href="line-messages.html"]')).toBeVisible();
   expect(logs).toEqual([]);
 });
