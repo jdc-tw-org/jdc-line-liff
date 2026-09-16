@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-<title>員工入口</title>
+<title>日本國土開發</title>
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/gas-call.js"></script>
@@ -21,9 +21,13 @@
      長得不一樣會讓人以為走錯地方了。 */
   .brand { text-align: center; margin: 2px 0 14px; }
   .brand img { width: 100%; max-width: 150px; height: auto; display: block; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 4px; color: #1a1a1a; }
-  #who { font-size: 14px; color: #777; margin: 0 0 20px; min-height: 22px; }
-  #who.err { color: #c00; }
+  /* 🔴 `h1#who` 是**身分槽**，不是標題。成功時放的就是那個人的名字
+     （擁有者 2026-09-16：「不要寫員工入口，寫上使用者名字就好」）。
+     還沒確認出身分的時候它放狀態句——那時要退回小字，
+     用 20px 粗體喊一句「正在前往 LINE 登入…」會蓋過整頁。 */
+  h1 { font-size: 20px; margin: 0 0 20px; color: #1a1a1a; min-height: 28px; }
+  h1.state { font-size: 14px; font-weight: 400; color: #777; margin-bottom: 20px; }
+  h1.err { color: #c00; }
   .card {
     display: block; background: #fff; border-radius: 12px; padding: 16px 18px;
     margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
@@ -59,8 +63,7 @@
 </head>
 <body>
 <div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
-<h1>員工入口</h1>
-<p id="who">確認身分中…</p>
+<h1 id="who" class="state">確認身分中…</h1>
 <div id="list"></div>
 <div class="foot" id="foot"></div>
 
@@ -133,8 +136,13 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
+/** 狀態句（確認中／導頁中／失敗）。**不是名字** ⇒ 退回小字，見 CSS 的 `h1.state`。 */
 function setWho(t, isErr) {
-  var w = el('who'); w.textContent = t; w.className = isErr ? 'err' : '';
+  var w = el('who'); w.textContent = t; w.className = isErr ? 'state err' : 'state';
+}
+/** 成功：這一格只放名字。`class` 清空 ⇒ 回到 `h1` 的大字。 */
+function setName(who) {
+  var w = el('who'); w.textContent = who || '已登入'; w.className = '';
 }
 /** 把整頁換成一段話。**永遠說得出「接下來該做什麼」**，不留純粹的「失敗」。 */
 function showMsg(msg, reason) {
@@ -156,7 +164,7 @@ function showMsg(msg, reason) {
 
 /** 畫清單。`lineReady` 決定可不可點（**明寫 false 才不可點**，見檔頭），`note` 決定要不要加一句「這一格還有別的條件」。 */
 function render(res) {
-  setWho(res.who ? ('以 ' + res.who + ' 的身分登入') : '已登入', false);
+  setName(res.who);
   var pages = res.pages || [];
   if (!pages.length) {
     // 🔴 **空清單只代表「這裡列不出東西」，不代表「您沒有頁面可以進」。**
