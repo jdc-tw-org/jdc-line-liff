@@ -26,7 +26,24 @@ function fakeEl(id) {
     removeAttribute() {}, addEventListener(t, f) { (this.__on = this.__on || {})[t] = f; },
     removeEventListener() {}, querySelector: () => null, querySelectorAll: () => [],
     focus() {}, click() { if (this.__on && this.__on.click) this.__on.click(); }, remove() {},
+    // 🔴 `parentNode` 是替身的必需品，不是裝飾：`me.html` 的身分列
+    //    （名字 ＋ 右上角那枚「使用者」）靠 `w.parentNode` 掛／拆那一枚。
+    //    2026-09-16 加這一格之前，14 條測試同時紅在
+    //    `Cannot read properties of undefined (reading 'querySelector')`
+    //    ——**那是替身缺一格，不是受測物壞掉**（同 board-e1a 的 `liff.logout` 那一次）。
+    parentNode: null,
   };
+}
+
+/** 把 `子` 掛到 `親` 底下，並讓 `親.querySelector('.x')` 找得到它。
+ *  替身只實作 me.html 真的用到的那條路：`.utag` 一枚、掛上與拆掉。 */
+function 接上父子(親, 子) {
+  子.parentNode = 親;
+  親.__kids = (親.__kids || []).concat([子]);
+  親.querySelector = (sel) => (親.__kids || []).find(
+    (k) => ('.' + (k.className || '')).split(' ').indexOf(sel) >= 0) || null;
+  親.appendChild = function (k) { 接上父子(親, k); };
+  親.removeChild = function (k) { 親.__kids = (親.__kids || []).filter((x) => x !== k); };
 }
 
 /**
@@ -38,7 +55,13 @@ function runMe(o) {
   const 送出 = [];
   const timers = new Set();
   const els = {};
-  const get = (id) => (els[id] || (els[id] = fakeEl(id)));
+  const get = (id) => {
+    if (els[id]) return els[id];
+    const e = els[id] = fakeEl(id);
+    // 身分列：`#who` 一定要有父節點（真的 DOM 裡是 `<div class="me">`）。
+    if (id === 'who') 接上父子(fakeEl('me'), e);
+    return e;
+  };
   const pending = () => new Promise(() => {});
   const doc = {
     getElementById: get, querySelector: () => null, querySelectorAll: () => [],
@@ -461,6 +484,39 @@ test('🔴 LIFF SDK 根本沒載進來 → 出聲，不要停在「確認身分�
 });
 
 /* ══ 🔴 清單是後端算的，不是這一頁算的 ════════════════════════════════ */
+
+test('🔴 成功時名字旁邊掛「使用者」，而狀態句與失敗畫面**不掛**（那不是一個人）', async () => {
+  // ⚠️ `runMe` 是同步的（它只是把 inline script 丟進 vm 跑起來），畫面是在
+  //    promise 鏈裡才畫出來的 ⇒ **一定要 `await settle()`**。少了它，量到的是
+  //    「還沒畫」而不是「沒掛上」——兩者在斷言上長得一模一樣（本條第一版就是這樣紅的）。
+  const 有人 = runMe({ reply: { ok: true, who: '丁小恆', pages: [] } });
+  await settle();
+  const 標 = 有人.get('who').parentNode.querySelector('.utag');
+  assert.ok(標, '成功時沒掛「使用者」那一枚');
+  assert.equal(標.textContent, '使用者');
+  assert.equal(有人.get('who').className, '', '名字那一格不該還帶著 state 的小字樣式');
+
+  // ⬛ 對照組：同一支尺對「失敗」要回沒有——否則上面那條零鑑別力。
+  const 失敗 = runMe({ reply: { ok: false, msg: '此連結非您的權限範圍。', reason: 'role_mismatch' } });
+  await settle();
+  assert.equal(失敗.get('who').parentNode.querySelector('.utag'), null,
+    '被擋下來的畫面掛了「使用者」⇒ 畫面說他是使用者，而系統剛說他不是');
+  assert.match(失敗.get('who').className, /state/, '狀態句要退回小字，不要用 19px 粗體喊');
+
+  // 🔴 上面那一段對「`setWho` 要把標籤拆掉」**零鑑別力**——失敗那條路從頭到尾
+  //    沒有呼叫過 `setName`，標籤本來就不存在，拆不拆都一樣。
+  //    （⬛ 實測：把 `setWho` 裡的 removeChild 拿掉，19 條全綠。）
+  //    ⇒ 唯一測得到的方式是**直接驅動那個轉換**：先變成名字、再回到狀態句。
+  //    今天的流程走不到這個順序，但這一行是為了「哪天走得到」而存在的，
+  //    沒有能抓到它的案例＝還沒理解它在防什麼。
+  const 轉換 = runMe({ reply: { ok: true, who: '丁小恆', pages: [] } });
+  await settle();
+  轉換.ctx.setName('丁小恆');
+  assert.ok(轉換.get('who').parentNode.querySelector('.utag'), '前置沒成立：標籤根本沒掛上');
+  轉換.ctx.setWho('正在前往 LINE 登入…', false);
+  assert.equal(轉換.get('who').parentNode.querySelector('.utag'), null,
+    '名字換成狀態句之後「使用者」還掛著 ⇒ 畫面說「正在前往 LINE 登入…」是一個使用者');
+});
 
 test('🔴 頁面清單不得寫死在前端（寫死＝兩份會分歧，而分歧長成「點了被擋」）', () => {
   const html = fs.readFileSync(path.join(ROOT, 'me.html'), 'utf8');
