@@ -53,7 +53,9 @@
 <h1 id="title">活動出席狀況</h1>
 <select id="act-picker" class="picker" onchange="load(this.value)"></select>
 <div id="meta" class="meta">載入中…</div>
-<div id="content"><div class="empty">載入中…</div></div>
+<!-- 🔴 id="load-ph" 是「這一區還沒有人畫過東西」的**結構性**標記（見下方監看器那段）。
+     不要拿掉，也不要改成靠比對「載入中…」這四個字——文案會被改，節點不會自己回來。 -->
+<div id="content"><div class="empty" id="load-ph">載入中…</div></div>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="assets/url-token.js"></script>
 <!-- 憑證死掉時真的重新登入一次（後端叫人「關掉重開」在結構上是 no-op，見該檔檔頭） -->
@@ -72,6 +74,64 @@ function fatal(msg){
     var c=document.getElementById('content'); if(c)c.innerHTML='<div class="empty">'+esc(msg)+'</div>';
   }catch(e){}
 }
+/* ══ 「載入中…」一定會收斂（#102，2026-09-16）════════════════════════════════
+ *
+ * 🔴 **出口只有上面那個 fatal()。** 本段不長第二個講法，只是多兩個觸發它的理由。
+ *
+ * 為何需要：本頁所有打後端的路都是 `AUTH_READY.then(...)` 起頭的 promise 鏈，
+ * 而**那些鏈上一個 `.catch` 都沒有**。鏈上任一處拋例外（回應少一個欄位、共用模組是
+ * 舊版而少一個函式、快取裡是舊格式），rejection 沒有人接 ⇒ 畫面停在同步佔位的
+ * 「載入中…」，永遠不會變、也不會有任何錯誤提示。跟 7/31 那條舊傷同一個形狀：
+ * **壞掉時沒有任何人看得見。** 重現見 `tests/e2e/attend-loading-converges.spec.js`。
+ *
+ * 兩個觸發理由，職責不同、缺一不可：
+ *   ① `chainFailed()` —— 鏈上**拋例外**時當場講，而且講得出是哪一段、什麼錯。
+ *   ② 監看器          —— 鏈**既不 resolve 也不 reject**時的保底（佇列前面那支卡住、
+ *      走了 `v==='revoked'` 的提早 return 而覆蓋層沒蓋上）。①對這一種完全無效。
+ *
+ * 🔴 **「下一次有人在這頁加一條新的載入路徑、又忘了收斂，誰會被迫看到」＝開這一頁的人。**
+ *    監看的述詞刻意是「那個佔位節點還在不在」，不是布林旗標、更不是比對文案：
+ *    新路徑要嘛換掉 `#content`（自動解除），要嘛沒換掉（被講出來）。
+ *    寫新路徑的人不必記得任何事，也繞不過去。
+ *
+ * ⚠️ 秒數一定要**大於 `jsonp` 的 15 秒逾時**。小於它的話，保底那句會蓋掉
+ *    「連線逾時（伺服器喚醒中）」——那是拿一個講不清楚的失敗換掉一個講得清楚的。
+ */
+var LOAD_GUARD_MS=25000;
+var _loadGuard=null;
+var _lastFailure='';
+
+/** 佔位節點還在＝這一區從頭到尾沒有人畫過東西。 */
+function stillLoading(){return !!document.getElementById('load-ph');}
+
+/** 同步佔位＋上發條。「我要開始載入了」一律走這裡，不要自己寫那兩行。 */
+function beginLoading(){
+  var m=document.getElementById('meta'); if(m)m.textContent='載入中…';
+  var c=document.getElementById('content');
+  if(c)c.innerHTML='<div class="empty" id="load-ph">載入中…</div>';
+  armLoadGuard();
+}
+
+function armLoadGuard(){
+  if(_loadGuard)clearTimeout(_loadGuard);
+  _loadGuard=setTimeout(function(){
+    if(!stillLoading())return;          // 已經有人畫過東西了，沒事
+    fatal('資料一直沒有回來'+(_lastFailure?'（'+_lastFailure+'）':'')
+      +'。請按頁尾的「抓最新版」再試一次；若還是一樣，請找資訊人員。');
+  },LOAD_GUARD_MS);
+}
+
+/** 非同步鏈的統一收尾。記下原因（監看器會引用），畫面上還是空白就當場講。 */
+function chainFailed(where){
+  return function(e){
+    _lastFailure=where+'：'+((e&&e.message)||e);
+    try{if(window.console&&console.error)console.error('[attend] '+where,e);}catch(_){}
+    if(stillLoading())fatal('載入時發生錯誤（'+_lastFailure+'），請重新整理。');
+  };
+}
+// 開頁就上發條：連 init() 的首載都還沒發車就掛掉（例如共用模組沒載進來），一樣要講得出話。
+armLoadGuard();
+
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
 // 取值走共用的 assets/url-token.js（E1a 收攏的那一支，board／hr-stats 已在用）。
 // ⚠️ 刻意保留 `q(k)` 這個名字當薄包裝，不改呼叫端（同 hr-stats.html 的理由：
@@ -152,6 +212,9 @@ function startAuth(){
   return liff.init({liffId:LIFF_ID}).then(function(){
     if(!liff.isLoggedIn()){
       authBlock('正在前往 LINE 登入，登入後會自動回到這一頁…',false);
+      // #102：這條路上 #content 仍是佔位，但我們**正要離開這一頁**，不是在等資料。
+      // 不收掉發條的話，導頁若慢了一步，監看器會把上面那句更具體的話蓋掉。
+      if(_loadGuard)clearTimeout(_loadGuard);
       liff.login({redirectUri:location.href});        // 保留 ?act=
       return new Promise(function(){});               // 導頁中，不要發車
     }
@@ -197,8 +260,8 @@ function load(actId){
   }
   CUR=actId;
   // 同步先佔位：CACHE_READY 是非同步的（哪怕只晚一個 microtask），不佔位就會有一瞬間空白。
-  document.getElementById('meta').textContent='載入中…';
-  document.getElementById('content').innerHTML='<div class="empty">載入中…</div>';
+  // 佔位與上發條是同一個動作，所以收在 beginLoading() 裡——分開寫就會有人只做前者。
+  beginLoading();
   var cachedP=CACHE_READY.then(function(){
     var cached=cacheGet(N.attend(actId));
     if(cached)paint(cached.value);   // 命中就把佔位換成秒開內容
@@ -209,7 +272,11 @@ function load(actId){
     return jsonp('getActivityStats',{token:TOKEN,act:actId}).then(function(r){
       return cachedP.then(function(cached){
         return handleVerdict(FP,r).then(function(v){
-          if(v==='revoked')return;
+          // #102：原本這裡是**光禿禿的 return**，收斂完全押在 revokedOverlay() 上——
+          // 覆蓋層一旦沒蓋上（它自己的檔頭就記著舊 iOS 把它縮成小白框那次），
+          // 底下就是一張停在「載入中…」的畫面。走 paint(r) 讓它跟其他 ok:false 同一個講法；
+          // 附帶把覆蓋層底下那份已經畫出來的名單換掉，正是那支覆蓋層想擋的東西。
+          if(v==='revoked'){paint(r);return;}
           // 離線：有快取就掛「離線·資料停在…」；⚠️ 完全沒快取時一定要把錯誤訊息畫出來，
           // 否則畫面停在 load() 同步佔位的「載入中…」，永遠不會變、也不會有任何錯誤提示。
           // 寫法對齊 hr-stats.html 同位置（else if(!painted)renderHr(r)）。
@@ -225,7 +292,7 @@ function load(actId){
         });
       });
     });
-  });});
+  });}).catch(chainFailed('切換活動'));   // #102：這條鏈原本一個 .catch 都沒有
 }
 
 // 2026-08-19：原本兩支同時發，不串接等待（GAS 每支固定 3 秒起跳，串接＝首屏 6 秒以上）。
@@ -264,11 +331,12 @@ function load(actId){
 
   // 回訪秒開：先用上次看的那場的快取畫出來，背景再校正
   var seed = urlAct || lastAct();
+  // #102：`paint(舊格式快取)` 會拋，而這條鏈的消費端只在 offline 分支 ⇒ 原本是靜默的。
   var bootP = CACHE_READY.then(function () {
     if (!seed) return;
     var c = cacheGet(N.attend(seed));
     if (c) paint(c.value);
-  });
+  }).catch(chainFailed('回訪快取'));
 
   // 離線標示：批次請求連不連得上，跟著回訪那筆快取的時間戳走
   FIRST.then(function (env) {
@@ -279,11 +347,11 @@ function load(actId){
       });
     }
     if (env && env.ok) markOffline(null);
-  });
+  }).catch(chainFailed('離線標示'));
 
   pFast.then(function(r){
     if(r&&r.ok){ cacheSave(FP, N.attend(r.activity.id||''), r); paint(r); }
-  });
+  }).catch(chainFailed('首載統計'));
 
   pList.then(function(r){
     if(!r||!r.ok){
@@ -312,7 +380,9 @@ function load(actId){
       if(fr&&fr.ok)return;                            // 樂觀那支已命中，不必再打
       load(pickDefaultActivity(r.rows,urlAct));       // 全部關閉 → 挑最新一場
     });
-  });
+  }).catch(chainFailed('活動清單'));
+  // ⚠️ 上面這幾個 .catch **不能只包在下面那個 try 裡**：try/catch 只攔同步拋出，
+  //    而這些鏈的每一格都在 .then 的回呼裡跑（非同步）——那正是 #102 的成因。
 }catch(e){ fatal('頁面載入失敗（'+((e&&e.message)||e)+'），請重新整理。'); } })();
 
 /** 離線標示：有 savedAt 就掛上去，傳 null 代表連上了、拿掉標示。
