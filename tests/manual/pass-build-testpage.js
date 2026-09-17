@@ -1,5 +1,6 @@
 /**
- * 產生「我的報到碼」通行證頁的 UI 驗收測試頁 /tmp/pass-ui/pass-test.html。
+ * 產生「我的報到碼」通行證頁的 UI 驗收測試頁 pass-test.html
+ * （輸出目錄由 outdir.js 給，**每一棵工作樹各自一份**）。
  *
  * 手法沿用 veg-build-testpage.js：把 index.html 原封複製，只在最前面插一段 script
  * 覆寫 window.fetch 與 window.liff，讓頁面走完自己的啟動流程（inline script 完整執行、
@@ -9,15 +10,15 @@
  * 沒有桌次時整區不出現。這三條都不是單元測試看得到的（2026-07-27 attend.html 下拉不隱藏的教訓）。
  *
  * 用法：node tests/manual/pass-build-testpage.js
- *      cd /tmp/pass-ui && python3 -m http.server 8898
- *      開 http://localhost:8898/pass-test.html?mode=pass&act=demoAct
+ *      （輸出目錄與接下來要貼的指令，由這支自己印出來——不要憑記憶打 /tmp/pass-ui）
  *
  * 用 ?case=<名稱> 切換情境：numeric（預設）｜word｜notable｜noact
- * 產物全在 /tmp/pass-ui/（repo 一個檔都不多），assets 走 symlink 指回 repo。
+ * 產物全在 <tmpdir>/pass-ui-<這棵樹的指紋>/（repo 一個檔都不多），assets 走 symlink 指回**本樹**。
  * 為什麼要 http 不用 file://：playwright MCP 擋 file: 協定。
  */
 const fs = require('fs');
 const path = require('path');
+const outdir = require('./outdir.js');
 
 const ACT = { name: '2026 年中聚餐', eventDate: '2026/08/28' };
 
@@ -68,7 +69,11 @@ const STUB = `<script>
 </script>
 `;
 
-const OUT = '/tmp/pass-ui';
+// 目錄名帶「這棵工作樹」的指紋、連結每次都驗指向——理由見 outdir.js（#128）。
+// 原本寫死 '/tmp/pass-ui'：assets 每次砍掉重建所以不會沿用別人的，
+// 但**目錄本身跨工作樹共用** ⇒ 兩棵樹輪流產出會互相覆蓋 pass-test.html，一樣零錯誤訊息。
+const REPO = outdir.repoRootOf(__dirname);
+const OUT = outdir.manualOutDir('pass-ui', REPO);
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -80,9 +85,11 @@ const SDK = /<script src="https:\/\/static\.line-scdn\.net\/liff\/edge\/2\/sdk\.
 if (!SDK.test(html)) throw new Error('找不到 LIFF SDK 的 script 標籤——index.html 結構變了，樁會失效，先修這裡');
 html = html.replace(SDK, STUB);
 fs.writeFileSync(path.join(OUT, 'pass-test.html'), html);
-fs.symlinkSync(path.join(__dirname, '..', '..', 'assets'), path.join(OUT, 'assets'));
+const assets = outdir.linkAssets(OUT, REPO);
 
-console.log('已產生 ' + OUT + '/pass-test.html');
+console.log('已產生 ' + path.join(OUT, 'pass-test.html'));
+/* 把「這一頁配的是誰的 assets」印到眼前：#128 的病灶就是這件事沒有人看得見。 */
+console.log('assets → ' + assets.target + (assets.reused ? '（沿用既有連結，已驗證是本工作樹）' : ''));
 console.log('情境：' + Object.keys(CASES).join(' / '));
 console.log('cd ' + OUT + ' && python3 -m http.server 8898');
 console.log('開 http://localhost:8898/pass-test.html?mode=pass&act=demoAct&case=numeric');
