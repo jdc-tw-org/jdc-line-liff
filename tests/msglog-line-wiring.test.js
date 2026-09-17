@@ -504,3 +504,118 @@ test('🪦 墓碑把畫面收乾淨：清單清空、滑桿收起、起始日警
     assert.notEqual(ctx.msgEl.style.display, 'none', '講話的那一格被藏起來了 ⇒ 那句話看不見');
   } finally { cleanup(); }
 });
+
+/* ══ 🔴 撤銷遮蔽（Ｃ，2026-09-17，私有票 `jdc-tw/jdc-line-gas#113`）═══════════
+ *
+ * 這一頁 `ece4a40` 時 `handleVerdict` 命中 **0** 處（board/stats/hr-stats 各 1、attend 2；
+ * ⬛ 對照組 checkin 也是 0，那一頁已知刻意不用加密快取 ⇒ 尺分得出「沒接」與「接了」）。
+ * ⇒ 權限被收回之後重開這一頁，它照樣把上一次抓到的整批紀錄畫出來。
+ *
+ * ⚠️ **這一節的信封一個字都不手寫**，吃 `tests/fixtures/action-roles.json` 的 `gateContract`
+ *    （後端真的跑過守門之後吐出來的）。手寫的話，後端改文案這一節永遠不會紅。
+ *
+ * ⚠️ **兩格切片**：`msglog`（看板身分）與 `msglog-welfare`（發訊身分）。同一個人可能兩格都有。
+ *    `cacheDrop` 只清一格 ⇒ 另一格會在他從另一個入口進來時原樣畫出來。這一節逐格量。
+ */
+const 契約 = require('./fixtures/action-roles.json').gateContract;
+function 信封(key) {
+  const r = (契約.denials || []).find((x) => x.key === key);
+  if (!r) throw new Error('契約表裡沒有 `' + key + '`：後端的案例表改過了，重產副本');
+  return r.envelope;
+}
+/** 開頁，但**把首載那一發的回應扣在手上**，等測試把快取種好再放行。 */
+function openGated(search) {
+  const r = runPage({ file: 'line-messages.html', search });
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const sent = [];
+  r.ctx.fetch = (u, init) => {
+    const url = String(u);
+    if (url.indexOf('script.google.com') < 0) return new Promise(() => {});
+    sent.push(url);
+    return gate.then((rep) => ({ text: () => Promise.resolve('cb(' + JSON.stringify(rep) + ')') }));
+  };
+  return Object.assign(r, { sent, release: (rep) => release(rep) });
+}
+/** 這個指紋底下磁碟上還剩幾把鍵。`cacheClear` 清的是整個前綴，所以用「把數」量。 */
+const 鍵數 = (ctx) => {
+  const s = ctx.localStorage;
+  let n = 0;
+  for (let i = 0; i < s.length; i++) if (String(s.key(i)).indexOf('jdcBoard:') === 0) n++;
+  return n;
+};
+/** 種好兩格切片，回傳種好時的把數。 */
+async function 種兩格(ctx) {
+  assert.ok(await waitFor(() => ctx.FP && ctx.FP !== ''), 'FP 沒有變成 LINE 的 sub ⇒ 還沒認完身分');
+  await ctx.cacheSave(ctx.FP, 'msglog', { ok: true, header: H, rows: ROWS });
+  await ctx.cacheSave(ctx.FP, 'msglog-welfare', { ok: true, header: H, rows: ROWS });
+  const n = 鍵數(ctx);
+  // ⬛ 零點：先證明它們真的存進去了。存不進去的話，下面「被清掉了」是恆真的。
+  assert.equal(n, 2, '兩格切片沒有都存進去（磁碟上 ' + n + ' 把）⇒ 下面量的不是清除');
+  assert.ok(ctx.cacheGet('msglog'), '⬛ 零點：msglog 讀不回來');
+  assert.ok(ctx.cacheGet('msglog-welfare'), '⬛ 零點：msglog-welfare 讀不回來');
+  return n;
+}
+
+['revoked_line_path', 'revoked_line_path_local'].forEach((key) => {
+  test('🔴 Ｃ：撤權（' + key + '）→ **兩格切片都被清掉**，而且標成已撤銷', async () => {
+    const { ctx, release, cleanup } = openGated('');
+    try {
+      await 種兩格(ctx);
+      release(信封(key));
+      assert.ok(await waitFor(() => 鍵數(ctx) === 0),
+        '磁碟上還剩 ' + 鍵數(ctx) + ' 把鍵 ⇒ 他裝置上那份紀錄沒有被清掉');
+      assert.equal(ctx.cacheGet('msglog'), null, '看板身分那一格還讀得回來');
+      assert.equal(ctx.cacheGet('msglog-welfare'), null,
+        '🔴 發訊身分那一格還讀得回來 ⇒ 只清了正在看的那一格（cacheDrop 的形狀）');
+      assert.equal(ctx.isRevoked(), true, '沒有標成已撤銷 ⇒ 之後還存得進去');
+    } finally { cleanup(); }
+  });
+});
+
+test('⬛ Ｃ 對照組：**不是**撤權（角色不符）→ 兩格切片一把都不准少', async () => {
+  // 沒有這一條，上面那兩條也可能是「這一頁現在什麼失敗都清快取」造成的。
+  // 那會讓 2026-07-30 那次線上事故以另一個形狀回來（附屬功能被擋 → 資料沒了）。
+  const { ctx, release, cleanup } = openGated('');
+  try {
+    const n = await 種兩格(ctx);
+    release(信封('role_mismatch_line'));
+    // 等到它真的處理完那一發（畫面講出話或標記變了），再量。
+    await waitFor(() => false, BLOCKED_WAIT_MS);
+    assert.equal(鍵數(ctx), n, '角色不符竟然清了快取');
+    assert.equal(ctx.isRevoked(), false, '角色不符竟然標成已撤銷 ⇒ 整頁會被蓋掉');
+  } finally { cleanup(); }
+});
+
+test('⬛ Ｃ 對照組：上游故障（讀不到名單）→ 不准清，斷網的人要保得住離線資料', async () => {
+  const { ctx, release, cleanup } = openGated('');
+  try {
+    const n = await 種兩格(ctx);
+    release(信封('line_upstream'));
+    await waitFor(() => false, BLOCKED_WAIT_MS);
+    assert.equal(鍵數(ctx), n, '上游一抖就把他的離線資料清光了');
+    assert.equal(ctx.isRevoked(), false);
+  } finally { cleanup(); }
+});
+
+test('🔴 Ｃ：`handleVerdict` 真的排在畫面處理之前（不是掛在後面當裝飾）', async () => {
+  // 🔴 **用執行順序量，不查原始碼有沒有那個字串**——註解裡寫一次就會通過
+  //    （`feedback_comment_is_source_code`：註解也算原始碼）。
+  // ⚠️ 探針掛在 `settleRefresh` 上（`board-cache.js` 的全域函式，`afterLog` 的第一個動作）。
+  //    不掛 `afterLog`：它是 `else` 區塊裡的函式宣告，換掉 `ctx.afterLog` 換不到頁面裡那個繫結
+  //    ⇒ 探針靜靜地不會被呼叫，而那與「順序錯了」長得一模一樣（實測就是這樣紅的）。
+  const { ctx, release, cleanup } = openGated('');
+  try {
+    await waitFor(() => ctx.FP && ctx.FP !== '');
+    const 順序 = [];
+    const 真verdict = ctx.handleVerdict;
+    ctx.handleVerdict = (tok, res) => { 順序.push('verdict'); return 真verdict(tok, res); };
+    const 真settle = ctx.settleRefresh;
+    ctx.settleRefresh = (...a) => { 順序.push('畫面'); return 真settle(...a); };
+    release(信封('role_mismatch_line'));
+    assert.ok(await waitFor(() => 順序.length >= 2),
+      '兩支探針沒有都被呼叫到（實際：' + JSON.stringify(順序) + '）⇒ 這一條什麼都沒量到');
+    assert.deepEqual(順序, ['verdict', '畫面'],
+      '畫面處理排在撤銷遮蔽之前 ⇒ 撤權時舊資料會先被畫出來');
+  } finally { cleanup(); }
+});

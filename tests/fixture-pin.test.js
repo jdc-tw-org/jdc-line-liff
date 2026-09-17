@@ -83,7 +83,38 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *      gas 那一列的旁邊寫著同一件事：**liff 的副本先合、gas 後合**
  *      （`roles-matrix-guard.yml` 檔頭）。
  */
-const PIN = '264e6a8dd7ecb7533e5b23ca4cf3a5f30cfa52cf59c4a32258e7e89a7b50b61a';
+/**
+ * 🔴 2026-09-17（gas #113）：副本多了 **`gateContract`** 這一段——後端「守門拒絕的信封表」，
+ *    15 個情境各真的跑過一次 `gateAction`／`gateActionByLine`，出的是**要送進瀏覽器的
+ *    那個信封**（`gateDenial` 的輸出），不是常數。
+ *    ⚠️ **`actions`／`identities`／`batchAllowed`／`dispatchPages` 一個字都沒動**：
+ *      重產前拿後端守門對這份副本比過，差異**只有「副本那份沒有 gateContract 這個鍵」**
+ *      ⇒ **沒有任何人的權限變了**。diff 是 163 加 1 減（那 1 是 `]` 變 `],`）。
+ *    為何而生：`board-cache.test.js` 那幾條是**手寫中文字串**、不讀後端任何東西
+ *      ⇒ 後端改文案永遠不會紅。2026-09-16 線上真的對不上了
+ *      （權限收回後 LINE 那條路不清快取），**而它全綠**。細節在私有票 `jdc-tw/jdc-line-gas#113`。
+ *    ⚠️ 同一輪補了 `gateContract.legacyDenyMsg`：前端「沒有代號時」那條退路在認的那一句。
+ *      它**不在任何一列信封的判定裡**（那幾列都帶 `reason`）⇒ 改它時逐列比對一格都不會動，
+ *      所以它必須單獨出一格，否則那條退路壞掉沒有任何東西看得見。
+ */
+/**
+ * 🔴 2026-09-17（合併，gas #113 × #100）：上面兩條**是同一份副本的兩塊改動**，
+ *    在這一顆合併裡第一次同時出現，所以 PIN 換成**重產**之後的值，不是上面任何一個。
+ *
+ * ⚠️ **這個合併踩過一次、留在這裡當警告**：`git merge` 對 `action-roles.json`
+ *    **不會衝突，它會靜默自動合併**（只有本檔與 `auth-inventory.baseline.md` 這兩個
+ *    PIN 檔會衝突）。實測數字：
+ *      git 自動合併出來的      `49e8fa9bb4c9`
+ *      真的產生器重跑出來的    `d3a4dde18360`      ← 這一顆用的
+ *    自動合併那份**少了 gate #113 後來補上的兩列信封**（`revoked_line_path_empty_roles`
+ *    與對照組 `role_mismatch_line_real`）⇒ 直接沿用它，就等於**悄悄把那一格的守門拿掉**，
+ *    而 PIN 會讓它看起來像是有人刻意宣告過的。
+ *    ⇒ **合併這個檔的正確作法是「在 gas 重跑產生器」，不是挑一邊的 PIN。**
+ *
+ * ⚠️ 合併順序（承上面那條 gas `#100` 的註記）：**liff 的副本先合、gas 後合**
+ *    （`roles-matrix-guard.yml` 檔頭）。
+ */
+const PIN = 'd3a4dde18360898f33eb54169c2b55bdb2b1255de8a6a6638b5943d44e51eaee';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
