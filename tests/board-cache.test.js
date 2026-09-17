@@ -142,7 +142,7 @@ var PERM=/權限|auth|Auth|gate|Gate|allow|Allow|GATE_MSG/, n=0,y=0,all=0;
 console.log("不帶代號="+n+"  帶代號="+y+"  全部拒絕出口="+all)'`,
   '',
   '⬛ 對照組就是它自己印的後兩個數字：尺壞掉時三個一起變 0 ⇒ 「不帶代號=0」只有在',
-  '   後兩個仍是大數字時才算數。2026-09-17 於 gas main 1d5784e 實跑：105 / 23 / 433。',
+  '   後兩個仍是大數字時才算數。2026-09-17 於 gas main 1d5784e 與 cdb66c2 各跑一次：105 / 23 / 433。',
   '⚠️ 數字跟著 SHA 走，讀到先重跑、不要照抄。完整推導與合成檢體實測在',
   '   assets/board-cache.js 的 cacheVerdict 檔頭。',
 ].join('\n');
@@ -163,6 +163,8 @@ test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 
   assert.equal(BC.cacheVerdict({ ok: true }), 'ok');
   // ⚠️ 同一層換了寫法的那些（`無權限。`／`無權限`）**現在就已經判成 ok**——它們接不住，
   //    不是將來才會失去遮蔽。那要後端補代號才解得掉，見檔頭 ②。不要靠放寬前綴。
+  // 🔴 這條退場條件有**兩個端點**：本檔這條退路，與後端那一格把 `legacyDenyMsg` 交出來的匯出。
+  //    **兩邊要一起刪**；權威是 `assets/board-cache.js` 的檔頭，後端那一份只指過來。
 });
 
 test('cacheVerdict：外層 ok、results 內某支無權限 → 仍是 ok', () => {
