@@ -1,19 +1,21 @@
 /**
- * 產生 UI 宋幼安的測試頁 /tmp/veg-test.html。
+ * 產生 UI 宋幼安的測試頁 veg-test.html（輸出目錄由 outdir.js 給，**每一棵工作樹各自一份**）。
  *
  * 手法：把 stats.html 原封複製，只在最前面插一段 script 覆寫 window.fetch，
  * 讓所有 GAS 請求回 veg-fixture。**只換網路層，不碰 DOM**——
  * 頁面仍走自己的啟動流程（inline script 完整執行、事件照綁），
  * 所以語法錯誤、初始化早退、CSS 破版這些都還驗得到。
  *
- * 為什麼不用 playwright 的 route 攔截：這個 repo 沒有 package.json，
- * 裝 playwright 要另外拉 ~150MB 的瀏覽器二進位。改用這招後任何瀏覽器都能開。
+ * 為什麼不用 playwright 的 route 攔截：這支是給人**手動開來看**的，
+ * 而 playwright 要另外拉 ~150MB 的瀏覽器二進位。改用這招後任何瀏覽器都能開。
+ * ⚠️ 2026-08-29 起這個 repo **有** package.json（`@playwright/test` 就在 devDependencies，
+ * e2e 走它）。這裡原本的理由寫的是相反的事實，本次改掉——那種句子會讓讀到的人
+ * 不去找那個檔。上面的理由（瀏覽器二進位）本身不受影響。
  *
  * 用法：node tests/manual/veg-build-testpage.js
- *      cd /tmp/veg-ui && python3 -m http.server 8899
- *      開 http://localhost:8899/veg-test.html?t=dummy
+ *      （輸出目錄與接下來要貼的指令，由這支自己印出來——不要憑記憶打 /tmp/veg-ui）
  *
- * 產物全在 /tmp/veg-ui/（repo 一個檔都不多）：測試頁 ＋ 一個指回 repo assets/ 的 symlink。
+ * 產物全在 <tmpdir>/veg-ui-<這棵樹的指紋>/（repo 一個檔都不多）：測試頁 ＋ 一個指回**本樹** assets/ 的 symlink。
  * 為什麼不放 repo 根：這是 public repo，多一個測試頁就多一次被 git add -A 掃上去的機會，
  * 還要為此新增 .gitignore——為了驗收去動 repo 結構，代價不對。
  * 為什麼要 http 不用 file://：playwright MCP 擋 file: 協定。
@@ -21,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const FIXTURE = require('./veg-fixture.js');
+const outdir = require('./outdir.js');
 
 const ACTS = { ok: true, rows: [{ id: 'actTEST', name: '宋幼安活動', status: '開放', open: true, replies: 5 }] };
 
@@ -164,15 +167,18 @@ const withBust = (src.slice(0, i + 6) + '\n' + stub + src.slice(i + 6))
   .replace(/(src=")(assets\/[^"]+\.js)(")/g, (m, a, f, z) => a + f + '?v=' + bust + z);
 const out = withBust;
 
-// 全部產在 /tmp/veg-ui：測試頁 ＋ 指回 repo assets/ 的 symlink（相對路徑照吃，repo 不多檔）
-const repo = path.join(__dirname, '..', '..');
-const dir = '/tmp/veg-ui';
+// 產物全在輸出目錄：測試頁 ＋ 指回本樹 assets/ 的 symlink（相對路徑照吃，repo 不多檔）。
+// 目錄名帶「這棵工作樹」的指紋、連結每次都驗指向——理由見 outdir.js（#128）：
+// 原本寫死 '/tmp/veg-ui' ＋「不存在才建」，第二棵樹會靜默配上第一棵樹的 JS/CSS。
+const REPO = outdir.repoRootOf(__dirname);
+const dir = outdir.manualOutDir('veg-ui', REPO);
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, 'veg-test.html'), out);
-const link = path.join(dir, 'assets');
-if (!fs.existsSync(link)) fs.symlinkSync(path.join(repo, 'assets'), link, 'dir');
+const assets = outdir.linkAssets(dir, REPO);
 
-console.log('已產生 /tmp/veg-ui/veg-test.html（assets 走 symlink 指回 repo）');
+console.log('已產生 ' + path.join(dir, 'veg-test.html'));
+/* 把「這一頁配的是誰的 assets」印到眼前：#128 的病灶就是這件事沒有人看得見。 */
+console.log('assets → ' + assets.target + (assets.reused ? '（沿用既有連結，已驗證是本工作樹）' : ''));
 console.log('注入的假回應：', Object.keys(RESPONSES).join('、'));
-console.log('接著：cd /tmp/veg-ui && python3 -m http.server 8899');
+console.log('接著：cd ' + dir + ' && python3 -m http.server 8899');
 console.log('然後開 http://localhost:8899/veg-test.html?t=dummy');
