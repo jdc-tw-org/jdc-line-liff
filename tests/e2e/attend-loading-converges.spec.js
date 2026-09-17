@@ -1,5 +1,5 @@
 /**
- * #102／#111 —— `attend.html` 的「載入中…」一定會收斂。
+ * #102／#111／#119 —— `attend.html` 的「載入中…」一定會收斂。
  *
  * 🔴 **為何非在真瀏覽器不可**：這一票的病灶是**沒有人接的 promise rejection**。
  *    它在 node 的單元測試裡不存在（那裡沒有那條鏈、也沒有 DOM），而在瀏覽器裡
@@ -17,13 +17,23 @@
  *         ①對這一種完全無效，因為根本沒有 rejection 可接。
  *    每一道都各有一條突變測試證明「只有它擋得住」。
  *
- * 🔴 **②那一道有兩個呼叫點，所以它需要兩個案例**（#111）：
- *      `:133` 開頁那一發  —— 零點②擋的是它。
- *      `:112` `beginLoading()` 裡那一發 —— **零點③擋的是它**。
- *    在 #111 之前只有前者被涵蓋到：零點②的故障注入落在 t≈2 秒，那時開頁那一發還沒燒掉，
- *    所以把 `beginLoading()` 裡那一行整行刪掉，整套 e2e 仍然 149/149 全綠
- *    （2026-09-17 在 `ece4a40` 上實測，`attend.html` md5 4fd0167→630dc9f）。
+ * 🔴 **②那一道有三個呼叫點（兩處上發條＋一處拆發條），所以它需要三個案例**
+ *    （#111 補了一個、#119 補完剩下兩個）。`armLoadGuard()` 內含 `clearTimeout` 再
+ *    `setTimeout` ⇒ **全頁只有一顆計時器**，三處互相覆蓋 ⇒ 隨便怎麼突變都不會紅。
+ *    有鑑別力的案例只能靠**時間點與路徑**構造：
+ *      `:133` 開頁那一發  —— 零點②（t≈2 秒注入，此時它還沒燒掉）
+ *                            ＋ **零點④**（首載整批沒發車 ⇒ 其餘兩處都碰不到）
+ *      `:112` `beginLoading()` 裡那一發 —— **零點③**（先等它燒掉，再讓下一輪卡住）
+ *      `:217` `startAuth()` 裡的拆發條  —— **零點⑤**（導頁後等過時限，那句話必須還在）
+ *    在 #111 之前只有 `:133` 被涵蓋到；#111 之後 `:133`／`:217` 各自整行刪掉，
+ *    整套 e2e 仍然 167/167 全綠、exit=0（2026-09-17 在 `afbf75c` 上實測，
+ *    `attend.html` md5 4fd0167→3cdac2f／→0eb10f1；`:112` 那一刀是 →630dc9f）。
  *    ⇒ **同一道防線的每一個呼叫點各自要有案例**；條數不是判準，位置才是。
+ *
+ * 🔴 **儀器必須活過被測事件**（#119 的真正教訓）：`:217` 曾被說成有「間接涵蓋」，
+ *    因為 `attend-checkin-e1b.spec.js` 驗過「正在前往 LINE 登入…」那句話——但它
+ *    **t≈1.7 秒**就收工，而那一發 **t≈25 秒**才會蓋掉那句話。
+ *    ⇒ 本檔每一條長案例都用 `expectOutlivedGuard()` 直接問頁面自己的時鐘。
  */
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
@@ -63,15 +73,18 @@ function liffStub() {
  *   （模擬「有人在這頁加了一條新的載入路徑」。太早注入會被首載的 paint() 蓋掉，
  *    那樣測到的是首載、不是那條新路徑——2026-09-16 第一版就是這樣紅的。）
  * @param {number}  [o.injectWaitMs] 注入之後再等多久
+ * @param {string}  [o.liff]  LIFF 替身的原始碼（預設＝正常登入的那一份）。
+ *   零點④⑤ 要換掉它：一個讓 `liff.init()` 永遠不 settle，一個讓 `isLoggedIn()` 回 false。
  */
 async function open(page, { reply = () => ({ ok: true }), mutate = null, noStatsView = false,
-                            inject = '', injectWaitMs = 0, waitMs = 2000 } = {}) {
+                            inject = '', injectWaitMs = 0, waitMs = 2000,
+                            liff = liffStub() } = {}) {
   const logs = [];
   const sent = [];
   page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   await blockLiffCdn(page);
-  await page.addInitScript(liffStub());
+  await page.addInitScript(liff);
   if (mutate) {
     await page.route(/\/attend\.html(\?|$)/, (route) =>
       route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: mutate(ATTEND_SRC) }));
@@ -302,6 +315,244 @@ test('零點③（現行碼）→ 切換活動那一輪卡住，beginLoading() �
     '「切換活動」那一輪既不 resolve 也不 reject，而畫面上一句話都沒有').toContain('資料一直沒有回來');
   expect(r.content, '紅字下面還寫著「載入中」，那句是假話').not.toContain('載入中…');
   expect(sent.length, '全程零外部請求：卡住的那一輪一個都沒送出去').toBe(sentBefore);
+});
+
+/* ══ 🔴 零點④⑤ 共用的零件 ═══════════════════════════════════════════════
+ *
+ * #119：碰得到這顆計時器的地方有三處，#111 之後只有 `:112` 被釘住。
+ * 另外兩處在 `afbf75c` 上實測**零涵蓋**——各自整行刪掉，整套 e2e 167 條全綠、exit=0
+ * （`attend.html` md5 4fd0167→3cdac2f／→0eb10f1）。
+ *
+ * 🔴 **為什麼「隨便怎麼突變都不會紅」**：`armLoadGuard()` 內含 `clearTimeout` 再
+ *    `setTimeout` ⇒ **全頁只有一顆計時器**，三處互相覆蓋。有鑑別力的案例只能靠
+ *    **時間點與路徑**構造出來——零點③是「先等過一個時限讓開頁那一發燒掉」，
+ *    零點④是「首載整批根本沒發車，`beginLoading()` 一次都沒被呼叫過」，
+ *    零點⑤是「唯一的一顆已經被拆掉，所以它不該開口」。**位置才是判準，條數不是。**
+ */
+
+/** LIFF 替身的定點替換。**一定要驗替換真的發生了**，否則注入是空包彈、測試永遠綠。 */
+function swapInStub(src, needle, replacement, label) {
+  const n = src.split(needle).length - 1;
+  if (n !== 1) throw new Error('替身沒改到（' + label + '）：找到 ' + n + ' 處（預期 1）'
+    + '——這一條測試什麼都沒測到');
+  return src.split(needle).join(replacement);
+}
+
+/** 🔴 零點④的故障注入：`liff.init()` 的 promise **永遠不 settle**（不是 reject）。 */
+const liffInitHangs = () => swapInStub(liffStub(),
+  'init: function(){ return Promise.resolve(); },',
+  'init: function(){ window.__liffInitCalled = 1; return new Promise(function(){}); },',
+  'init 改成永遠不 settle');
+
+/** ⬛ 對照組用：`liff.init()` **被拒絕**——有人接得住的那一種。 */
+const liffInitRejects = () => swapInStub(liffStub(),
+  'init: function(){ return Promise.resolve(); },',
+  "init: function(){ window.__liffInitCalled = 1; return Promise.reject(new Error('INIT_BOOM')); },",
+  'init 改成 reject');
+
+/** 🔴 零點⑤的故障注入：沒登入 ⇒ 走 `startAuth()` 的導頁那一支。
+ *  替身的 `login()` 刻意**不真的導頁**——那正是原始碼註解講的「導頁若慢了一步」。 */
+const liffNotLoggedIn = () => swapInStub(liffStub(),
+  'isLoggedIn: function(){ return true; },',
+  'isLoggedIn: function(){ return false; },',
+  'isLoggedIn 改成 false');
+
+/** 突變：只刪**開頁那一發**（`:133`，頂格沒有縮排）。
+ *  `beginLoading()` 裡那一發有兩格縮排、定義那一行是 `function armLoadGuard(){`，都不會被誤傷。 */
+const killArmAtModuleLevel = (html) => {
+  const needle = '\narmLoadGuard();\n';
+  const n = html.split(needle).length - 1;
+  if (n !== 1) throw new Error('突變沒有生效：開頁那一發找到 ' + n + ' 處（預期 1）'
+    + '——這一條測試什麼都沒測到');
+  return html.split(needle).join('\n');
+};
+
+/** 突變：只刪 `startAuth()` 裡的**拆發條**（六格縮排）。
+ *  `armLoadGuard()` 自己那一行是兩格縮排，不會被誤傷。 */
+const killDisarmInStartAuth = (html) => {
+  const needle = '\n      if(_loadGuard)clearTimeout(_loadGuard);\n';
+  const n = html.split(needle).length - 1;
+  if (n !== 1) throw new Error('突變沒有生效：拆發條那一處找到 ' + n + ' 處（預期 1）'
+    + '——這一條測試什麼都沒測到');
+  return html.split(needle).join('\n');
+};
+
+/**
+ * 🔴 **儀器活過被測事件了沒有——問頁面自己的時鐘，不靠「我寫的等待夠長」這種保證。**
+ *
+ * #119 的成因就是這一格：有人拿一條 **t≈1.7 秒**就收工的測試，去宣稱一件 **t≈25 秒**
+ * 才發生的事「有間接涵蓋」。儀器提早關機與「沒有缺陷」在輸出上長得一模一樣。
+ */
+async function expectOutlivedGuard(page, tag) {
+  const elapsed = await page.evaluate(() => performance.now());
+  console.log('【' + tag + '】量完時頁面時鐘 ' + Math.round(elapsed) + ' ms（發條時限 ' + GUARD_MS + ' ms）');
+  expect(elapsed,
+    tag + '：量完時頁面時鐘還沒走過發條時限 ⇒ 儀器在事發之前就收工了，這一條什麼都沒測到')
+    .toBeGreaterThan(GUARD_MS + 1000);
+}
+
+/* ══ 🔴 零點④ —— 開頁那一發：首載**整批都還沒發車**就卡住 ═══════════════════
+ *
+ * 🔴 **真路徑是「`liff.init()` 的 promise 永遠不 settle」——不是 reject。**
+ *    `AUTH_READY` 不 settle ⇒ `FIRST`／`CACHE_READY`／`bootP` 全部不發車 ⇒
+ *    `load()` 一次都沒被呼叫過 ⇒ **`beginLoading()` 裡那一發根本沒上過發條**，
+ *    `.catch(chainFailed(...))` 也一個都不會觸發（沒有 rejection 可接）。
+ *    ⇒ 整頁只剩開頁那一發擋得住，這才是「只有這一道擋得住」的案例。
+ *
+ * ⚠️ **拿 reject 當故障注入是一把零鑑別力的尺**：`startAuth()` 自己的 `.catch` 會接住
+ *    並走 `authHalt()`，而它把 `#content` 清空 ⇒ 佔位不見 ⇒ 監看器的述詞永遠不成立。
+ *    `queueRead` 的 `GAS_TAIL.then(fn, fn)` 是同一個形狀：**接得住被拒絕的工作，
+ *    接不住永遠不結束的**。下面 ⬛ 對照組把這件事實測出來，不只是寫在註解裡。
+ */
+
+test('🔴 零點④（突變：拿掉開頁那一發）→ liff.init() 永遠不 settle ⇒ 首載整批沒發車、畫面永遠「載入中…」', async ({ page }) => {
+  test.setTimeout(GUARD_MS + 60000);
+  const { sent } = await open(page, { reply: batchThen(() => STATS), mutate: killArmAtModuleLevel,
+    liff: liffInitHangs(), waitMs: 2000 });
+  expect(await page.evaluate(() => window.__liffInitCalled),
+    '故障注入沒生效：liff.init() 沒被呼叫過').toBe(1);
+  const early = await regions(page);
+  expect(early.placeholderStillThere,
+    't≈2 秒就有人畫過東西 ⇒ 注入的不是「整批沒發車」，這一條測到的是別的東西').toBe(true);
+
+  await page.waitForTimeout(GUARD_MS + 4000);
+  await expectOutlivedGuard(page, '零點④·突變後');
+  const r = await regions(page);
+  console.log('【零點④·突變後】區塊：', JSON.stringify(r));
+  console.log('【零點④·突變後】看得見：', await visibleText(page));
+  expect(r.placeholderStillThere).toBe(true);
+  expect(r.content).toBe('載入中…');
+  expect(r.meta).toBe('載入中…');
+  expect(sent.length, '首載整批都沒發車，這一輪不該有任何請求送出去').toBe(0);
+});
+
+test('零點④（現行碼）→ 開頁那一發把它講出來（beginLoading() 裡那一發根本沒上過發條）', async ({ page }) => {
+  test.setTimeout(GUARD_MS + 60000);
+  const { sent } = await open(page, { reply: batchThen(() => STATS),
+    liff: liffInitHangs(), waitMs: 2000 });
+  expect(await page.evaluate(() => window.__liffInitCalled),
+    '故障注入沒生效：liff.init() 沒被呼叫過').toBe(1);
+  expect((await regions(page)).placeholderStillThere,
+    't≈2 秒就有人畫過東西 ⇒ 注入的不是「整批沒發車」').toBe(true);
+
+  await page.waitForTimeout(GUARD_MS + 4000);
+  await expectOutlivedGuard(page, '零點④·現行碼');
+  const r = await regions(page);
+  console.log('【零點④·現行碼】區塊：', JSON.stringify(r));
+  expect(r.placeholderStillThere,
+    '身分那一關卡住、首載整批沒發車，而畫面上一句話都沒有').toBe(false);
+  expect(r.content).toContain('資料一直沒有回來');
+  expect(r.content, '紅字下面還寫著「載入中」，那句是假話').not.toContain('載入中…');
+  expect(sent.length, '首載整批都沒發車，這一輪不該有任何請求送出去').toBe(0);
+});
+
+test('⬛ 對照組（零點④）：改用「liff.init() 被拒絕」當故障注入 ⇒ 等過發條時限，突變前後仍然一模一樣', async ({ browser }) => {
+  test.setTimeout(2 * GUARD_MS + 90000);
+  const shots = {};
+  for (const [tag, mutate] of [['現行碼', null], ['突變（刪開頁那一發）', killArmAtModuleLevel]]) {
+    const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+    const p = await ctx.newPage();
+    await open(p, { reply: batchThen(() => STATS), mutate, liff: liffInitRejects(), waitMs: 2000 });
+    expect(await p.evaluate(() => window.__liffInitCalled), tag + '：故障注入沒生效').toBe(1);
+    await p.waitForTimeout(GUARD_MS + 4000);
+    await expectOutlivedGuard(p, '⬛對照組④ ' + tag);
+    const r = await regions(p);
+    shots[tag] = JSON.stringify(r);
+    console.log('【⬛對照組④ ' + tag + '】', shots[tag]);
+    expect(r.meta, 'reject 這條路是 startAuth() 自己的 .catch 接走的').toContain('確認身分時失敗');
+    expect(r.placeholderStillThere,
+      'authHalt() 會把 #content 清掉 ⇒ 監看器的述詞永遠不成立').toBe(false);
+    await ctx.close();
+  }
+  expect(shots['突變（刪開頁那一發）'],
+    '🔴 reject 版居然分得出突變前後 ⇒「接得住被拒絕的、接不住永遠不結束的」這段推理要重寫')
+    .toBe(shots['現行碼']);
+});
+
+/* ══ 🔴 零點⑤ —— 拆發條：未登入導頁後，那句更具體的話必須活過發條時限 ══════════
+ *
+ * `startAuth()` 走未登入那一支時，`#content` 仍然是佔位（`authBlock(msg,false)` 刻意
+ * 不清它——那是「正要離開這一頁」，不是「載入失敗」）。⇒ **監看器的述詞這時是成立的**，
+ * 不拆發條的話，`fatal()` 會在 `LOAD_GUARD_MS` 到期時把 `#meta` 清空、把
+ * 「正在前往 LINE 登入…」換成一句更含糊的「資料一直沒有回來」。
+ *
+ * 🔴 **這一格唯一的難處是時間軸。** 既有那條驗「正在前往 LINE 登入…」的測試
+ *    （`attend-checkin-e1b.spec.js`）在 **t≈1.7 秒**就量完收工，而這一發要 **t≈25 秒**
+ *    才會蓋掉那句話 ⇒ 它對這一格是**零涵蓋**，不是「間接涵蓋」。
+ *    下面 ⬛ 對照組把「早收工的尺量不到」這件事實測出來。
+ *
+ * ⚠️ 替身的 `login()` 不真的導頁 ⇒ 頁面留在原地，正好是原始碼註解說的
+ *    「導頁若慢了一步」。真的導頁走掉的話，這一格根本不需要存在。
+ */
+
+test('🔴 零點⑤（突變：拿掉 startAuth() 裡的拆發條）→ 導頁後等過發條時限 ⇒ 更具體的那句話被蓋掉', async ({ page }) => {
+  test.setTimeout(GUARD_MS + 60000);
+  const { sent } = await open(page, { reply: batchThen(() => STATS), mutate: killDisarmInStartAuth,
+    liff: liffNotLoggedIn(), waitMs: 2000 });
+  expect(await page.evaluate(() => window.__liffLoginCalled),
+    '故障注入沒生效：沒走到導頁那一支').toBeTruthy();
+  const early = await regions(page);
+  expect(early.meta, '導頁那句話一開始就該在').toContain('正在前往 LINE 登入');
+  expect(early.placeholderStillThere,
+    '#content 已經被清掉 ⇒ 監看器的述詞本來就不成立，這一條測不到拆發條').toBe(true);
+
+  await page.waitForTimeout(GUARD_MS + 4000);
+  await expectOutlivedGuard(page, '零點⑤·突變後');
+  const r = await regions(page);
+  console.log('【零點⑤·突變後】區塊：', JSON.stringify(r));
+  console.log('【零點⑤·突變後】看得見：', await visibleText(page));
+  expect(r.meta,
+    '拆發條被拿掉了，導頁那句話卻沒被蓋掉 ⇒ 要嘛這一刀沒切到東西，'
+    + '要嘛整頁根本沒有計時器可拆（開頁那一發也被拿掉了）——兩種都代表這一條沒在測拆發條')
+    .not.toContain('正在前往 LINE 登入');
+  expect(r.content).toContain('資料一直沒有回來');
+  expect(sent.length, '導頁中不該送出任何請求').toBe(0);
+});
+
+test('零點⑤（現行碼）→ 導頁後等過發條時限，「正在前往 LINE 登入…」必須還在', async ({ page }) => {
+  test.setTimeout(GUARD_MS + 60000);
+  const { sent } = await open(page, { reply: batchThen(() => STATS),
+    liff: liffNotLoggedIn(), waitMs: 2000 });
+  expect(await page.evaluate(() => window.__liffLoginCalled),
+    '故障注入沒生效：沒走到導頁那一支').toBeTruthy();
+  // 🔴 「監看器的述詞這時是成立的」要在**事發之前**量。放到等待之後才量的話，
+  //    突變讓它開口、`fatal()` 把佔位換掉，這一格反而會替突變背書說「本來就測不到」。
+  const early = await regions(page);
+  expect(early.placeholderStillThere,
+    't≈2 秒佔位就不見了 ⇒ 監看器的述詞本來就不成立，這一條測到的不是拆發條').toBe(true);
+  expect(early.meta, '導頁那句話一開始就該在').toContain('正在前往 LINE 登入');
+
+  await page.waitForTimeout(GUARD_MS + 4000);
+  await expectOutlivedGuard(page, '零點⑤·現行碼');
+  const r = await regions(page);
+  console.log('【零點⑤·現行碼】區塊：', JSON.stringify(r));
+  expect(r.meta,
+    '導頁那句更具體的話被蓋掉了：拆發條沒有把唯一那顆計時器收掉').toContain('正在前往 LINE 登入');
+  expect(r.content,
+    '監看器在「正要離開這一頁」時開口＝誤傷').not.toContain('資料一直沒有回來');
+  expect(r.placeholderStillThere,
+    '佔位被換掉了＝有人在這一頁畫過東西，而這條路上不該有任何人動它').toBe(true);
+  expect(sent.length, '導頁中不該送出任何請求').toBe(0);
+});
+
+test('⬛ 對照組（零點⑤）：在 t≈2 秒就量完收工 ⇒ 突變前後一模一樣——#119 的成因本身', async ({ browser }) => {
+  const shots = {};
+  for (const [tag, mutate] of [['現行碼', null], ['突變（刪拆發條）', killDisarmInStartAuth]]) {
+    const ctx = await browser.newContext({ baseURL: test.info().project.use.baseURL });
+    const p = await ctx.newPage();
+    await open(p, { reply: batchThen(() => STATS), mutate, liff: liffNotLoggedIn(), waitMs: 2000 });
+    const elapsed = await p.evaluate(() => performance.now());
+    expect(elapsed, '這一格刻意要在發條時限之前收工，等太久就不是在示範早收工了')
+      .toBeLessThan(GUARD_MS);
+    const r = await regions(p);
+    shots[tag] = JSON.stringify(r);
+    console.log('【⬛對照組⑤ ' + tag + '】頁面時鐘 ' + Math.round(elapsed) + ' ms：', shots[tag]);
+    expect(r.meta, tag + '：導頁那句話該在').toContain('正在前往 LINE 登入');
+    await ctx.close();
+  }
+  expect(shots['突變（刪拆發條）'],
+    '🔴 早收工的尺居然分得出突變前後 ⇒ #119 對「儀器提早關機」的診斷要重寫')
+    .toBe(shots['現行碼']);
 });
 
 /* ══ 對照組① —— 四種結局的畫面都分得出來 ════════════════════════════════ */
