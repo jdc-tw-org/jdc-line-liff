@@ -73,6 +73,17 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *      ⇒ 從那天起分流頁上「LINE 傳送平台」那個連結點下去是 404。
  */
 /**
+ * 🔴 2026-09-17（gas `#100`）：授權名單維護頁 `authz.html`。副本重產，diff 恰好兩塊：
+ *      `actions`        **多三支**：`getAuthzList`／`checkAuthzDraft`／`saveAuthzList`，
+ *                       三支的 `roles` 都是 `["admin"]`、`who` 都是 `["admin"]`
+ *                       ⇒ **沒有任何既有 action 的格子被動到**（104 → 107 支）。
+ *      `dispatchPages`  **多一列**：`authz.html`／`授權名單維護`／門 `getAuthzList`／`lineReady:true`。
+ *    ⇒ 既有的人權限零變化；只有 `admin` 的分流頁多一列（6 → 7）。
+ *    ⚠️ 這一列的 `lineReady:true` 前提是**本 repo 的 `authz.html` 已經發布**。
+ *      gas 那一列的旁邊寫著同一件事：**liff 的副本先合、gas 後合**
+ *      （`roles-matrix-guard.yml` 檔頭）。
+ */
+/**
  * 🔴 2026-09-17（gas #113）：副本多了 **`gateContract`** 這一段——後端「守門拒絕的信封表」，
  *    15 個情境各真的跑過一次 `gateAction`／`gateActionByLine`，出的是**要送進瀏覽器的
  *    那個信封**（`gateDenial` 的輸出），不是常數。
@@ -86,7 +97,24 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *      它**不在任何一列信封的判定裡**（那幾列都帶 `reason`）⇒ 改它時逐列比對一格都不會動，
  *      所以它必須單獨出一格，否則那條退路壞掉沒有任何東西看得見。
  */
-const PIN = '09c4fd8310cacba3155ee5c38712f1b1492207255d9e23a51033c89bf4060357';
+/**
+ * 🔴 2026-09-17（合併，gas #113 × #100）：上面兩條**是同一份副本的兩塊改動**，
+ *    在這一顆合併裡第一次同時出現，所以 PIN 換成**重產**之後的值，不是上面任何一個。
+ *
+ * ⚠️ **這個合併踩過一次、留在這裡當警告**：`git merge` 對 `action-roles.json`
+ *    **不會衝突，它會靜默自動合併**（只有本檔與 `auth-inventory.baseline.md` 這兩個
+ *    PIN 檔會衝突）。實測數字：
+ *      git 自動合併出來的      `49e8fa9bb4c9`
+ *      真的產生器重跑出來的    `d3a4dde18360`      ← 這一顆用的
+ *    自動合併那份**少了 gate #113 後來補上的兩列信封**（`revoked_line_path_empty_roles`
+ *    與對照組 `role_mismatch_line_real`）⇒ 直接沿用它，就等於**悄悄把那一格的守門拿掉**，
+ *    而 PIN 會讓它看起來像是有人刻意宣告過的。
+ *    ⇒ **合併這個檔的正確作法是「在 gas 重跑產生器」，不是挑一邊的 PIN。**
+ *
+ * ⚠️ 合併順序（承上面那條 gas `#100` 的註記）：**liff 的副本先合、gas 後合**
+ *    （`roles-matrix-guard.yml` 檔頭）。
+ */
+const PIN = 'd3a4dde18360898f33eb54169c2b55bdb2b1255de8a6a6638b5943d44e51eaee';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

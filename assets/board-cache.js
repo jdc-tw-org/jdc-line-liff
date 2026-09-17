@@ -81,9 +81,25 @@ var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
  *    `line-messages.html` 的 `EXEC_URL` 與 `callApi` 被整個刪掉，這一頁結構上
  *    再也拿不到 hub 的網址。⇒ 後端 `roles.js` 那句「同一句話有第二個生產者」已經過期。
  *
- * ⏳ **退場條件（可證偽，不是日期）**：上面那 72 行全部改走帶 `reason` 的出口
- *    （同一條量法回 0）之後，`!reason` 那條退路就可以刪。
- *    ⚠️ 刪之前要重跑一次那條量法，不要憑這段文字——它自帶保存期限。
+ * ⏳ **退場條件（擁有者 2026-09-17 拍板「留到改完」）：那些出口全部帶上 `reason`、
+ *    下面這條量法回 `Code.js=0` 之後，`!reason` 那條退路與吃它的那條測試一起刪。**
+ *
+ *    🔴 **量法本身寫在這裡，不是「等它們改完」四個字**——下一個人要跑得出來才知道能不能刪。
+ *    在 `jdc-line-gas` 的 **repo 根目錄**跑：
+ *
+ *      NODE_OPTIONS= node -p 'const fs=require("fs"),S=require("./line-platform/tests/helpers/source-scan.js");
+ *      ["Code.js","roles.js"].map(function(f){return f+"="+S.stripComments(
+ *        fs.readFileSync("line-platform/"+f,"utf8")).split("\n").filter(function(l){
+ *        return l.indexOf("無權限或連結已失效。")>=0}).length}).join(" ")'
+ *
+ *    2026-09-17 實跑回 `Code.js=72 roles.js=1`（`roles.js` 那 1 就是常數宣告本身）。
+ *
+ *    ⬛ **對照組（一起跑，否則 0 可能是量法壞了而不是真的沒有）**：同一條指令把 needle
+ *      換成 `validateBoardToken_`，要回 `Code.js=1 roles.js=0`——`roles.js` 只在**註解**裡
+ *      提到它，所以那個 0 同時證明「剝註解那一步真的在作用」。
+ *      ⚠️ 不要用 `grep -c`：它數的是行、而且會數到註解裡的那幾句（本檔頭就寫了那句話好幾次）。
+ *
+ *    ⚠️ 讀到這段時先重跑，不要信這裡的數字——它自帶保存期限。
  *
  * ⚠️ 離線那一段**一個字都沒動**，而且仍然排在最前面。它用前綴比對不可改成完全相等：
  * 全站有四種離線字串變體（hr-stats.html:73 那句沒有「伺服器喚醒中」，

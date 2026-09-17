@@ -179,6 +179,14 @@
         "activity"
       ]
     },
+    "checkAuthzDraft": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "clearGuests": {
       "roles": [
         "admin",
@@ -281,6 +289,14 @@
         "admin",
         "activity",
         "view"
+      ]
+    },
+    "getAuthzList": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
       ]
     },
     "getBindLink": {
@@ -961,6 +977,14 @@
         "admin"
       ]
     },
+    "saveAuthzList": {
+      "roles": [
+        "admin"
+      ],
+      "who": [
+        "admin"
+      ]
+    },
     "savePassTemplate": {
       "roles": [
         "admin",
@@ -1236,6 +1260,13 @@
       "gateAction": "getWelfareAudience",
       "lineReady": true,
       "note": ""
+    },
+    {
+      "page": "authz.html",
+      "title": "授權名單維護",
+      "gateAction": "getAuthzList",
+      "lineReady": true,
+      "note": ""
     }
   ],
   "gateContract": {
@@ -1280,6 +1311,26 @@
           "ok": false,
           "msg": "系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。",
           "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "revoked_line_path_empty_roles",
+        "why": "🔴 撤權・LINE 路：入口層回 `resolved` 而 `roles` 是**空陣列**（查過了，他沒有角色）。⚠️ `roles.js` 的註解宣告「B0 會回 roles-none，走不到這裡」——**那是宣告，不是程式保證的**。改之前它落在 `role_mismatch`（＝你拿錯連結了）⇒ 前端不清快取，而那是 fail-open。",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。",
+          "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "role_mismatch_line_real",
+        "why": "⬛ 對照組：**真的**角色不符（有角色，只是打不到這支）。⚠️ 改之前它與上面那一格落在同一個代號、分不開；改之後必須分得開。⚠️ 這裡用 `getMessageLog` 不用 `getRosterList`——後者的 allow 含 `any`，任何看板角色都會被**放行**，量到的是「放行」不是「角色不符」。",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "此連結非您的權限範圍。",
+          "reason": "role_mismatch"
         }
       },
       {
