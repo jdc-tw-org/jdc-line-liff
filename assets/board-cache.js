@@ -69,7 +69,7 @@ var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
  * ══ ⚠️ 為何**還留著**那個字串比對（而不是拿掉）══════════════════════════
  *
  * 因為**還有不帶 `reason` 的生產者**，數得出來：
- *   · `jdc-line-gas` `Code.js` 的 handler 層 ⬛ **72 行**（2026-09-17 量，剝註解後數含該句的行；
+ *   · `jdc-line-gas` `Code.js` 的 handler 層 ⬛ **75 行**（2026-09-17 量於 `fix/revoke-reason-code` `4de6364`，剝註解後數含該句的行；
  *     ⬛ 對照組：同一條量法把 needle 換成 `validateBoardToken_`，`roles.js` 回 0 ⇒ 剝註解那步有在作用）。
  *     那一層失敗的意思是「守門放行了、但這支功能要看板身分」，與守門層不是同一件事。
  *   · `roles.js` 兩支守門的 `allow === null` 那一格（action 不認得）**刻意不帶代號**
@@ -92,7 +92,9 @@ var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
  *        fs.readFileSync("line-platform/"+f,"utf8")).split("\n").filter(function(l){
  *        return l.indexOf("無權限或連結已失效。")>=0}).length}).join(" ")'
  *
- *    2026-09-17 實跑回 `Code.js=72 roles.js=1`（`roles.js` 那 1 就是常數宣告本身）。
+ *    2026-09-17 在 `fix/revoke-reason-code` `4de6364` 實跑回 `Code.js=75 roles.js=1`（`roles.js` 那 1 就是常數宣告本身）。
+ *    ⚠️ 這個數字**跟著 SHA 走**——先前寫的 72 是併 main 之前 base `01f484c` 的值，併完沒重量。
+ *    引用它之前先重跑，不要照抄。
  *
  *    ⬛ **對照組（一起跑，否則 0 可能是量法壞了而不是真的沒有）**：同一條指令把 needle
  *      換成 `validateBoardToken_`，要回 `Code.js=1 roles.js=0`——`roles.js` 只在**註解**裡
