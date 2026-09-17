@@ -9,6 +9,9 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
 <link rel="stylesheet" href="assets/ui.css">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- 憑證死掉時真的把人重新登入一次（成因與一手實測見該檔檔頭）。順序照 line-messages.html：
+     它要早於 gas-call.js，因為底下 `load()` 的 `.then(reloginOnDeadCredential)` 在解析出口用它。 -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/gas-call.js"></script>
 <style>
   /* 🔴 色票、body、.card、.btn、.tag、.msg 全部來自 `assets/ui.css`。
@@ -248,20 +251,51 @@ function freshIdToken() {
   return t ? String(t) : '';
 }
 
+/**
+ * 手上這顆 ID token **確定**過期了嗎。
+ *
+ * 🔴 **只有答得出「確定過期」才回 true。** 問不出到期時間（SDK 舊、解不開、
+ *    後端換了格式）一律回 false ＝當成沒過期。方向是刻意的，兩邊的代價不對稱：
+ *      猜「過期」猜錯 → **每個人每次開頁都被登出再導去 LINE 一趟**，而且它會自己
+ *                       回來 ⇒ 不當掉、不報錯、只是每個人都多閃一次，沒有人看得出來
+ *      猜「沒過期」猜錯 → 只是退回這次改動之前的行為：後端回 `line_bad_token`，
+ *                       由底下 `reloginOnDeadCredential` 接手（慢一趟，但結果一樣對）
+ *    ⇒ 不確定時**退回舊行為**，不要用一個猜的結論去導頁。
+ *
+ * ⚠️ 刻意不留時鐘寬限（不寫「提早 N 秒算過期」）：本機時鐘快了幾分鐘的人會被
+ *    多導一次，而那一次有 `liff-relogin.js` 的 sessionStorage 旗標封頂（一次造訪
+ *    最多一次）；反過來時鐘慢的人這裡放行，後端還是會擋，第二處改動接得住。
+ */
+function idTokenExpired() {
+  if (!(window.liff && typeof liff.getDecodedIDToken === 'function')) return false;
+  var d;
+  try { d = liff.getDecodedIDToken(); } catch (e) { return false; }
+  if (!d || typeof d.exp !== 'number' || !isFinite(d.exp)) return false;
+  return d.exp * 1000 <= Date.now();
+}
+
 function load() {
   // ⚠️ 憑證在呼叫當下才取，不是開頁時取一次存起來（它只有效一小時）。
   //    這一頁很短命，但寫法與 board／welfare 一致才不會變成「只有這一頁不一樣」。
-  return gasCall(GAS_URL, 'listMyPages', { idToken: freshIdToken() }).then(function (r) {
-    if (r && r.ok) { render(r); return; }
-    // 🔴 傳輸失敗與「伺服器說不行」要分開講：一個重試有用、一個重試永遠沒用。
-    if (r && r.transport) {
-      setWho('連不上伺服器', true);
-      showMsg((r && r.msg) || '連線失敗。請確認網路後重新整理。', '');
-      return;
-    }
-    setWho('無法確認您的權限', true);
-    showMsg((r && r.msg) || '目前無法取得您的頁面清單，請稍後再試。', r && r.reason);
-  });
+  return gasCall(GAS_URL, 'listMyPages', { idToken: freshIdToken() })
+    // 🔴 **第二道**（第一道是 `start()` 的 `idTokenExpired()`）。接在解析出口、
+    //    照 `line-messages.html` 那條鏈的形狀，不另創一份判斷——「哪些 reason 重登
+    //    有用」的白名單只有 `assets/liff-relogin.js` 那一份，這裡不重寫。
+    //    ⚠️ 它**原樣交還** `r`，所以底下的失敗畫面一句都不會少（重登時它自己蓋一層
+    //    覆蓋層在上面）。為什麼兩道都要：前置檢查問的是「我這顆過期了嗎」，
+    //    答不出來時它放行；這一道問的是「後端接不接受」，那是唯一的權威。
+    .then(reloginOnDeadCredential)
+    .then(function (r) {
+      if (r && r.ok) { render(r); return; }
+      // 🔴 傳輸失敗與「伺服器說不行」要分開講：一個重試有用、一個重試永遠沒用。
+      if (r && r.transport) {
+        setWho('連不上伺服器', true);
+        showMsg((r && r.msg) || '連線失敗。請確認網路後重新整理。', '');
+        return;
+      }
+      setWho('無法確認您的權限', true);
+      showMsg((r && r.msg) || '目前無法取得您的頁面清單，請稍後再試。', r && r.reason);
+    });
 }
 
 function start() {
@@ -282,6 +316,27 @@ function start() {
       showMsg('已經登入 LINE，但拿不到這一頁需要的憑證。'
         + '這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。', '');
       return;
+    }
+    // 🔴 **擋在紅字之前。** LINE 的 ID token 一小時就死、SDK 沒有續期機制，
+    //    而死掉之後 `isLoggedIn()` **仍然是 true**、`getIDToken()` 交回同一顆死的
+    //    ⇒ 上面那兩道全部放行 ⇒ 後端回 `line_bad_token` ⇒ 這一頁給他一段
+    //    「請聯絡資訊人員」的紅字，而那句話對他是死路（實測見 `liff-relogin.js` 檔頭）。
+    //    ⇒ 這裡先讀 `exp`，確定過期就直接走唯一有效的那條路（logout 再 login）。
+    //      他看到的是一次閃跳然後回到分流頁，不是一段要他去找人的紅字。
+    if (idTokenExpired()) {
+      // ⚠️ 防迴圈的旗標與底下的 `reloginOnDeadCredential` **共用同一格**
+      //    （`liff-relogin.js` 的 sessionStorage 旗標）⇒ 一次造訪最多自動重登一次。
+      //    刻意不自己另開一個旗標：兩個旗標＝兩次導頁，而第二次沒有人擋。
+      // 🔴 `reloginMarkTried()` 寫不進去（無痕視窗、封鎖 cookie）時**不登出**——
+      //    沒有防線時「看得見的失敗」比「看不見的迴圈」好（同該檔檔頭）。
+      if (!reloginTried() && reloginMarkTried()) {
+        setWho(RELOGIN_GOING_MSG, false);      // 灰字：這是正常流程，不是被擋住
+        liff.logout();                          // SDK 裡唯一會移除 ID token 的地方
+        liff.login({ redirectUri: location.href });
+        return;                                 // 導頁中，不要發車
+      }
+      // 已經自動重登過一次、憑證卻還是過期 ⇒ **不再導**。照常打後端，讓
+      // `reloginOnDeadCredential` 去講「已經幫您試過一次了」那句實話。
     }
     return load();
   }).catch(function (err) {
