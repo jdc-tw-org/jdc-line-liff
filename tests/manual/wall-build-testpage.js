@@ -61,18 +61,41 @@ const UNITS = BIG
 const 姓 = '陳林黃張李王吳劉蔡楊許鄭謝洪郭邱曾廖賴徐周葉蘇莊呂江何蕭羅高'.split('');
 const 名 = ['幼善', '幼義', '小義', '幼武', '幼和', '幼雅', '幼勇', '小傑', '幼婷', '幼忠',
   '幼文', '幼真', '幼豪', '幼德', '小豪', '幼信', '幼孝', '幼傑', '幼英', '幼志'];
+/* 🔴 鑰匙欄位叫 `internalId`，不是 `empNo`（jdc-tw/jdc-line-gas#149）。
+   後端 `buildArrivalWall` 2026-09-02 起（gas `108bee0`）把鑰匙從員編換成內部碼，
+   第一行就是 `filter(p => p && p.internalId)` ⇒ 欄位名不對的參加者會被**整筆丟掉、不報錯**。
+   這支測試頁從 8/17 寫到現在一直寫 `empNo`，於是六輪全是 0/0——一面空牆，而它照樣跑完。
+
+   ⚠️ `empNo` 在別處是**真的欄位名**（名冊的員工編號，人事語意），所以這不是打錯字，
+      是那次遷移漏改了這一支；看到 `empNo` 不要當成錯字順手全域換掉。
+   ⚠️ 這一段的參加者形狀要跟 `getEventCheckinParticipants_()` 的回傳一致：
+      `{internalId, name, unit, table}`——**那一份裡沒有 empNo**。
+
+   內部碼長得像真的：`JDC-` 加六個字母，字母表刻意去掉形近字、一個數字都沒有。
+   ⚠️ **固定寬度是必要的**，不是美觀：底下 `of()` 用「單位前綴」分組，
+      舊寫法 `'E' + ui + pad2(i)` 在 --big（15 個單位）時，`E1` 會把 `E10xx` 一起吃進來
+      ⇒ 第 10～14 個單位永遠分不到報到的人，而人數加總照樣對得起來、零錯誤訊息。 */
+const 碼 = 'BCDFGHJKMNPQRSTVWXYZ';
+const code20 = (n, w) => {
+  let s = '';
+  for (let k = 0; k < w; k++, n = Math.floor(n / 20)) s = 碼[n % 20] + s;
+  return s;
+};
+const unitPrefix = (ui) => 'JDC-' + code20(ui, 2);
+
 const PARTS = [];
 let seq = 0;
 UNITS.forEach(function (u, ui) {
   for (let i = 0; i < u[1]; i++, seq++) {
     PARTS.push({
-      empNo: 'E' + ui + String(i).padStart(2, '0'),
+      internalId: unitPrefix(ui) + code20(i, 4),
       name: 姓[(seq * 7) % 姓.length] + 名[(seq * 3) % 名.length],
       unit: u[0],
     });
   }
 });
-const of = (ui, n) => PARTS.filter(p => p.empNo.startsWith('E' + ui)).slice(0, n).map(p => p.empNo);
+const of = (ui, n) => PARTS.filter(p => p.internalId.startsWith(unitPrefix(ui)))
+  .slice(0, n).map(p => p.internalId);
 
 /* 累積報到名單：各單位的報到進度刻意錯開（後面的單位晚開始），排名才會一路換位。
    最後幾步未到人數跌破 30，後端才開始給姓名——那一步的畫面變化也要驗到。 */
@@ -91,6 +114,16 @@ const SEQ = STEPS.map(function (arrived, i) {
   w.at = '18:' + String(i * 7).padStart(2, '0');
   return w;
 });
+
+/* 🔴 空牆、死牆一律紅（jdc-tw/jdc-line-gas#149）。判準只有一條、為何只有一條，見 `wall-guard.js`。
+   插在這裡（SEQ 一算完、分模式之前）是刻意的：一般模式與 `--artifact` 都要經過它，
+   而 `--artifact` 那一格沒有任何自動覆蓋（`npm test` 的單層 `*` 跨不進 tests/manual/）。 */
+try {
+  require('./wall-guard.js').assertWallDiscriminates(SEQ);
+} catch (e) {
+  console.error('❌ ' + e.message);
+  process.exit(1);
+}
 
 const STUB = `<script>
 (function(){
