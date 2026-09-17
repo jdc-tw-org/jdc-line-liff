@@ -1224,49 +1224,56 @@
       "title": "人事異動看板",
       "gateAction": "getCheckinPending",
       "lineReady": true,
-      "note": ""
-    },
-    {
-      "page": "stats.html",
-      "title": "活動紀錄看板",
-      "gateAction": "getActivityStats",
-      "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "人事"
     },
     {
       "page": "hr-stats.html",
       "title": "人事資訊看板",
       "gateAction": "getHrStats",
       "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "人事"
+    },
+    {
+      "page": "stats.html",
+      "title": "活動紀錄看板",
+      "gateAction": "getActivityStats",
+      "lineReady": true,
+      "note": "",
+      "group": "活動"
     },
     {
       "page": "attend.html",
       "title": "活動出席狀況",
       "gateAction": "getActivityStats",
       "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "活動"
     },
     {
       "page": "line-messages.html",
       "title": "LINE 訊息紀錄",
       "gateAction": "getMessageLog",
       "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "LINE"
     },
     {
       "page": "line.html",
       "title": "LINE訊息發訊",
       "gateAction": "getWelfareAudience",
       "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "LINE"
     },
     {
       "page": "authz.html",
       "title": "授權名單維護",
       "gateAction": "getAuthzList",
       "lineReady": true,
-      "note": ""
+      "note": "",
+      "group": "管理"
     }
   ],
   "gateContract": {

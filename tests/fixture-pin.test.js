@@ -114,7 +114,32 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  * ⚠️ 合併順序（承上面那條 gas `#100` 的註記）：**liff 的副本先合、gas 後合**
  *    （`roles-matrix-guard.yml` 檔頭）。
  */
-const PIN = 'd3a4dde18360898f33eb54169c2b55bdb2b1255de8a6a6638b5943d44e51eaee';
+/**
+ * 🔴 2026-09-18（gas `#191`）：分流表多一欄 **`group`**（分流頁要分類、依分類排序、加小標）。
+ *    副本重產，diff 恰好兩塊，**兩塊都只在 `dispatchPages` 底下**：
+ *      ① 七列各多一個 `"group"`：人事（`board.html`／`hr-stats.html`）、
+ *         活動（`stats.html`／`attend.html`）、LINE（`line-messages.html`／`line.html`）、
+ *         管理（`authz.html`）。
+ *      ② `hr-stats.html` 與 `stats.html` **對調**——後端改成照 `DISPATCH_GROUPS`
+ *         的順序送出（人事 → 活動 → LINE → 管理），**那個順序就是分流頁的顯示順序**。
+ *    ⚠️ **`actions`／`identities`／`batchAllowed`／`gateContract` 一個位元組都沒動**
+ *      ⇒ **沒有任何人的權限變了**，也沒有任何一頁的認人方式變了。
+ *      ⬛ 佐證不是我說的：`auth-inventory.baseline.md` 重產後的 diff **也只有指紋那一行**，
+ *        41 行裡其餘 40 行（含逐頁的認人方式那張表）一個字沒動。
+ *
+ *    🔴 **為何類別非得是後端的一個欄位**：前端從 `title` 或檔名反推分類，
+ *      是「用名字推定身分」——而標題真的會改（liff `#18` 就把 `welfare.html` 改成
+ *      `line.html`、標題也換了）。推定式分類會在下次改標題時**靜默錯位**，
+ *      而畫面看起來完全正常。
+ *
+ *    ⚠️ 合併順序（同上面幾條）：**本 repo 這顆先合，gas `#193` 後合。**
+ *      在本顆合進 liff `main` 之前，gas 那邊的 `matrix-guard` 會紅在
+ *      「liff 的矩陣副本必須是現行的」——**那個紅是對的，不是誤報。**
+ *
+ *    ⚠️ 本顆**不動 `me.html`**。分流頁真的把 `group` 畫成小標，是 liff `#61`。
+ *      這一顆只讓副本與後端同步，好讓 gas `#193` 按得下去。
+ */
+const PIN = 'd57e41d076f7c7f2be4139cf0400f3a38f4e7991d01c0ef2564172180895dc98';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
