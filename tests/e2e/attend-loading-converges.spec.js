@@ -1,5 +1,5 @@
 /**
- * #102 —— `attend.html` 的「載入中…」一定會收斂。
+ * #102／#111 —— `attend.html` 的「載入中…」一定會收斂。
  *
  * 🔴 **為何非在真瀏覽器不可**：這一票的病灶是**沒有人接的 promise rejection**。
  *    它在 node 的單元測試裡不存在（那裡沒有那條鏈、也沒有 DOM），而在瀏覽器裡
@@ -13,9 +13,17 @@
  *    互相覆蓋的防護等於沒人守）：
  *      ① `.catch(chainFailed(...))` —— 殺手案例＝零點①（鏈上拋例外）。拿掉它，零點①在
  *         監看器響之前的那段時間裡是全白的。
- *      ② 監看器（`armLoadGuard`）    —— 殺手案例＝零點②（鏈既不 resolve 也不 reject）。
+ *      ② 監看器（`armLoadGuard`）    —— 殺手案例＝零點②、零點③（鏈既不 resolve 也不 reject）。
  *         ①對這一種完全無效，因為根本沒有 rejection 可接。
  *    每一道都各有一條突變測試證明「只有它擋得住」。
+ *
+ * 🔴 **②那一道有兩個呼叫點，所以它需要兩個案例**（#111）：
+ *      `:133` 開頁那一發  —— 零點②擋的是它。
+ *      `:112` `beginLoading()` 裡那一發 —— **零點③擋的是它**。
+ *    在 #111 之前只有前者被涵蓋到：零點②的故障注入落在 t≈2 秒，那時開頁那一發還沒燒掉，
+ *    所以把 `beginLoading()` 裡那一行整行刪掉，整套 e2e 仍然 149/149 全綠
+ *    （2026-09-17 在 `ece4a40` 上實測，`attend.html` md5 4fd0167→630dc9f）。
+ *    ⇒ **同一道防線的每一個呼叫點各自要有案例**；條數不是判準，位置才是。
  */
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
@@ -198,6 +206,102 @@ test('零點②（現行碼）→ 監看器把它講出來（.catch 這一道對
   console.log('【零點②·修好後】區塊：', JSON.stringify(r));
   expect(r.placeholderStillThere).toBe(false);
   expect(r.content).toContain('資料一直沒有回來');
+});
+
+/* ══ 🔴 零點③ —— 首載成功、開頁那一發燒掉之後，才有一輪卡住 ═══════════════
+ *
+ * #111：`armLoadGuard` 有兩個呼叫點，而零點②只擋得住**開頁那一發**（`:133`）。
+ *
+ * 🔴 **時間點就是這一條的全部**。一定要先等過 `LOAD_GUARD_MS`，讓開頁那一發燒掉
+ *    （燒的時候畫面已經畫好 ⇒ 它什麼都不做、也不留任何痕跡），**之後**才讓下一輪卡住。
+ *    早一秒，擋住它的就是開頁那一發，這一條就什麼都沒測到——那正是 #102 的漏洞。
+ *
+ * 卡住的方式用真的那一種：**佇列頭卡住**（`attend.html` 檔頭列的「佇列前面那支卡住」）。
+ * `queueRead` 的工作排在 `GAS_TAIL` 後面，前面那支永遠不完成 ⇒ `load()` 這條鏈
+ * **既不 resolve 也不 reject** ⇒ `.catch(chainFailed('切換活動'))` 對它完全無效，
+ * 唯一擋得住的就是 `beginLoading()` 裡那一發。附帶：這一輪**一個請求都沒送出去**。
+ *
+ * ⚠️ 代價：兩段等待各一個 `LOAD_GUARD_MS`，單條約 55 秒。這是量一個 25 秒計時器的底價。
+ *    **不要把 `LOAD_GUARD_MS` 改小來換速度**——那會變成在測一個線上不存在的設定。
+ * ⚠️ 切過去的那一場**必須沒有快取**（本輪是同一個 context 裡第一次看 A8）。
+ *    命中快取的話 `paint(cached)` 會把佔位換掉，監看器的述詞就永遠不成立，
+ *    這一條會變成「怎麼改都綠」。
+ */
+
+/** 兩場活動。都已關閉 ⇒ `pickDefaultActivity` 挑最後一筆（A9），選單可以切到 A8。 */
+const TWO_ROWS = [
+  { id: 'A8', name: '春酒', status: '關閉', open: false, replies: 88 },
+  { id: 'A9', name: '年度聚餐', status: '關閉', open: false, replies: 151 },
+];
+const batchRowsThen = (rows, second) => (u) => (u.searchParams.get('action') === 'batch'
+  ? { ok: true, results: { listActivities: { ok: true, rows: rows }, getActivityStats: NO_OPEN } }
+  : second(u));
+
+/** 突變：只刪 `beginLoading()` 裡那一發。開頁那一發沒有縮排，不會被誤傷。 */
+const killArmInBeginLoading = (html) => {
+  const needle = '\n  armLoadGuard();\n';
+  const n = html.split(needle).length - 1;
+  if (n !== 1) throw new Error('突變沒有生效：`beginLoading()` 裡那一發找到 ' + n + ' 處（預期 1）'
+    + '——這一條測試什麼都沒測到');
+  return html.split(needle).join('\n');
+};
+
+/** 佇列頭卡住＝下一支 `queueRead` 的工作永遠不會被呼叫。
+ *  ⚠️ 一定要寫成「不回傳那個 Promise」的函式。寫成字串運算式的話 `page.evaluate`
+ *     會把那個永不 settle 的 Promise 當回傳值去等，卡住的變成測試本身。 */
+const STALL_QUEUE = () => { window.GAS_TAIL = new Promise(function () {}); };
+
+/** 首載成功 → 等過發條時限 → 切換活動且該輪卡住。回傳最後的畫面。 */
+async function firstLoadThenStuckSwitch(page, { mutate = null } = {}) {
+  const { sent } = await open(page, { reply: batchRowsThen(TWO_ROWS, () => STATS), mutate, waitMs: 3000 });
+  const afterFirst = await regions(page);
+  expect(afterFirst.placeholderStillThere,
+    '首載就沒畫出來 ⇒ 後面測到的不是「發條燒掉之後」那一段').toBe(false);
+  const first = await page.evaluate(() => document.getElementById('act-picker').value);
+
+  // ① 等過開頁那一發的時限，讓它燒掉。畫面已經畫好，所以它應該什麼都不說。
+  await page.waitForTimeout(GUARD_MS + 3000);
+  const afterBurn = await regions(page);
+  expect(afterBurn.content,
+    '畫面已經畫好，開頁那一發卻仍然開口＝誤傷').not.toContain('資料一直沒有回來');
+
+  // ② 佇列頭卡住，然後用選單切到另一場（那一場在這個 context 裡沒有快取）
+  await page.evaluate(STALL_QUEUE);
+  const sentBefore = sent.length;
+  const other = TWO_ROWS.map((r) => r.id).filter((id) => id !== first)[0];
+  await page.selectOption('#act-picker', other);
+  await page.waitForTimeout(2000);
+  const during = await regions(page);
+  expect(during.placeholderStillThere,
+    '切換活動沒有回到「載入中…」＝這一輪根本沒開始，這一條測不到東西').toBe(true);
+  expect(sent.length,
+    '卡住的那一輪居然送出了請求＝佇列頭沒卡住，這一條測到的是別的東西').toBe(sentBefore);
+
+  // ③ 再等過一個時限。現行碼會在這裡講話，突變之後永遠不會。
+  await page.waitForTimeout(GUARD_MS + 5000);
+  return { r: await regions(page), sent, sentBefore, first, other };
+}
+
+test('🔴 零點③（突變：拿掉 beginLoading() 裡那一發）→ 開頁那一發燒掉後切換活動卡住 ⇒ 回到「永遠載入中」', async ({ page }) => {
+  test.setTimeout(2 * GUARD_MS + 70000);
+  const { r, sent, sentBefore, other } = await firstLoadThenStuckSwitch(page, { mutate: killArmInBeginLoading });
+  console.log('【零點③·突變後】切到 ' + other + '，區塊：', JSON.stringify(r));
+  console.log('【零點③·突變後】看得見：', await visibleText(page));
+  expect(r.placeholderStillThere).toBe(true);
+  expect(r.content).toBe('載入中…');
+  expect(sent.length, '全程零外部請求：卡住的那一輪一個都沒送出去').toBe(sentBefore);
+});
+
+test('零點③（現行碼）→ 切換活動那一輪卡住，beginLoading() 裡那一發把它講出來', async ({ page }) => {
+  test.setTimeout(2 * GUARD_MS + 70000);
+  const { r, sent, sentBefore, other } = await firstLoadThenStuckSwitch(page);
+  console.log('【零點③·修好後】切到 ' + other + '，區塊：', JSON.stringify(r));
+  expect(r.placeholderStillThere,
+    '「切換活動」這條路沒收斂：開頁那一發已經燒掉，只剩 beginLoading() 裡那一發擋得住它').toBe(false);
+  expect(r.content,
+    '「切換活動」那一輪既不 resolve 也不 reject，而畫面上一句話都沒有').toContain('資料一直沒有回來');
+  expect(r.content, '紅字下面還寫著「載入中」，那句是假話').not.toContain('載入中…');
+  expect(sent.length, '全程零外部請求：卡住的那一輪一個都沒送出去').toBe(sentBefore);
 });
 
 /* ══ 對照組① —— 四種結局的畫面都分得出來 ════════════════════════════════ */
