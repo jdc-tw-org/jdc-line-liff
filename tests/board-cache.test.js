@@ -112,11 +112,21 @@ test('🔴 代號打錯一個字母 → 不清快取（fail-safe），而且契�
   });
 });
 
-test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 層 72 行、不認得的 action）', () => {
-  // 退場條件寫在 board-cache.js 的 cacheVerdict 檔頭：那 72 行全部帶上 reason 之後刪掉這條。
-  assert.equal(BC.cacheVerdict({ ok: false, msg: '無權限或連結已失效。' }), 'revoked');
+test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 層、不認得的 action）', () => {
+  // 🔴 **那一句也從後端讀**（`gateContract.legacyDenyMsg`），不手寫。
+  //    它刻意不在 `denials` 的任何一列裡——那幾列都帶 `reason`，前端拿到代號就不看文字
+  //    ⇒ 改那一句時逐列比對一格都不會動，唯一看得見的就是這一條。
+  const 退路那句 = 契約.legacyDenyMsg;
+  assert.ok(退路那句 && 退路那句.length > 3,
+    '契約沒有 legacyDenyMsg ⇒ 副本是舊版，在 jdc-line-gas 重產一次');
+  assert.equal(BC.cacheVerdict({ ok: false, msg: 退路那句 }), 'revoked',
+    '後端那一句改過了，而前端的退路還在認舊的 ⇒ `Code.js` handler 層那些不帶代號的'
+    + '拒絕，撤銷遮蔽已經靜默消失（改前端這一格，或把那些出口補上 reason）');
+  // ⬛ 對照組：這條退路不是「什麼字串都判 revoked」。
   assert.equal(BC.cacheVerdict({ ok: false, msg: '找不到員工名冊' }), 'ok');
   assert.equal(BC.cacheVerdict({ ok: true }), 'ok');
+  // ⏳ 退場條件寫在 board-cache.js 的 cacheVerdict 檔頭：那些出口全部帶上 reason 之後，
+  //    退路與本條一起刪。
 });
 
 test('cacheVerdict：外層 ok、results 內某支無權限 → 仍是 ok', () => {

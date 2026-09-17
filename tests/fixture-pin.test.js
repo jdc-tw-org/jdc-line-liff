@@ -82,8 +82,11 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    為何而生：`board-cache.test.js` 那幾條是**手寫中文字串**、不讀後端任何東西
  *      ⇒ 後端改文案永遠不會紅。2026-09-16 線上真的對不上了
  *      （權限收回後 LINE 那條路不清快取），**而它全綠**。細節在私有票 `jdc-tw/jdc-line-gas#113`。
+ *    ⚠️ 同一輪補了 `gateContract.legacyDenyMsg`：前端「沒有代號時」那條退路在認的那一句。
+ *      它**不在任何一列信封的判定裡**（那幾列都帶 `reason`）⇒ 改它時逐列比對一格都不會動，
+ *      所以它必須單獨出一格，否則那條退路壞掉沒有任何東西看得見。
  */
-const PIN = 'd4ddee96e140c0907e5a04aeacd505837943c7efa4e12c8e52fcd45ae5d3c368';
+const PIN = '09c4fd8310cacba3155ee5c38712f1b1492207255d9e23a51033c89bf4060357';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
