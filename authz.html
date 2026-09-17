@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<title>授權名單維護</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
+<link rel="stylesheet" href="assets/ui.css">
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="assets/gas-call.js"></script>
+<style>
+  /* 色票、body、.card、.btn、.tag、.msg 全部來自 `assets/ui.css`。
+     這裡只放**這一頁自己的**東西——不要把共用的再抄一份回來。 */
+
+  h1.state { font-size: 14px; font-weight: 400; color: var(--ink2); }
+  h1.err { color: var(--bad); }
+
+  /* 一列一張卡：手機上表格排不下七欄，而這一頁的主要使用場景就是手機（LINE 內開）。 */
+  .row { border: 1px solid var(--ln); border-radius: 3px; padding: 12px; margin-bottom: 10px; background: #fff; }
+  .row.dis { background: #f7f7f5; }
+  .row .who { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .row .code { font-size: 12px; color: var(--ink3); margin-left: 6px; font-weight: 400; }
+  .fld { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .fld label { font-size: 12.5px; color: var(--ink2); flex: none; width: 4.5em; }
+  .fld select, .fld input {
+    flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 6px 8px;
+    border: 1px solid var(--ln); border-radius: 3px; background: #fff; color: var(--ink);
+  }
+  .fld input[readonly] { background: #f4f4f2; color: var(--ink2); }
+
+  /* dry-run 的結果面板。**它是這一頁存在的理由**，所以它不是一行小字。 */
+  #panel { padding: 14px 16px; border-radius: 3px; font-size: 14px; margin: 14px 0; }
+  #panel.pass { background: var(--g-bg); color: var(--g); }
+  #panel.fail { background: var(--bad-bg); color: var(--bad); }
+  #panel.idle { background: var(--warn-bg); color: var(--warn); }
+  #panel .gate { font-weight: 600; }
+  #panel ul { margin: 8px 0 0; padding-left: 1.2em; }
+  #panel li { margin-bottom: 4px; }
+  .foot { font-size: 12.5px; color: var(--ink3); margin-top: 22px; line-height: 1.8; }
+  .btn[disabled] { opacity: .45; }
+
+  /* 🔴 `[hidden]` 必須贏過作者 CSS 的 display。`.btnrow { display: flex }` 的特異性
+     高過 `[hidden]` 的預設 `display:none` ⇒ 設 `el.hidden = true` 會**完全沒有作用**，
+     而斷言 `hidden === true` 的測試照樣綠、使用者照樣看得見（me.html 記過這一顆）。 */
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
+<h1 id="who" class="state">確認身分中…</h1>
+<div class="meta" id="meta"></div>
+
+<div id="list"></div>
+
+<div class="card" id="addcard" hidden>
+  <div class="row-title" style="font-size:14px;font-weight:600;margin-bottom:8px;">新增一列</div>
+  <div class="fld"><label for="newcode">人</label><select id="newcode"></select></div>
+  <div class="fld"><label for="newrole">角色</label><select id="newrole"></select></div>
+  <button class="btn btn-sm" id="add" type="button">加進草稿</button>
+</div>
+
+<div id="panel" class="idle">還沒有檢查過這份草稿。</div>
+
+<div class="btnrow" id="acts" hidden>
+  <button class="btn btn-up" id="check" type="button">檢查</button>
+  <button class="btn btn-pri2" id="save" type="button" disabled>存檔</button>
+</div>
+<div class="msg" id="msg"></div>
+<div class="foot" id="foot"></div>
+
+<script>
+/**
+ * **授權名單維護頁**（gas `#100`，2026-09-17）。
+ *
+ * ══ 🔴 這一頁真正的價值不是「不用開試算表」═══════════════════════════════
+ *
+ * 2026-09-16 16:09–16:16 生產環境：授權名單某一列的「角色」空白 ⇒ 七道守恆第 ② 道
+ * 沒過 ⇒ **整份作廢** ⇒ 四分鐘內走 LINE 登入的人全部進不去。
+ * ⇒ **那是手開試算表才會發生的事**——沒有任何東西擋你存檔。
+ *    這一頁要做的，是把守恆從「存檔之後才發現」搬到「**存檔之前擋下來**」。
+ *
+ * ══ 🔴 這一頁刻意不做什麼 ═══════════════════════════════════════════════
+ *
+ * **① 它不判斷權限。** 能不能開這一頁，完全由後端 `ACTION_ROLES` 的
+ *    `getAuthzList: 'admin'` 決定。前端不看角色、不藏按鈕、不做任何「你是不是 admin」
+ *    的判斷——那會變成第二個判準，而分流頁問不到那一層（那正是 `gas#97` 的形狀：
+ *    第一道放行、第二道擋下，列得出來卻點不開）。
+ *
+ * **② 它不自己判斷資料合不合法。** 七道守恆只有一份，在後端的共用規則層。
+ *    這一頁**只呈現後端算出來的結果**，不在這裡再寫一份「角色不可以空白」。
+ *    寫了就是同一個判斷散在兩處，而兩處分歧時畫面不會報錯——它會理直氣壯地
+ *    說一句假話（說「都過了」而存檔被擋，或更糟：說「不能存」而其實可以）。
+ *
+ * **③ 它不吃 `?t=`、也不產生任何帶 `?t=` 的連結。** 走 LINE 登入，沒有例外。
+ *
+ * ══ 🔴 「檢查過的那一份」與「現在要送出的那一份」必須是同一份 ═════════════
+ *
+ * dry-run 的價值來自「他看過的結果，就是即將發生的事」。
+ * 所以**任何一個欄位被動到，檢查結果就作廢、存檔鈕就關掉**（`髒()`）。
+ * 不這樣做的話，畫面會停在一個綠色的「七道都過」，而他改過的那一格從沒被驗過。
+ * ⚠️ 判準是**比對草稿本身**（`JSON.stringify`），不是「有沒有觸發過 change 事件」
+ *    ——後者漏掉任何一種輸入方式（貼上、自動填入）就會靜默失效。
+ *
+ * ⚠️ **存檔那一趟後端會自己再驗一次**，不信任這一頁說「我剛剛驗過了」。
+ *    這裡的鎖是為了**他看得到**，不是後端的防線。
+ */
+
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
+/** 與 index.html／me.html／board.html／line.html 同一條 LIFF，不多開。 */
+var LIFF_ID = '2010451233-a781rqsm';
+
+/**
+ * 後端 `roles.js` `GATE_REJECT` 的代號 → 要不要給「重新登入」這顆鈕。
+ * ⚠️ 跨 repo 的手動對齊，形式沿用 `me.html` 與 `assets/deny-no-role.js` 的既有慣例：
+ *    兩邊各有測試釘住自己那半，沒有任何機械的東西逼兩邊相等。
+ *    漏掉一個代號的後果是**少一顆鈕**（看得見、他會來問），不是誤導。
+ */
+var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
+
+/** 後端送來的：欄名、值域、名冊。**一份都不在這裡寫死。** */
+var HDR = [], 角色值域 = [], 狀態值域 = [], 名冊 = [];
+/** 目前的草稿（資料列，不含表頭）。每一列都是 HDR.length 格。 */
+var 草稿 = [];
+/** 通過檢查的那一份草稿的字面（null ＝還沒檢查，或檢查後又被改過）。 */
+var 驗過的 = null;
+
+function el(id) { return document.getElementById(id); }
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function 欄(name) { return HDR.indexOf(name); }
+function 今天() {
+  var d = new Date();
+  var p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function setWho(t, isErr) {
+  var w = el('who'); w.textContent = t; w.className = isErr ? 'state err' : 'state';
+}
+function setName(who) { var w = el('who'); w.textContent = who || '已登入'; w.className = ''; }
+
+/** 把整頁換成一段話。**永遠說得出「接下來該做什麼」**。 */
+function showMsg(msg, reason) {
+  var html = '<div class="card" style="color:var(--bad)">' + esc(msg) + '</div>';
+  if (reason && Object.prototype.hasOwnProperty.call(重登有用的, reason)) {
+    html += '<button class="btn btn-pri" id="relogin" type="button">重新登入</button>';
+  }
+  el('list').innerHTML = html;
+  el('panel').hidden = true;
+  el('acts').hidden = true;
+  el('addcard').hidden = true;
+  var b = el('relogin');
+  if (b) {
+    b.addEventListener('click', function () {
+      // 先登出再登入：只呼叫 login 的話 LINE 會直接帶著同一把過期憑證回來。
+      try { if (window.liff && liff.isLoggedIn()) liff.logout(); } catch (e) {}
+      liff.login({ redirectUri: location.href });
+    });
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 草稿的髒旗標：改了任何一格 ⇒ 檢查結果作廢
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function 髒() {
+  驗過的 = null;
+  el('save').disabled = true;
+  面板('idle', '這份草稿改過了，請重新檢查。');
+}
+
+function 面板(cls, html) {
+  var p = el('panel');
+  p.hidden = false;
+  p.className = cls;
+  p.innerHTML = html;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 畫面
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function opt(值, 現值) {
+  return '<option value="' + esc(值) + '"' + (值 === 現值 ? ' selected' : '') + '>' + esc(值) + '</option>';
+}
+
+function render() {
+  var iCode = 欄('內部碼'), iRole = 欄('角色'), iStat = 欄('狀態');
+  var iFrom = 欄('授予日'), iTo = 欄('停用日'), iNote = 欄('備註'), iName = 欄('姓名');
+  var html = '';
+  草稿.forEach(function (r, n) {
+    var 停 = r[iStat] === 狀態值域[1];
+    html += '<div class="row' + (停 ? ' dis' : '') + '" data-n="' + n + '">'
+      + '<div class="who">' + esc(r[iName] || '(未填姓名)')
+      + '<span class="code">' + esc(r[iCode]) + '</span></div>'
+      + '<div class="fld"><label>角色</label><select data-c="' + iRole + '">'
+      + 角色值域.map(function (v) { return opt(v, r[iRole]); }).join('')
+      // 🔴 值域外的值也要**看得見**，不可以靜靜被下拉選單改成第一個合法值。
+      //    今天表上真的有一個拼錯的角色時，畫面顯示成別的字＝把錯誤藏起來。
+      + (角色值域.indexOf(r[iRole]) < 0 ? opt(r[iRole], r[iRole]) : '')
+      + '</select></div>'
+      + '<div class="fld"><label>狀態</label><select data-c="' + iStat + '">'
+      + 狀態值域.map(function (v) { return opt(v, r[iStat]); }).join('')
+      + (狀態值域.indexOf(r[iStat]) < 0 ? opt(r[iStat], r[iStat]) : '')
+      + '</select></div>'
+      + '<div class="fld"><label>授予日</label><input data-c="' + iFrom + '" value="' + esc(r[iFrom]) + '"></div>'
+      + '<div class="fld"><label>停用日</label><input data-c="' + iTo + '" value="' + esc(r[iTo]) + '"></div>'
+      + '<div class="fld"><label>備註</label><input data-c="' + iNote + '" value="' + esc(r[iNote]) + '"></div>'
+      + '</div>';
+  });
+  el('list').innerHTML = html || '<div class="empty">名單是空的。</div>';
+}
+
+/**
+ * 🔴 監聽掛在**容器**上、走冒泡，不是掛在每一個 input 上。
+ *    掛在子元素上的話，`render()` 換掉 innerHTML 之後全部掉光，
+ *    而「改了卻沒變髒」是靜默的——畫面會停在綠色的「都過了」。
+ */
+function 接上監聽() {
+  ['input', 'change'].forEach(function (ev) {
+    el('list').addEventListener(ev, function (e) {
+      var f = e.target;
+      if (!f || f.getAttribute == null) return;
+      var c = f.getAttribute('data-c');
+      if (c === null) return;
+      var box = f.parentNode && f.parentNode.parentNode;
+      var n = box && box.getAttribute ? box.getAttribute('data-n') : null;
+      if (n === null) return;
+      草稿[Number(n)][Number(c)] = f.value;
+      髒();
+    });
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 三個動作：新增、檢查、存檔
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function 新增() {
+  var code = el('newcode').value;
+  var role = el('newrole').value;
+  if (!code) { el('msg').className = 'msg err'; el('msg').textContent = '請先選一個人。'; return; }
+  var 那個人 = null;
+  名冊.forEach(function (p) { if (p.code === code) 那個人 = p; });
+  var r = [];
+  for (var i = 0; i < HDR.length; i++) r.push('');
+  r[欄('內部碼')] = code;
+  r[欄('角色')] = role;
+  r[欄('狀態')] = 狀態值域[0];
+  r[欄('授予日')] = 今天();
+  r[欄('姓名')] = 那個人 ? 那個人.name : '';
+  草稿.push(r);
+  el('msg').textContent = '';
+  render();
+  髒();
+}
+
+function 檢查() {
+  var 這一份 = JSON.stringify(草稿);
+  el('check').disabled = true;
+  return gasCall(GAS_URL, 'checkAuthzDraft', { idToken: freshIdToken(), rows: 這一份 })
+    .then(function (r) {
+      el('check').disabled = false;
+      if (!r || r.ok !== true) { 呼叫失敗(r); return; }
+      var 變更 = (r.changes || []).length
+        ? '<ul>' + r.changes.map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('') + '</ul>'
+        : '<div style="margin-top:6px">（與現在的名單沒有差異）</div>';
+      if (r.pass) {
+        // 🔴 鎖的是**這一份**：檢查回來之前他又改了的話，下面那個比對會不相等。
+        驗過的 = 這一份;
+        el('save').disabled = (JSON.stringify(草稿) !== 這一份);
+        面板('pass', '七道守恆＋自鎖防護<span class="gate"> 全部通過</span>'
+          + '（' + r.rowCount + ' 列，其中生效的 admin ' + r.adminCount + ' 位）'
+          + '<div style="margin-top:8px">按下存檔會發生這些事：</div>' + 變更
+          + (el('save').disabled ? '<div style="margin-top:8px">⚠️ 檢查回來之前草稿又被改過了，請重新檢查。</div>' : ''));
+      } else {
+        驗過的 = null;
+        el('save').disabled = true;
+        面板('fail', '<span class="gate">' + esc(r.gate) + '</span> 沒有通過：' + esc(r.detail)
+          + '<div style="margin-top:8px">改好上面那一列再按一次檢查。<strong>這份草稿還沒有被寫進去。</strong></div>');
+      }
+    });
+}
+
+function 存檔() {
+  if (驗過的 === null || JSON.stringify(草稿) !== 驗過的) { 髒(); return Promise.resolve(); }
+  el('save').disabled = true;
+  el('check').disabled = true;
+  return gasCall(GAS_URL, 'saveAuthzList', { idToken: freshIdToken(), rows: 驗過的 })
+    .then(function (r) {
+      el('check').disabled = false;
+      if (!r || r.ok !== true) { 呼叫失敗(r); return; }
+      var 變更 = (r.changes || []).map(function (c) { return '<li>' + esc(c) + '</li>'; }).join('');
+      // 🔴 留痕沒寫成功要**說出來**：資料已經進去了，包起來不講比不回報更糟。
+      var 痕 = r.logged
+        ? '<div style="margin-top:8px">已記到「' + esc(r.logSheet) + '」。</div>'
+        : '<div style="margin-top:8px">⚠️ 資料已存檔，但<strong>異動紀錄沒有寫成功</strong>（'
+          + esc(r.logError) + '）。請把這句話告訴資訊人員。</div>';
+      驗過的 = null;
+      // 🔴 **重新載入不可以蓋掉這段結果。** 留痕失敗那句話就在裡面，蓋掉＝
+      //    「包起來不講」的另一種長相（這一格是被 `tests/authz-page-wiring.test.js` 叫回來改的）。
+      //    ⇒ `load(null)` 明說「不要動面板」，載完之後才由這裡把結果寫上去。
+      var 結果 = '已存檔（' + r.rowCount + ' 列，生效的 admin ' + r.adminCount + ' 位）。'
+        + (變更 ? '<ul>' + 變更 + '</ul>' : '') + 痕;
+      return load(null).then(function () {
+        面板('pass', 結果 + '<div style="margin-top:8px">名單已重新載入。要再改的話，改完按檢查。</div>');
+      });
+    });
+}
+
+/** 一次呼叫沒有成功。**傳輸失敗與「伺服器說不行」要分開講**：一個重試有用、一個永遠沒用。 */
+function 呼叫失敗(r) {
+  驗過的 = null;
+  el('save').disabled = true;
+  面板('fail', esc((r && r.msg) || '呼叫失敗。')
+    + (r && r.transport ? '<div style="margin-top:8px">這是連線問題，請確認網路後再按一次。</div>'
+                        : '<div style="margin-top:8px">這不是連線問題，重按不會好。</div>'));
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 載入
+ * ══════════════════════════════════════════════════════════════════════ */
+
+function freshIdToken() {
+  if (!(window.liff && typeof liff.getIDToken === 'function')) return '';
+  var t = liff.getIDToken();
+  return t ? String(t) : '';
+}
+
+/**
+ * @param {string|null} 面板訊息 要寫進面板的那句話；**`null` ＝不要動面板**
+ *        （存檔之後那一趟用它：那裡的面板正放著剛剛的結果，蓋掉就等於把它吞了）。
+ */
+function load(面板訊息) {
+  // 憑證在呼叫當下才取，不是開頁時取一次存起來（它只有效一小時）。
+  return gasCall(GAS_URL, 'getAuthzList', { idToken: freshIdToken() }).then(function (r) {
+    if (!r || r.ok !== true) {
+      if (r && r.transport) {
+        setWho('連不上伺服器', true);
+        showMsg((r && r.msg) || '連線失敗。請確認網路後重新整理。', '');
+        return;
+      }
+      setWho('無法確認您的權限', true);
+      showMsg((r && r.msg) || '目前無法取得授權名單，請稍後再試。', r && r.reason);
+      return;
+    }
+    setName(r.who);
+    HDR = r.header || [];
+    角色值域 = r.assignableRoles || [];
+    狀態值域 = r.statusValues || [];
+    名冊 = r.roster || [];
+    草稿 = (r.rows || []).map(function (row) { return row.slice(); });
+    驗過的 = null;
+
+    el('addcard').hidden = false;
+    el('acts').hidden = false;
+    el('save').disabled = true;
+    el('newcode').innerHTML = '<option value="">（選一個人）</option>'
+      + 名冊.map(function (p) {
+        return '<option value="' + esc(p.code) + '">' + esc(p.name || '(未填姓名)') + '</option>';
+      }).join('');
+    el('newrole').innerHTML = 角色值域.map(function (v) { return opt(v, 角色值域[0]); }).join('');
+
+    // 🔴 **現況過不過，一進來就講。** 名單今天是壞的時候，他要先知道自己在修什麼；
+    //    而這一頁**不會因此打不開**——修它的那一頁跟著壞掉，就又只剩下開試算表這條路。
+    el('meta').innerHTML = r.current && r.current.pass
+      ? '現在的名單通過七道守恆（' + r.current.rowCount + ' 列，生效的 admin ' + r.current.adminCount + ' 位）。'
+      : '<span style="color:var(--bad)">⚠️ 現在的名單<strong>沒有</strong>通過七道守恆：'
+        + esc((r.current && r.current.gate) || '') + '　'
+        + esc((r.current && r.current.detail) || '')
+        + '　⇒ 角色來源此刻已退回 token 白名單。改好之後存檔就會恢復。</span>';
+
+    if (面板訊息 !== null) 面板('idle', 面板訊息);
+    render();
+    // 🔴 名冊有碰撞（同一個內部碼出現兩次）時**要講**：那幾個人在上面的下拉裡選不到，
+    //    而「選不到」與「這個人沒有內部碼」的處置完全不同。
+    el('foot').textContent = (r.rosterCollisions && r.rosterCollisions.length)
+      ? ('⚠️ 員工名冊有 ' + r.rosterCollisions.length
+         + ' 個重複的內部碼，那幾位在上面的清單裡選不到，要先請人把名冊修好。')
+      : '';
+  });
+}
+
+function start() {
+  el('add').addEventListener('click', 新增);
+  el('check').addEventListener('click', 檢查);
+  el('save').addEventListener('click', 存檔);
+  接上監聽();
+
+  if (!(window.liff && typeof liff.init === 'function')) {
+    setWho('LINE 元件沒有載入', true);
+    showMsg('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
+      + '請確認網路正常後重新整理；一直這樣的話請找資訊人員。', '');
+    return;
+  }
+  return liff.init({ liffId: LIFF_ID }).then(function () {
+    if (!liff.isLoggedIn()) {
+      setWho('正在前往 LINE 登入，登入後會自動回到這一頁…', false);
+      liff.login({ redirectUri: location.href });
+      return;                                  // 導頁中，不要發車
+    }
+    if (!freshIdToken()) {
+      setWho('拿不到登入憑證', true);
+      showMsg('已經登入 LINE，但拿不到這一頁需要的憑證。'
+        + '這是 LINE 後台的設定問題，重新整理不會好，請找資訊人員。', '');
+      return;
+    }
+    return load('改好之後先按「檢查」，看過七道守恆的結果再存檔。');
+  }).catch(function (err) {
+    // **不靜默**：否則畫面只會停在「確認身分中…」，而查不出是哪一段。
+    setWho('確認身分時失敗', true);
+    showMsg('確認身分時失敗：' + ((err && err.message) ? err.message : String(err)), '');
+  });
+}
+
+start();
+</script>
+</body></html>

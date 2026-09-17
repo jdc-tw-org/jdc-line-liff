@@ -10,9 +10,9 @@
 |---|---|
 | 產生器 | `tests/helpers/auth-scan.js` |
 | 詞法掃描 | `tests/helpers/action-scan.js` 的 `tokenize()`（**共用同一支**，不另寫） |
-| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `25ea65d9afa9` |
+| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `264e6a8dd7ec` |
 | 頁面母體 | repo 根目錄的 `*.html` **現掃**（不是手寫清單） |
-| 頁數 | 13 |
+| 頁數 | 14 |
 
 ⚠️ 刻意不寫產生時間——帶時間戳的基準檔每次重跑都會 diff，
 而「全部都在動」與「有一格變了」在 diff 上會長得一樣。
@@ -26,6 +26,7 @@
 |----------------------|--------------------------|----------------------------------------------|---|
 | `admin.html`         | 活的                     | `未宣告`                                     | `admin,activity,view`<br>`admin,any`<br>`admin,any,view`<br>`admin,hrstats` |
 | `attend.html`        | 活的                     | `getActivityStats [admin,activity,view]`     | `admin,activity,view`<br>`admin,any,view` |
+| `authz.html`         | 墓碑（只在註解）         | `getAuthzList [admin]`                       | `（抽不到）` |
 | `board.html`         | 活的                     | `getCheckinPending [admin,hr]`               | `admin,any`<br>`admin,any,view`<br>`admin,hr`<br>`admin,public` |
 | `checkin.html`       | 活的                     | `未宣告`                                     | `admin,activity` |
 | `hr-stats.html`      | 活的                     | `getHrStats [admin,hrstats]`                 | `admin,hrstats` |
