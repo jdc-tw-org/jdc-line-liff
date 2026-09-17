@@ -7,8 +7,19 @@
 //    🔴 那幾句害人繞了一圈：有人（我）據此判斷「改它會動到 stats.html」，
 //       因而把一個其實在範圍內的修正列成界線外的事。
 //       **註解是二手、`<script src>` 清單是一手**——要問「誰載入它」就去數載入清單。
-//    重算：`for f in *.html; do grep -cE '<script[^>]*src="assets/anniv\.js"' $f; done`
-//    ⬛ 對照組：同一把尺數 board-cache.js 會得到 6 頁，所以它不是恆回 1。
+//    ⬛ **量法（一條現在就能跑的指令，在 repo 根目錄）**——一次印兩個數字，
+//       受測項與對照組同一條指令、同一把尺：
+//
+//         for a in anniv board-cache; do printf '%s=%s ' "$a" \
+//           "$(grep -lE "<script[^>]*src=\"assets/$a\.js\"" *.html | wc -l | tr -d ' ')"; done; echo
+//
+//    ⬛ **對照組就是它印的第二個數字**：`board-cache` 必須明顯大於 1，
+//       否則上面那個「只有 board.html」可能只是這把尺對誰都回 1（或都回 0）。
+//    ⬛ 2026-09-17 實跑於 `main` `2d8cf67`：`anniv=1 board-cache=7`
+//       （`anniv` 那 1 頁是 `board.html`。）
+//    ⚠️ **這兩個數字跟著 SHA 走，引用前先重跑。**
+//       🕰 這一格上一版的對照組寫的是「6 頁」，重跑是 7 ⇒ **對照組的數字一樣會漂**，
+//          它不因為是對照組就免驗。
 //
 // 用法：頁面放 <div id="anniv-box">…</div>，載入後呼叫 annivInit(jsonp, token[, opts])。
 // opts.emptyText  有給＝名單空也顯示這句；不給＝整塊不顯示（board 目前如此）。
