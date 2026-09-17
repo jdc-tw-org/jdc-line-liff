@@ -73,7 +73,10 @@ function runMe(o) {
     init(a) { liff.__initCalled++; return Promise.resolve(a); },
     isLoggedIn: () => opt.loggedIn !== false,
     getIDToken: () => (opt.idToken === undefined ? 'IDTOK' : opt.idToken),
-    getDecodedIDToken: () => ({ sub: 'U_SUB_1' }),
+    // ⚠️ 預設**不帶 `exp`**，與改動前同形：`me.html` 的 `idTokenExpired()` 問不出
+    //    到期時間時一律當成「沒過期」⇒ 既有那十幾條一條都不會走到重登那條路。
+    //    要測那條路的，自己用 `opt.decoded` 給一顆帶 `exp` 的。
+    getDecodedIDToken: () => (opt.decoded === undefined ? { sub: 'U_SUB_1' } : opt.decoded),
     logout() { liff.__logoutCalled++; },
     login(a) { liff.__loginArgs = a; },
     getProfile: pending, closeWindow() {}, openWindow() {}, isInClient: () => true,
@@ -98,6 +101,18 @@ function runMe(o) {
     clearInterval: (i) => { timers.delete(i); return clearInterval(i); },
     alert() {}, confirm: () => false, addEventListener() {}, removeEventListener() {},
   };
+  // 🔴 **預設不給 `sessionStorage`**，這不是偷懶：`liff-relogin.js` 的
+  //    `reloginTried()` 讀不到 store 時回 `true`＝「當成已經試過」⇒ 自動重登整條
+  //    不會發動（檔頭：沒有防線時寧可不自動登出）。既有那十幾條全都靠這個預設
+  //    維持改動前的樣子。要測自動重登的，明寫 `sessionStorage: true` 自己開。
+  if (opt.sessionStorage) {
+    const 格 = new Map(Object.entries(opt.sessionStorage === true ? {} : opt.sessionStorage));
+    ctx.sessionStorage = {
+      getItem: (k) => (格.has(k) ? 格.get(k) : null),
+      setItem: (k, v) => { 格.set(k, String(v)); },
+      removeItem: (k) => { 格.delete(k); },
+    };
+  }
   ctx.window = ctx; ctx.self = ctx; ctx.globalThis = ctx;
   vm.createContext(ctx);
 
@@ -529,4 +544,126 @@ test('🔴 頁面清單不得寫死在前端（寫死＝兩份會分歧，而分
   const 自己 = fs.readFileSync(__filename, 'utf8');
   assert.equal(自己.indexOf("'board.html'") >= 0, true,
     '連本檔自己都掃不到 ⇒ 上面那條的「沒有」只是尺壞了');
+});
+
+/* ══ 🔴 #114：憑證過期時自動重新登入（擋在紅字之前） ═══════════════════════
+ *
+ * 現象：LINE 的 ID token 一小時就死、SDK 沒有續期機制，而死掉之後
+ * `isLoggedIn()` **仍然是 true**、`getIDToken()` 交回同一顆死的
+ * ⇒ `start()` 上面那兩道全部放行 ⇒ 後端回 `line_bad_token`
+ * ⇒ 分流頁給一段「請聯絡資訊人員」的紅字，而那句話對他是死路。
+ *
+ * ⚠️ **這幾條與 `tests/e2e/me-relogin.spec.js` 不是重複的。** 那一支在真的 Chrome 裡
+ *    量「使用者看到什麼、後端被打到幾次」；這幾條守的是 `npm test` 這道**每次都跑**
+ *    的閘門——e2e 要有瀏覽器才跑得起來，而回歸不會挑時間發生。
+ */
+
+/** `exp` 用秒，不是毫秒（JWT 的規格；寫成毫秒的話所有 token 都會「還沒過期」）。 */
+const 秒 = () => Math.floor(Date.now() / 1000);
+
+test('🔴 #114 憑證已過期（isLoggedIn 仍為 true）→ 先登出再登入，而且一個後端呼叫都不發', async () => {
+  const r = runMe({
+    decoded: { sub: 'U_SUB_1', exp: 秒() - 3600 },
+    sessionStorage: true,
+    reply: { ok: false, reason: 'line_bad_token', msg: '請聯絡資訊人員。' },
+  });
+  await settle();
+  try {
+    assert.equal(r.liff.__logoutCalled, 1,
+      '沒有先登出 ⇒ 登入回來還是同一把死憑證（logout 是 SDK 裡唯一會移除 ID token 的地方）');
+    assert.ok(r.liff.__loginArgs, '沒有重新登入');
+    assert.equal(r.liff.__loginArgs.redirectUri, 'http://localhost/me.html',
+      '沒把人送回這一頁');
+    // 🔴 「擋在紅字之前」只能靠這一格證明：後端**一次都沒被打到**。
+    assert.equal(r.送出.length, 0,
+      '還是先打了後端 ⇒ 前置檢查沒有擋在紅字之前（他仍然會先看到那段紅字）');
+    assert.equal(/請聯絡資訊人員/.test(r.get('list').innerHTML), false,
+      '自動重登了卻還是把那段紅字畫出來');
+  } finally { r.cleanup(); }
+});
+
+test('⬛ #114 對照組①：憑證還沒過期 → 一次都不重登，照常打後端', async () => {
+  const r = runMe({
+    decoded: { sub: 'U_SUB_1', exp: 秒() + 3600 },
+    sessionStorage: true,
+    reply: { ok: true, who: '丁小恆', pages: [] },
+  });
+  await settle();
+  try {
+    // 🔴 這一格壞掉的樣子是「每個人每次開頁都被導走一趟」——它會自己回來，
+    //    所以不當掉、不報錯，只是每個人都多閃一次，而沒有人看得出來。
+    assert.equal(r.liff.__logoutCalled, 0, '憑證好好的卻登出了');
+    assert.equal(r.liff.__loginArgs, null, '憑證好好的卻重新登入了');
+    assert.equal(r.送出.length, 1, '後端沒被打到 ⇒ 這一輪根本沒走到受測的那條路');
+  } finally { r.cleanup(); }
+});
+
+test('🔴 #114 對照組③：重登解決不了的那八個代號，一個都不許重登（否則是無限導頁迴圈）', async () => {
+  // 🔴 `GATE_REJECT` 十個代號裡，「重登會有用」的只有 line_bad_token／line_no_token。
+  //    對其餘八個登出再登入 ⇒ 回來還是同一個答案 ⇒ 他被關在導頁迴圈裡，
+  //    而那句真正該看的話（去綁定／去找維護者）他一次都看不到。
+  const 八個 = ['role_mismatch', 'role_unresolved', 'token_invalid', 'token_ambiguous',
+                'line_upstream', 'line_unbound', 'line_ambiguous', 'line_needs_sheet'];
+  const 跑 = [];
+  try {
+    for (const reason of 八個) {
+      const r = runMe({
+        decoded: { sub: 'U_SUB_1', exp: 秒() + 3600 },   // 憑證是好的 ⇒ 只有 reason 在作用
+        sessionStorage: true,
+        reply: { ok: false, reason, msg: '代號 ' + reason + ' 的那句話。' },
+      });
+      跑.push(r);
+      await settle();
+      assert.equal(r.liff.__logoutCalled, 0, reason + ' 竟然登出了 ⇒ 導頁迴圈');
+      assert.equal(r.liff.__loginArgs, null, reason + ' 竟然重新登入了 ⇒ 導頁迴圈');
+      assert.match(r.get('list').innerHTML, new RegExp('代號 ' + reason),
+        reason + ' 的那句話沒被畫出來 ⇒ 上面兩個 0 可能只是畫面根本沒跑到');
+    }
+    // ⬛ 對照組：同一把尺、同一個 runMe，**量得到重登**——否則上面那八個 0
+    //    只證明這個量法什麼都沒測到。
+    const 會重登 = runMe({
+      decoded: { sub: 'U_SUB_1', exp: 秒() + 3600 },
+      sessionStorage: true,
+      reply: { ok: false, reason: 'line_bad_token', msg: '憑證死了。' },
+    });
+    跑.push(會重登);
+    await settle();
+    assert.equal(會重登.liff.__logoutCalled, 1,
+      '⬛ 對照組也是 0 ⇒ 這個量法量不到重登，上面那八個 0 一個都不算數');
+  } finally { 跑.forEach((r) => r.cleanup()); }
+});
+
+test('🔴 #114 迴圈封頂：這次造訪已經自動重登過一次 → 不再導頁，改講實話', async () => {
+  const r = runMe({
+    decoded: { sub: 'U_SUB_1', exp: 秒() - 3600 },
+    sessionStorage: { JDC_RELOGIN_TRIED: '1' },        // 登入回來了，憑證卻還是不被接受
+    reply: { ok: false, reason: 'line_bad_token', msg: '憑證死了。' },
+  });
+  await settle();
+  try {
+    assert.equal(r.liff.__logoutCalled, 0, '第二次還是自動登出 ⇒ 無限迴圈');
+    assert.equal(r.liff.__loginArgs, null, '第二次還是自動登入 ⇒ 無限迴圈');
+    assert.equal(r.送出.length, 1,
+      '應該照常打後端，讓 reloginOnDeadCredential 去講「已經幫您試過一次」那句實話');
+  } finally { r.cleanup(); }
+});
+
+test('⬛ #114 問不出 exp 時一律當成「沒過期」（猜錯的代價不對稱）', async () => {
+  // 猜「過期」猜錯 → 每個人每次開頁都被導走一趟，零錯誤訊息；
+  // 猜「沒過期」猜錯 → 只是退回改動前的行為，後端會擋、第二處改動接得住。
+  const 情境 = [
+    ['沒有 exp 這一格', { sub: 'U_SUB_1' }],
+    ['exp 是字串不是數字', { sub: 'U_SUB_1', exp: String(秒() - 3600) }],
+    ['整個解不開（null）', null],
+  ];
+  const 跑 = [];
+  try {
+    for (const [名, decoded] of 情境) {
+      const r = runMe({ decoded, sessionStorage: true, reply: { ok: true, who: '丁', pages: [] } });
+      跑.push(r);
+      await settle();
+      assert.equal(r.liff.__logoutCalled, 0, 名 + ' 卻自己認定過期 ⇒ 每個人都被導走一次');
+      assert.equal(r.送出.length, 1, 名 + ' 沒有照舊把請求送出去');
+    }
+  } finally { 跑.forEach((r) => r.cleanup()); }
 });
