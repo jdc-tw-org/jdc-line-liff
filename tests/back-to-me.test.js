@@ -10,19 +10,19 @@ const { stripComments } = require('./helpers/source-scan');
  *
  * ══ 🔴 這支測試存在的第一個理由：票上那條量法量不到這次的改動 ═══════════
  *
- * 票上寫的對照組是「改完六頁 `git grep -c "me\.html"` 都 ≥1」。
+ * 票上寫的對照組是「改完那幾頁 `git grep -c "me\.html"` 都 ≥1」。
  * ⬛ 實測（改完之後、功能已經接好時跑）：
  *      board 0／stats 0／hr-stats 0／attend 0／line 0／line-messages 1
  *    **與零點一個字都不差。**
  *
  * 不是改動沒生效，是**那條指令對「只有一份實作」這種做法零鑑別力**：
- * 入口寫在一支共用 asset 裡，六頁各只多一行 `<script src="assets/back-to-me.js">`，
+ * 入口寫在一支共用 asset 裡，各頁只多一行 `<script src="assets/back-to-me.js">`，
  * 而那一行裡沒有 `me.html` 這七個字。
  * ⇒ 票上同一張表裡的另一句「命中數不等於功能」，在這裡以**反方向**成立了一次：
  *   命中數是 0，功能卻是好的。
  *
  * ⇒ 這支測試就是那個對照組的替代品。它量四件互相獨立的事：
- *   ① **接線**——六頁真的載入那支 asset（而不該載的頁沒有）
+ *   ① **接線**——**後端分流表上的每一頁**真的載入那支 asset（而不在表上的頁沒有）
  *   ② **只有一份**——返回目標這個字串在會出貨的程式碼裡只出現一次
  *   ③ **真的是入口**——把那支 asset 跑起來，長出來的是一個 `<a href>`，不是註解或字串
  *   ④ **掛得到那一頁的內容欄**——`MOUNT_IN` 上的選擇器還選得到東西
@@ -38,9 +38,30 @@ const { stripComments } = require('./helpers/source-scan');
 const ROOT = path.join(__dirname, '..');
 const ASSET = 'assets/back-to-me.js';
 
-/** 票 #104 指名的六頁。 */
-const SIX = ['board.html', 'stats.html', 'hr-stats.html', 'attend.html',
-  'line-messages.html', 'line.html'];
+/**
+ * 🔴 **哪幾頁該有返回入口——讀後端那張表，不在這裡抄一份。**
+ *
+ * 票 #104 的內文手寫了六頁，而**那份手寫清單漏了一頁**：`authz.html` 在票開出來之後
+ * 才上線，它是分流表第 7 列。第一輪施工照著那六頁做完、全套測試全綠——
+ * 站上會是 **7 頁裡 6 頁有返回入口，第 7 頁靜默沒有**。
+ * 抓到它的不是本檔任何一條斷言，是驗證軌自己去讀了權威來源。
+ * ⇒ **這一檔當時對「清單本身是錯的」結構上免疫**：清單是手抄的，抄漏了它照樣全綠。
+ *
+ * ⇒ 「內頁」的定義不在本檔、也不在票上，在後端 `roles.js` 的 DISPATCH 表。
+ *   `tests/fixtures/action-roles.json` 的 `dispatchPages` 是它的機器匯出副本
+ *   （`jdc-line-gas`：`node ci/roles-matrix/export-json.js --out <這裡>/tests/fixtures/action-roles.json`），
+ *   由 gas 那側的 `copy-guard.js` ＋ `roles-matrix-guard.yml` 逐字釘住。
+ *   **同一條契約、同一份副本，不另開一張會漂移的清單**——`me-dispatch-wiring.test.js`
+ *   為了一模一樣的理由已經改過一次（它的檔頭記著手抄清單那次的實測數字）。
+ *
+ * ⚠️ **代價講明：日後分流表新增一頁，本檔會紅。** 修法就是給那一頁也加上
+ *   `<script src="assets/back-to-me.js" defer>`。那是刻意的——本輪要防的，
+ *   正是「新頁靜默地沒有返回入口」。
+ */
+const 讀分流頁 = (m) => ((m && m.dispatchPages) || []).map((r) => r && r.page);
+const 矩陣 = JSON.parse(
+  fs.readFileSync(path.join(ROOT, 'tests', 'fixtures', 'action-roles.json'), 'utf8'));
+const 分流頁 = 讀分流頁(矩陣);
 
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const ALL_HTML = fs.readdirSync(ROOT).filter((f) => /\.html$/i.test(f)).sort();
@@ -50,20 +71,67 @@ const SRC = read(ASSET);
  * ① 接線：誰載入這支 asset
  * ════════════════════════════════════════════════════════════════════════ */
 
-/** 只認**真的 script 標籤**，不認註解或說明文字裡提到的檔名。 */
+/**
+ * 只認**真的 script 標籤**，不認註解或說明文字裡提到的檔名。
+ *
+ * 🔴 **一定要先剝註解再比對。** 2026-09-17 實測的一顆存活突變：把載入行整行
+ *    用 `<!-- -->` 包起來——**這一檔 19 條全綠，而真瀏覽器裡那排字不見了**
+ *    （`document.querySelector('#backtome a')` 回 `null`）。
+ *    成因是這個正規式在 HTML 註解**裡面**照樣命中：
+ *    「註解也算原始碼」這一格，一個字串比對是分不出來的。
+ * ⚠️ 註解掉一行、字串仍在 ⇒ 這正是「看起來還在、其實已經不執行」的那種壞法，
+ *    而它在 diff 裡只有兩個符號的差別。
+ */
 const LOADS = /<script\b[^>]*\bsrc\s*=\s*["']assets\/back-to-me\.js["']/;
+/** 讀一頁、**剝掉註解**之後的原始碼。接線那兩條一律走這支，不要直接用 `read`。 */
+const 剝 = (f) => stripComments(read(f));
 
-test('⬛ 接線：票上那六頁每一頁都載入 assets/back-to-me.js', () => {
-  const missing = SIX.filter((f) => !LOADS.test(read(f)));
-  assert.deepStrictEqual(missing, [], '這幾頁沒有載入返回入口：' + missing.join(', '));
+test('⬛ 零點：該有返回入口的那幾頁是從後端分流表讀來的，不是本檔手寫的', () => {
+  assert.ok(Array.isArray(矩陣.dispatchPages),
+    'action-roles.json 沒有 dispatchPages ⇒ 副本是舊版，在 jdc-line-gas 重產一次。\n'
+    + '⚠️ 不要改成在這裡手寫一份補救——那正是本輪漏掉 authz.html 的成因。');
+  assert.ok(分流頁.length >= 7,
+    '分流表只讀到 ' + 分流頁.length + ' 頁 ⇒ 下面每一條都在一份太小的清單上跑'
+    + '（2026-09-17 實測是 7 頁）');
+  分流頁.forEach((p) => {
+    assert.ok(typeof p === 'string' && /^[\w.-]+\.html$/.test(p),
+      '分流表有一列的 page 不像檔名：' + JSON.stringify(p) + ' ⇒ 抽法或副本的形狀變了');
+    assert.ok(fs.existsSync(path.join(ROOT, p)),
+      '分流表列了 ' + p + '，但這個 repo 裡沒有這個檔 ⇒ 副本與站台對不起來，先查那個');
+  });
+  // 🔴 本輪的成因本身釘成一條。後端真的把它下架時這條要跟著改，不是自動放寬。
+  assert.ok(分流頁.indexOf('authz.html') >= 0,
+    'authz.html 不在分流表裡了 ⇒ 若後端確實下架了它，本條與 authz.html 的載入行一起改');
+  // ⬛ 對照組：同一支抽法餵一根已知的針，命中必須 +1
+  //    ——證明 `分流頁` 是真的從那份副本讀出來的，不是一個寫死的陣列。
+  const 針 = 讀分流頁({ dispatchPages: (矩陣.dispatchPages || []).concat([{ page: '__針__.html' }]) });
+  assert.equal(針.length, 分流頁.length + 1,
+    '注入一列之後抽出來的頁數沒有變 ⇒ 抽法根本沒在讀那份副本');
+  assert.ok(針.indexOf('__針__.html') >= 0, '抽法讀不到注入那一列的 page 欄');
+  assert.deepStrictEqual(讀分流頁({}), [], '副本缺 dispatchPages 時抽法應回空陣列，好讓上面第一條說話');
 });
 
-test('⬛ 對照組：不該有的頁就是沒有（證明上一條不是恆真）', () => {
-  const has = ALL_HTML.filter((f) => !SIX.includes(f) && LOADS.test(read(f)));
+test('⬛ 接線：分流表上的每一頁都載入 assets/back-to-me.js', () => {
+  const missing = 分流頁.filter((f) => !LOADS.test(剝(f)));
+  assert.deepStrictEqual(missing, [],
+    '這幾頁在後端分流表上，卻沒有載入返回入口：' + missing.join(', ')
+    + '\n⇒ 使用者從 me.html 點進去之後回不來（票 #104）');
+});
+
+test('⬛ 對照組：不在分流表上的頁就是沒有（證明上一條不是恆真）', () => {
+  const has = ALL_HTML.filter((f) => 分流頁.indexOf(f) < 0 && LOADS.test(剝(f)));
   assert.deepStrictEqual(has, [],
-    '這幾頁不在票 #104 的範圍內卻掛了返回入口，請確認是刻意的：' + has.join(', '));
-  assert.ok(LOADS.test('<script src="assets/back-to-me.js" defer></script>'), '偵測樣式認不出真的標籤');
-  assert.ok(!LOADS.test('<!-- 見 assets/back-to-me.js -->'), '偵測樣式把註解當成載入了');
+    '這幾頁不在後端分流表上卻掛了返回入口，請確認是刻意的：' + has.join(', '));
+  // ⬛ 這條尺自己的零點：認得出真的標籤、認不出被註解掉的標籤。
+  assert.ok(LOADS.test(stripComments('<script src="assets/back-to-me.js" defer></script>')),
+    '偵測樣式認不出真的標籤 ⇒ 上面兩條的綠燈都不值得解讀');
+  assert.ok(!LOADS.test(stripComments('<!-- 見 assets/back-to-me.js -->')),
+    '偵測樣式把說明文字當成載入了');
+  // 🔴 這一格是 2026-09-17 那顆存活突變留下的尺：**整行被註解掉**。
+  //    只比對字串的話這裡會是 true，而頁面上那排字已經不見了。
+  assert.ok(!LOADS.test(stripComments('<!-- <script src="assets/back-to-me.js" defer></script> -->')),
+    '🔴 被 `<!-- -->` 包起來的載入行仍然被算成「有載入」'
+    + ' ⇒ 接線那兩條對「註解掉一行」是瞎的（實測：真瀏覽器裡返回入口消失，本檔全綠）');
   assert.ok(ALL_HTML.length >= 10, '母體掃出來只有 ' + ALL_HTML.length + ' 頁 ⇒ 掃描本身退化了');
 });
 
@@ -71,7 +139,7 @@ test('⬛ 對照組：不該有的頁就是沒有（證明上一條不是恆真�
  * ② 只有一份實作（票的完成定義）
  * ════════════════════════════════════════════════════════════════════════ */
 
-test('🔴 完成定義：返回目標只寫在一個地方（六頁裡一份都沒有）', () => {
+test('🔴 完成定義：返回目標只寫在一個地方（每一個內頁裡一份都沒有）', () => {
   // 🔴 **先剝註解**。`assets/liff-relogin.js` 與 `line-messages.html` 的註解裡都提到
   //    `me.html`，那是說明不是實作。不剝的話這條會變成一盞永遠亮的紅燈，
   //    而永遠亮的紅燈等於沒有紅燈。
@@ -293,7 +361,7 @@ test('🔴 淡的是視覺不是語意：鍵盤聚焦時有看得見的框，而
   const env = makeEnv();
   runAsset(env);
   const st = env.head.children.find((c) => c.id === 'backtome-css');
-  assert.ok(st, '沒有注入樣式 ⇒ 六頁裡五頁不載 ui.css，那排字會變成瀏覽器預設的藍色連結');
+  assert.ok(st, '沒有注入樣式 ⇒ 七頁裡五頁不載 ui.css，那排字會變成瀏覽器預設的藍色連結');
   const css = st.children.map((c) => c.nodeValue || '').join('');
   assert.ok(/#backtome a:focus-visible\{[^}]*outline:[^}]*\}/.test(css),
     '沒有 :focus-visible 的 outline ⇒ 鍵盤使用者走到這排字時畫面上沒有任何提示');
@@ -301,7 +369,7 @@ test('🔴 淡的是視覺不是語意：鍵盤聚焦時有看得見的框，而
   assert.ok(/#backtome a:hover/.test(css), '沒有 hover 回饋');
 });
 
-test('🔴 每一個 CSS 變數都要有 fallback（六頁裡只有一頁載入 ui.css）', () => {
+test('🔴 每一個 CSS 變數都要有 fallback（七頁裡只有兩頁載入 ui.css）', () => {
   const env = makeEnv();
   runAsset(env);
   const css = env.head.children.find((c) => c.id === 'backtome-css')
@@ -334,7 +402,8 @@ test('🔴 MOUNT_IN 上的選擇器在那一頁的原始碼裡還找得到（選
   const table = mountTable();
   assert.ok(Object.keys(table).length >= 1, 'MOUNT_IN 抽出來是空的 ⇒ 下面什麼都沒驗到');
   Object.keys(table).forEach((page) => {
-    assert.ok(SIX.includes(page), 'MOUNT_IN 列了一頁不在票的範圍內：' + page);
+    assert.ok(分流頁.indexOf(page) >= 0,
+      'MOUNT_IN 列了一頁不在後端分流表上：' + page + ' ⇒ 那一頁根本不該掛返回入口');
     const html = read(page);
     // 選擇器是後代式（`.a .b`）時，逐段都要在原始碼裡出現。
     table[page].trim().split(/\s+/).forEach((part) => {
@@ -374,8 +443,8 @@ test('⬛ 對照組：選得到容器時真的掛進容器，選不到時才退�
  * 不是「我沒按送出」**。下面三條各自獨立，任一條紅都代表這個保證破了。
  * ════════════════════════════════════════════════════════════════════════ */
 
-test('🔴 (a) 六頁都沒有 <form> ⇒ 返回在結構上不可能是一次提交', () => {
-  const withForm = SIX.filter((f) => /<form\b/i.test(stripComments(read(f))));
+test('🔴 (a) 分流表上的頁都沒有 <form> ⇒ 返回在結構上不可能是一次提交', () => {
+  const withForm = 分流頁.filter((f) => /<form\b/i.test(stripComments(read(f))));
   assert.deepStrictEqual(withForm, [], '這幾頁有 <form>：' + withForm.join(', '));
   assert.ok(/<form\b/i.test('<form action="/x">'), '偵測樣式壞了');
 });
