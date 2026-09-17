@@ -27,7 +27,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const OUT = process.argv[2] || path.join(require('os').tmpdir(), 'wall-ui');
+const outdir = require('./outdir.js');
+/* 預設輸出目錄帶「這棵工作樹」的指紋，assets 連結每次都驗指向——理由見 outdir.js（#128）。 */
+const REPO = outdir.repoRootOf(__dirname);
+const OUT = process.argv[2] || outdir.manualOutDir('wall-ui', REPO);
 const GAS = process.argv[3] ||
   path.join(__dirname, '..', '..', '..', 'jdc-line-gas', 'line-platform', 'event-checkin.js');
 
@@ -169,10 +172,11 @@ if (process.argv.indexOf('--artifact') > -1) {
 
 const NAME = BIG ? 'wall-test-big.html' : 'wall-test.html';
 fs.writeFileSync(path.join(OUT, NAME), src.replace('<head>', '<head>' + STUB));
-const link = path.join(OUT, 'assets');
-if (!fs.existsSync(link)) fs.symlinkSync(path.join(__dirname, '..', '..', 'assets'), link);
+const assets = outdir.linkAssets(OUT, REPO);
 
 console.log('✅ 產出 ' + path.join(OUT, NAME));
+/* 把「這一頁配的是誰的 assets」印到眼前：#128 的病灶就是這件事沒有人看得見。 */
+console.log('   assets → ' + assets.target + (assets.reused ? '（沿用既有連結，已驗證是本工作樹）' : ''));
 console.log('   共 ' + SEQ.length + ' 輪：' +
   SEQ.map(w => w.arrived + '/' + w.total).join(' → '));
 console.log('   排序變化：\n     ' +
