@@ -6,8 +6,11 @@
  * 頁面仍走自己的啟動流程（inline script 完整執行、事件照綁），
  * 所以語法錯誤、初始化早退、CSS 破版這些都還驗得到。
  *
- * 為什麼不用 playwright 的 route 攔截：這個 repo 沒有 package.json，
- * 裝 playwright 要另外拉 ~150MB 的瀏覽器二進位。改用這招後任何瀏覽器都能開。
+ * 為什麼不用 playwright 的 route 攔截：這支是給人**手動開來看**的，
+ * 而 playwright 要另外拉 ~150MB 的瀏覽器二進位。改用這招後任何瀏覽器都能開。
+ * ⚠️ 2026-08-29 起這個 repo **有** package.json（`@playwright/test` 就在 devDependencies，
+ * e2e 走它）。這裡原本的理由寫的是相反的事實，本次改掉——那種句子會讓讀到的人
+ * 不去找那個檔。上面的理由（瀏覽器二進位）本身不受影響。
  *
  * 用法：node tests/manual/veg-build-testpage.js
  *      （輸出目錄與接下來要貼的指令，由這支自己印出來——不要憑記憶打 /tmp/veg-ui）
