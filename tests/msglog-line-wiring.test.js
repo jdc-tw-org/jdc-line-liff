@@ -32,6 +32,22 @@ const ROWS = [['2026-09-01 10:00:00', 'line-platform', 'bind_success', 'U1', '�
  * 開頁並接管 fetch。`replies` 依序回應（函式則每次呼叫）；`'reject'` ＝傳輸失敗。
  * @returns {{ctx, liff, sent: {url:string, method:string, params:object}[], cleanup}}
  */
+/**
+ * 🔴 「這一頁不帶舊憑證」是個**全稱句**——對**送出去的每一發**都成立才算數。
+ *    只問 `sent[0]` 的話，多出來的那一發帶了 `token`／`t` 也不會有人發現
+ *    （它排在後面，第一發仍然乾淨 ⇒ 綠）＝用位置代替身分（`jdc-line-gas#150`）。
+ * ⚠️ 空陣列上迴圈什麼都不跑 ⇒ 先斷言送了幾發，讓「什麼都沒驗」是紅的不是綠的。
+ */
+function 無舊憑證(sent) {
+  assert.ok(sent.length >= 1, '一發都沒送出 ⇒ 這一條什麼都沒驗');
+  sent.forEach((x, i) => {
+    assert.equal('token' in x.params, false,
+      `第 ${i + 1} 發帶了 token ⇒ 後端 doGet 會把請求改道回舊守門（共 ${sent.length} 發）`);
+    assert.equal('t' in x.params, false,
+      `第 ${i + 1} 發帶了 t ⇒ 後端 doGet 會把請求改道回舊守門（共 ${sent.length} 發）`);
+  });
+}
+
 function open(search, { replies = [], liff: liffOpt = {} } = {}) {
   const r = runPage(Object.assign({ file: 'line-messages.html', search }, liffOpt));
   const sent = [];
@@ -234,8 +250,12 @@ test('🔴 ②沒有 ?t= → LIFF 登入後 POST gas 的 getMessageLog，只帶 
     assert.equal(s.params.action, 'getMessageLog');
     assert.equal(s.params.idToken, 'IDTOK');
     assert.equal(s.params.days, '3650');
-    assert.equal('token' in s.params, false, '②帶了 token ⇒ 後端 doGet 會把請求改道回舊守門');
-    assert.equal('t' in s.params, false, '②帶了 t ⇒ 後端 doGet 會把請求改道回舊守門');
+    // 🔴 「不帶 token／t」是**對這一頁送出的每一發**說的，不是只對第一發說的。
+    //    寫成 `s = sent[0]` 的話，**多出來的那一發帶了 token 也不會有人發現**——
+    //    它排在後面，第一發仍然乾淨 ⇒ 綠。那是用位置代替身分（`jdc-line-gas#150`）。
+    //    （突變實測 2026-09-17：line-messages.html 在載入後多打一發帶 `t=` 的請求
+    //      ⇒ 舊寫法 exit=0 **綠**、新寫法 exit=1 **紅**。）
+    無舊憑證(sent);
     assert.equal(ctx.FP, 'U_SUB_1', '②的快取指紋沒換成 sub ⇒ 共用裝置上不同人的快取會混在一起');
     assert.equal(ctx.CACHE_NAME, 'msglog');
   } finally { cleanup(); }
@@ -251,6 +271,8 @@ test('🔴 ②?from=welfare → 打 getWelfareMessageLog（只帶 idToken、天�
     assert.equal(s.params.days, '180');
     assert.equal(s.params.idToken, 'IDTOK');
     assert.deepEqual(Object.keys(s.params).sort(), ['action', 'callback', 'days', 'idToken']);
+    // 上面那句只管得到第一發；「只帶 idToken」要對每一發成立才算數（同上，#150）。
+    無舊憑證(sent);
     assert.equal(ctx.CACHE_NAME, 'msglog-welfare');
   } finally { cleanup(); }
 });

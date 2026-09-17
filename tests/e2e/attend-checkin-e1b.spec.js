@@ -152,9 +152,18 @@ test('attend ①舊連結 → 帶 token、不碰 LIFF 登入、不帶 idToken，
 test('checkin ②登入成功 → 報到數字畫出來，請求帶 idToken 與 act', async ({ page }) => {
   const { logs, sent } = await open(page, 'checkin.html', '?act=A1', { reply: () => ({ ok: true, stats: BOARD }) });
   expect(await visibleText(page)).toContain('已到 5 / 9');
-  expect(sent[0]).toContain('idToken=IDTOK');
-  expect(sent[0]).toContain('act=A1');
-  expect(sent[0]).not.toMatch(/[?&]token=/);
+  // 🔴 **同一個判斷在這個檔裡本來就有兩份寫法**：attend 那兩條（上面 `sent.forEach`）
+  //    是**對每一發都要求**，checkin 這條卻只問 `sent[0]`。
+  //    「不帶 token」是個**否定句**——只問第一發的話，**多出來的那一發帶了 token
+  //    也不會有人發現**（那一發排在後面，第一發仍然乾淨 ⇒ 綠）。
+  //    （突變實測 2026-09-17：checkin.html 在成功之後多打一發帶 `token=` 的請求
+  //      ⇒ 舊寫法 exit=0 **綠**、新寫法 exit=1 **紅**；`jdc-line-gas#150`。）
+  expect(sent.length, '一發都沒送出 ⇒ 下面三條是在驗沒發生的事').toBeGreaterThan(0);
+  sent.forEach((s, i) => {
+    expect(s, '第 ' + (i + 1) + ' 發沒帶 idToken').toContain('idToken=IDTOK');
+    expect(s, '第 ' + (i + 1) + ' 發沒帶 act').toContain('act=A1');
+    expect(s, '第 ' + (i + 1) + ' 發帶了 token ⇒ 後端會改道回舊守門').not.toMatch(/[?&]token=/);
+  });
   expect(pageErrors(logs)).toEqual([]);
   await page.screenshot({ path: 'test-results/e1b-checkin-01-成功.png', fullPage: true });
 });

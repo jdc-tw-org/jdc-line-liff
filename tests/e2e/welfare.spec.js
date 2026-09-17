@@ -305,8 +305,24 @@ test('🔴 儲存往返期間繼續打字，存進去的是按下去那一刻的
   await page.locator('#btn-save').click();
   await page.locator('#wf-tpl').fill('後來又改的');       // 往返期間繼續打字
   await expect(page.locator('#tpl-note')).toContainText('已儲存');
-  expect(ctx.seen.filter((s) => s.action === 'saveWelfareTemplate')[0].params.text)
-    .toBe('按下去那一刻');
+  // 🔴 **不可以只問第一發。** 這一條要說的是「送出去的存檔內容就是按下去那一刻的」——
+  //    那是個**全稱句**，而 `filter(…)[0]` 只問了第一發。
+  //    正是這條要防的回歸（存完之後再補送一發「當下畫面上的內容」）會**多一發**，
+  //    而多出來的那一發排在後面 ⇒ 第一發仍然是對的 ⇒ **這句照樣綠**，
+  //    她後來改的字卻已經進了伺服器。`[0]` 在這裡是**用位置代替身分**。
+  //    （突變實測 2026-09-17：line.html 的 onSaveTemplate 成功後補送一發
+  //      `後來又改的` ⇒ 舊寫法 exit=0 **綠**、新寫法 exit=1 **紅**；`jdc-line-gas#150`。）
+  const 存了什麼 = ctx.seen.filter((s) => s.action === 'saveWelfareTemplate')
+    .map((s) => s.params.text);
+  // ⚠️ 一發都沒送到時 `forEach` 什麼都不跑 ⇒ 下面那句會**靜默通過**。
+  //    先斷言送了幾發，讓「什麼都沒驗」是紅的而不是綠的（同 `#141` 的做法）。
+  expect(存了什麼.length, '一發 saveWelfareTemplate 都沒送出 ⇒ 下面那句什麼都沒驗')
+    .toBeGreaterThan(0);
+  存了什麼.forEach((text, i) => {
+    expect(text, '第 ' + (i + 1) + ' 發存檔送出的是「' + text
+      + '」⇒ 存進去的不是按下去那一刻的內容（共送出 ' + 存了什麼.length + ' 發）')
+      .toBe('按下去那一刻');
+  });
   // ⚠️ 此刻畫面上是「後來又改的」而基準是「按下去那一刻」⇒ dirty ⇒ 切走會先問。
   //    那是產品的正確行為（不靜靜丟掉她打的字），測試要回答它。
   page.once('dialog', (d) => d.accept());
