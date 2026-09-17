@@ -11,8 +11,13 @@
  *
  * 用法：
  *   node tests/manual/wall-build-testpage.js
- *   cd <輸出目錄> && python3 -m http.server 8898
- *   開 http://localhost:8898/wall-test.html?t=dummy&act=actTEST&tick=3
+ *   cd <輸出目錄> && python3 -m http.server 8896
+ *   開 http://localhost:8896/wall-test.html?t=dummy&act=actTEST&tick=3
+ *
+ *   ⚠️ **8896 是刻意跟隔壁幾支錯開的**，不要「順手」統一成同一個號碼：
+ *   msg=8897、wall=8896、pass=8898、veg=8899。這幾支各自服務**不同的輸出目錄**，
+ *   共用同一個號碼的話，先起的那一個會把後起的擋掉（或是你對著前一支的目錄看半天）。
+ *   本來 wall 與 pass 都寫 8898，這裡把 wall 挪開。
  *
  *   ?tick=<秒> 只縮短輪詢間隔（預設 15 秒太久，人眼要連看好幾輪）。不改任何產品邏輯。
  *
