@@ -1268,5 +1268,188 @@
       "lineReady": true,
       "note": ""
     }
-  ]
+  ],
+  "gateContract": {
+    "reject": {
+      "LINE_AMBIGUOUS": "line_ambiguous",
+      "LINE_BAD_TOKEN": "line_bad_token",
+      "LINE_NEEDS_SHEET": "line_needs_sheet",
+      "LINE_NO_TOKEN": "line_no_token",
+      "LINE_UNBOUND": "line_unbound",
+      "LINE_UPSTREAM": "line_upstream",
+      "ROLE_MISMATCH": "role_mismatch",
+      "ROLE_UNRESOLVED": "role_unresolved",
+      "TOKEN_AMBIGUOUS": "token_ambiguous",
+      "TOKEN_INVALID": "token_invalid"
+    },
+    "denials": [
+      {
+        "key": "revoked_token_path",
+        "why": "🔴 撤權・`?t=` 路：名冊拿掉他那一列，token 還在白名單裡",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "無權限或連結已失效。",
+          "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "revoked_line_path",
+        "why": "🔴 撤權・LINE 路：入口層回 `roles-none`（查到人了，名冊上沒有他生效的列）",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。",
+          "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "revoked_line_path_local",
+        "why": "🔴 撤權・LINE 路（本機模式）：身分只帶內部碼，角色自己查名冊而查無",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。",
+          "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "revoked_line_path_empty_roles",
+        "why": "🔴 撤權・LINE 路：入口層回 `resolved` 而 `roles` 是**空陣列**（查過了，他沒有角色）。⚠️ `roles.js` 的註解宣告「B0 會回 roles-none，走不到這裡」——**那是宣告，不是程式保證的**。改之前它落在 `role_mismatch`（＝你拿錯連結了）⇒ 前端不清快取，而那是 fail-open。",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。",
+          "reason": "role_unresolved"
+        }
+      },
+      {
+        "key": "role_mismatch_line_real",
+        "why": "⬛ 對照組：**真的**角色不符（有角色，只是打不到這支）。⚠️ 改之前它與上面那一格落在同一個代號、分不開；改之後必須分得開。⚠️ 這裡用 `getMessageLog` 不用 `getRosterList`——後者的 allow 含 `any`，任何看板角色都會被**放行**，量到的是「放行」不是「角色不符」。",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "此連結非您的權限範圍。",
+          "reason": "role_mismatch"
+        }
+      },
+      {
+        "key": "token_removed",
+        "why": "撤 token・`?t=` 路（舊的撤權手法）：token 已從白名單拿掉",
+        "verdict": "revoked",
+        "envelope": {
+          "ok": false,
+          "msg": "無權限或連結已失效。",
+          "reason": "token_invalid"
+        }
+      },
+      {
+        "key": "role_mismatch_token",
+        "why": "⬛ 對照組②・`?t=` 路：**沒有被撤權**，只是這支不開給他 ⇒ 不得清快取（2026-07-30 線上事故：看到權限訊息就蓋整頁，害人事看板整頁消失）",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "此連結非您的權限範圍。",
+          "reason": "role_mismatch"
+        }
+      },
+      {
+        "key": "role_mismatch_line",
+        "why": "⬛ 對照組②・LINE 路：同上，走另一條路",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "此連結非您的權限範圍。",
+          "reason": "role_mismatch"
+        }
+      },
+      {
+        "key": "token_ambiguous",
+        "why": "同一把 token 被登記在多份白名單 ⇒ 設定壞了，換連結沒有用",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "這組連結的設定有誤（同一組權杖被登記在多份名單中），為安全起見已停用。請聯絡系統管理者。",
+          "reason": "token_ambiguous"
+        }
+      },
+      {
+        "key": "line_no_token",
+        "why": "LINE 路：前端沒把憑證帶上來 ⇒ 重開頁面",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "沒有把您的 LINE 登入資訊送上來，所以系統認不出您是誰。關掉這一頁重新開啟不會解決（LINE 不會因此重新登入一次），請聯絡資訊人員。",
+          "reason": "line_no_token"
+        }
+      },
+      {
+        "key": "line_bad_token",
+        "why": "LINE 路：憑證驗不過（過期／發給別的 channel／格式壞）⇒ 重新登入會有用",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "您的 LINE 登入憑證已經過期，系統沒辦法確認您的身分。重新整理或關掉這一頁重新開啟都不會解決（LINE 不會因此換一組新的憑證），請聯絡資訊人員。",
+          "reason": "line_bad_token"
+        }
+      },
+      {
+        "key": "line_upstream",
+        "why": "🔴 LINE 路：**我們不知道**（打不到 LINE／讀不到名單）⇒ 稍後再試。⚠️ 這一格**絕不可以**判成撤銷——上游一抖就把全體的離線資料清光。",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "系統目前無法確認您的身分（不是您的問題）。請稍後再試一次；若一直這樣，請聯絡系統維護者。",
+          "reason": "line_upstream"
+        }
+      },
+      {
+        "key": "line_unbound",
+        "why": "LINE 路：綁定名單上沒有他 ⇒ 先去綁定",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "您的 LINE 帳號還沒有完成員工身分綁定，所以系統認不出您是誰。請先回 LINE 完成綁定，再開啟這一頁。",
+          "reason": "line_unbound"
+        }
+      },
+      {
+        "key": "line_ambiguous",
+        "why": "LINE 路：綁定名單一碼兩列 ⇒ 資料異常，要找人",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "您的綁定資料有重複的紀錄，系統無法判斷是哪一位。重新登入不會有幫助，請聯絡系統維護者。",
+          "reason": "line_ambiguous"
+        }
+      },
+      {
+        "key": "line_needs_sheet",
+        "why": "🔴 LINE 路的退路開關：`ROLE_SOURCE` 切回 token ⇒ 這條路整個關閉。⚠️ 這一格判成撤銷的話，**按下回退鈕就等於清光所有人的快取**。",
+        "verdict": "ok",
+        "envelope": {
+          "ok": false,
+          "msg": "這一頁的 LINE 登入目前暫停使用，請改用原本的連結。",
+          "reason": "line_needs_sheet"
+        }
+      },
+      {
+        "key": "allowed_token_path",
+        "why": "⬛ 對照組：沒被撤權的人，`?t=` 路照樣放行",
+        "verdict": "ok",
+        "envelope": {
+          "ok": true
+        }
+      },
+      {
+        "key": "allowed_line_path",
+        "why": "⬛ 對照組：沒被撤權的人，LINE 路照樣放行",
+        "verdict": "ok",
+        "envelope": {
+          "ok": true
+        }
+      }
+    ],
+    "legacyDenyMsg": "無權限或連結已失效。"
+  }
 }
