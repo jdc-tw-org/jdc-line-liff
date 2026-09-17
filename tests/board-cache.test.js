@@ -112,6 +112,41 @@ test('🔴 代號打錯一個字母 → 不清快取（fail-safe），而且契�
   });
 });
 
+/* ══ ⏳ 退場條件：**這裡是它的家**，不是只有 board-cache.js 的檔頭 ══════════
+ *
+ * 為何放在測試檔（2026-09-17，gas #140）：檔頭是給**讀**的人看的，但真正會刪掉那條
+ * 退路的人，是被下面那條測試**擋紅**的人。退場條件要寫在他被迫看見的那一格才有觸發點；
+ * 寫在機制自己的標頭裡不夠——他可以一次都沒打開過那個檔頭。
+ * ⇒ 所以下面把整段退場條件塞進**斷言的失敗訊息**，紅字裡就有可以直接貼去跑的指令。
+ *
+ * 🔴 **判準不是「那句話還在不在」，是「那些出口帶不帶 `reason`」。**
+ *    原本的量法數的是後端字面文案 `無權限或連結已失效。` 的行數，兩個洞、方向相反：
+ *      · **假放行**：同一層另外兩種寫法一個都數不到；光是**改寫文案**就能讓它回 0
+ *        ⇒ 一個代號都沒補，退場條件就宣告成立。
+ *      · **零鑑別力**：守門那幾格用的是常數名、不是字面量 ⇒ 它回的 `roles.js=1` 是常數
+ *        宣告本身，那幾格補沒補代號都不會動。
+ * ══════════════════════════════════════════════════════════════════════ */
+const 退場條件 = [
+  '⏳ 退場條件（gas #140 修正過的量法）：在 jdc-line-gas 的 repo 根目錄跑下面這條，',
+  '   第一個數字回 0 之後，`!reason` 那條退路與本測試一起刪。',
+  '',
+  `NODE_OPTIONS= node -e 'const fs=require("fs"),S=require("./line-platform/tests/helpers/source-scan.js");
+var PERM=/權限|auth|Auth|gate|Gate|allow|Allow|GATE_MSG/, n=0,y=0,all=0;
+["Code.js","roles.js"].forEach(function(f){
+  var s=S.stripComments(fs.readFileSync("line-platform/"+f,"utf8")).replace(/\\s+/g," ");
+  var re=/ok\\s*:\\s*false/g,m;
+  while((m=re.exec(s))){ all++;
+    var tail=s.slice(m.index, s.indexOf("}", m.index)+1);
+    if(!PERM.test(tail))continue;
+    if(/\\breason\\b/.test(tail)) y++; else n++; }});
+console.log("不帶代號="+n+"  帶代號="+y+"  全部拒絕出口="+all)'`,
+  '',
+  '⬛ 對照組就是它自己印的後兩個數字：尺壞掉時三個一起變 0 ⇒ 「不帶代號=0」只有在',
+  '   後兩個仍是大數字時才算數。2026-09-17 於 gas main 1d5784e 實跑：105 / 23 / 433。',
+  '⚠️ 數字跟著 SHA 走，讀到先重跑、不要照抄。完整推導與合成檢體實測在',
+  '   assets/board-cache.js 的 cacheVerdict 檔頭。',
+].join('\n');
+
 test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 層、不認得的 action）', () => {
   // 🔴 **那一句也從後端讀**（`gateContract.legacyDenyMsg`），不手寫。
   //    它刻意不在 `denials` 的任何一列裡——那幾列都帶 `reason`，前端拿到代號就不看文字
@@ -120,13 +155,14 @@ test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 
   assert.ok(退路那句 && 退路那句.length > 3,
     '契約沒有 legacyDenyMsg ⇒ 副本是舊版，在 jdc-line-gas 重產一次');
   assert.equal(BC.cacheVerdict({ ok: false, msg: 退路那句 }), 'revoked',
-    '後端那一句改過了，而前端的退路還在認舊的 ⇒ `Code.js` handler 層那些不帶代號的'
-    + '拒絕，撤銷遮蔽已經靜默消失（改前端這一格，或把那些出口補上 reason）');
+    '後端那一句改過了，或前端這條退路被拿掉了 ⇒ `Code.js` handler 層那些不帶代號的'
+    + '拒絕，撤銷遮蔽已經靜默消失（改前端這一格，或把那些出口補上 reason）\n\n'
+    + 退場條件);
   // ⬛ 對照組：這條退路不是「什麼字串都判 revoked」。
   assert.equal(BC.cacheVerdict({ ok: false, msg: '找不到員工名冊' }), 'ok');
   assert.equal(BC.cacheVerdict({ ok: true }), 'ok');
-  // ⏳ 退場條件寫在 board-cache.js 的 cacheVerdict 檔頭：那些出口全部帶上 reason 之後，
-  //    退路與本條一起刪。
+  // ⚠️ 同一層換了寫法的那些（`無權限。`／`無權限`）**現在就已經判成 ok**——它們接不住，
+  //    不是將來才會失去遮蔽。那要後端補代號才解得掉，見檔頭 ②。不要靠放寬前綴。
 });
 
 test('cacheVerdict：外層 ok、results 內某支無權限 → 仍是 ok', () => {
