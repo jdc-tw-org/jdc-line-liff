@@ -1066,6 +1066,50 @@ startAuth().then(function () {
   if (hit && hit.value && hit.value.header) { adopt(hit.value, true); MSG_HIT = hit; }
   return fetchLog();
 }).then(function (res) {
+  /* 🔴 **撤銷遮蔽**（2026-09-17，私有票 `jdc-tw/jdc-line-gas#113` 的 Ｃ）。
+   *
+   * ══ 為何這一頁以前沒有這一格 ═══════════════════════════════════════
+   *
+   * ⬛ `git grep -c "handleVerdict("` 於 `ece4a40`：
+   *      board 1／stats 1／hr-stats 1／attend 2　　**line-messages 0**
+   *      ⬛ 對照組 checkin 0（已知刻意不用加密快取）⇒ 那把尺分得出「沒接」與「接了」。
+   * ⇒ 權限被收回之後重開這一頁，它照樣把上一次抓到的整批紀錄畫出來，
+   *   收乾淨的唯一手段是那顆要他自己按的「清除本機快取」。
+   *
+   * ══ 🔴 為何非得排在 `cacheVerdict` 改吃代號**之後**才接 ═══════════════
+   *
+   * 在那之前接上去，它接的是**同一支只認一句話的函式**——而這一頁走的正是
+   * LINE 登入那條路，那條路的拒絕文案不是它認得的那一句 ⇒ 判 `ok` ⇒ 照樣畫舊資料。
+   * **那比沒有接更糟**：現在至少知道它沒防。
+   *
+   * ══ ⚠️ 這一頁有兩格切片，兩格都要清 ═══════════════════════════════
+   *
+   * `msglog`（看板身分）與 `msglog-welfare`（發訊身分）——同一個人可能兩格都有
+   * （他同時有 hr 與發訊角色，從兩個入口各開過一次）。
+   * 🔴 所以這裡用 `handleVerdict`（內部走 `cacheClear(FP)`＝**清掉同指紋下的所有切片**），
+   *    **不是** `cacheDrop(FP, CACHE_NAME)`（單鍵刪除，只清這一次用到的那一格
+   *    ——留下來的另一格會在他從另一個入口進來時原樣畫出來）。
+   *    ⚠️ 那顆「清除本機快取」鈕刻意用 `cacheDrop`，理由在它自己那一段；
+   *       **兩者不可以互相代換**：那一顆是使用者自己按的、只該清他正在看的這一份。
+   *
+   * 指紋用 `FP`（`lineSub()`）——`startAuth()` 已經跑完，這裡拿得到。
+   * 回 `revoked` 時 `handleVerdict` 已經：清磁碟 → 清記憶體 → 蓋覆蓋層 → 停止寫入
+   * ⇒ 這裡直接 return，不要再走 `settleRefresh`／`adopt`（那會在覆蓋層底下繼續動畫面）。
+   */
+  return handleVerdict(FP, res).then(function (v) {
+    if (v === 'revoked') return;                 // 覆蓋層已蓋上、兩格切片都清掉了
+    return afterLog(res);
+  });
+}).catch(function (e) {
+  if (!BATCHES.length) {
+    msgEl.textContent = '載入失敗：' + (e && e.message ? e.message : e);
+  } else {
+    markRefreshFail('list', MSG_HIT && MSG_HIT.savedAt, (e && e.message) ? e.message : String(e));
+  }
+});
+
+/** 撤銷遮蔽放行之後的原本流程。抽出來只是為了讓上面那一格看得出「它擋在前面」。 */
+function afterLog(res) {
   // 失敗的話一律用 logFailText 的文字。
   if (res && res.ok !== true) res = Object.assign({}, res, { msg: logFailText(res) });
   // 🔴 2026-09-13：失敗而畫面上是快取（BATCHES 有東西）時原本一個字都不說 ⇒ 清單上方掛提示、不改畫面
@@ -1081,15 +1125,10 @@ startAuth().then(function () {
   adopt(res, false);
   // 存快取：含姓名與內容，使用者已知並拍板。cacheSave 只收 ok:true 的物件。
   return cacheSave(FP, CACHE_NAME, res).then(syncClearBtn);
-}).catch(function (e) {
-  if (!BATCHES.length) {
-    msgEl.textContent = '\u8f09\u5165\u5931\u6557\uff1a' + (e && e.message ? e.message : e);
-  } else {
-    markRefreshFail('list', MSG_HIT && MSG_HIT.savedAt, (e && e.message) ? e.message : String(e));
-  }
-});
+}
 }
 </script>
+<script src="assets/back-to-me.js" defer></script>
 <script src="assets/page-version.js" defer></script>
 </body>
 </html>
