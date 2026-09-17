@@ -21,15 +21,33 @@
  *   語意必須穩定。**一個字串沒辦法同時滿足兩者。**
  *
  * ⚠️ **跨 repo 的手動對齊**（形式沿用 tests/welfare-page-wiring.test.js 的既有慣例）：
- *   後端 `jdc-line-gas` line-platform/roles.js `gateAction` 共 8 處拒絕，其中
- *   **3 處帶 `reason`**：兩處送 `role_mismatch`（scoped 分支與 board 分支各一），
- *   一處送 `role_unresolved`；其餘 5 處一個 `reason` 都不帶。
- *   （重算 2026-09-08 於 jdc-line-gas `5593e3d`（＝線上 build `g5593e3d`）：
- *     取 `gateAction` 的行號區間之後
- *     `grep -c "ok: false"` → 8、`grep -c "GATE_REJECT\."` → 3。
- *     ⬛ 對照組：整支 roles.js 的 `ok: false` 是 9（多的那一個在 `gateDenial`）
- *        ——兩個數字相同就代表區間沒有取到，這條重算等於沒做。
- *     ⚠️ **行號會漂，所以這裡刻意不寫行號**：拿代號與分支名當判準。）
+ *   後端 `jdc-line-gas` line-platform/roles.js 的 `gateAction` 有幾處拒絕、其中幾處帶
+ *   `reason`，**是會隨後端補代號而變的量，所以這裡給量法不給結論**。
+ *
+ *   ⬛ **量法（一條現在就能跑的指令，在 `jdc-line-gas` 的 repo 根目錄）**
+ *      ——一次印三個數字，把每行開頭的 ` * ` 去掉：
+ *
+ *        NODE_OPTIONS= node -e 'const fs=require("fs"),S=require("./line-platform/tests/helpers/source-scan.js");
+ *        var s=S.stripComments(fs.readFileSync("line-platform/roles.js","utf8"));
+ *        var i=s.indexOf("function gateAction("), j=s.indexOf("\nfunction ", i+10);
+ *        var b=s.slice(i, j<0?s.length:j), n=(t,re)=>(t.match(re)||[]).length;
+ *        console.log("gateAction內拒絕出口="+n(b,/ok:\s*false/g)+" 其中帶代號="+n(b,/GATE_REJECT\./g)
+ *          +" ⬛對照·整支roles.js拒絕出口="+n(s,/ok:\s*false/g))'
+ *
+ *   ⬛ **對照組內建在同一行輸出裡**（第三個數字）：它必須**大於**第一個。
+ *      **兩者相同就代表函式區間沒有取到（`indexOf` 落空、剝註解把整份吃掉），
+ *      這一輪等於什麼都沒量。** 尺整個壞掉時三個一起變 0。
+ *   ⚠️ **行號會漂，所以這裡刻意不寫行號**：拿函式名與代號當判準。
+ *
+ *   ⬛ 2026-09-17 實跑：
+ *     · 於 `main` `c4dd03c`：`gateAction內拒絕出口=8 其中帶代號=7 ⬛對照·整支roles.js拒絕出口=28`
+ *     · 🕰 於本段原本量的那顆 `5593e3d`（＝當時線上 build `g5593e3d`）覆跑同一條指令：
+ *       `gateAction內拒絕出口=8 其中帶代號=3 ⬛對照·整支roles.js拒絕出口=9`
+ *       ⇒ **本段原本寫的三個數字在它自己那顆 SHA 上重現得出來**，
+ *         漂掉的是「其中 3 處帶代號、其餘 5 處都不帶」這個**現況敘述**：
+ *         今天是 7 處帶、只剩 1 處不帶。
+ *   ⚠️ **這三個數字跟著 SHA 走，引用前先重跑。**
+ *      後端每補一個代號它就會動，那正是「該重量了」的訊號，不是壞掉。
  *   前端 `jdc-line-liff` 本檔 DENY_REASON_ROLE_MISMATCH
  *     → 必須與 `role_mismatch` 這個字面值相同
  *   **兩邊各有測試釘住自己那半，沒有任何機械的東西逼兩邊相等。**
