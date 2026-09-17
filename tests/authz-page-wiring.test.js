@@ -66,13 +66,28 @@ function fakeEl(id) {
   return e;
 }
 
-/** 頁面把欄位的座標寫在 `data-n`（第幾列）與 `data-c`（第幾欄）上，這裡照樣模擬。 */
+/**
+ * 頁面把欄位的座標寫在 `data-n`（第幾列）與 `data-c`（第幾欄）上，這裡照樣模擬。
+ *
+ * 🔴 **巢狀深度要跟真的那一頁一樣，不可以圖方便少包一層。**（`#117`，2026-09-17）
+ *    真實結構是 `.row[data-n] > .det > .fld > 欄位` ⇒ 欄位在第**三**層。
+ *    這個替身原本只包兩層，而頁面舊版的取法是寫死的
+ *    `f.parentNode.parentNode` ——兩者剛好對上 ⇒ 這一檔全綠。
+ *    `#117` 把一列改成「摺起來那一行 ＋ 展開的細節」之後深度變成三層，
+ *    **舊取法會取到 `.det`、拿不到 `data-n`、直接 return**
+ *    ⇒ 使用者改了一格而草稿沒更新、也沒變髒，畫面停在綠色的「七道都過」，
+ *      按下存檔送出的是舊草稿。**零錯誤訊息，而這一檔仍然會全綠。**
+ * ⇒ 深度改成跟真頁一致，那種取法才會在這裡就紅。
+ *    ⚠️ 真頁改版面時**這個替身要跟著改**——它是一份手抄的結構副本，
+ *       沒有任何機械的東西逼它與 `render()` 相等。
+ */
 function 假欄位(n, c) {
   const f = fakeEl('');
   f.getAttribute = (k) => (k === 'data-c' ? String(c) : null);
-  const 中層 = fakeEl(''); 中層.getAttribute = () => null;
-  const 外層 = fakeEl(''); 外層.getAttribute = (k) => (k === 'data-n' ? String(n) : null);
-  f.parentNode = 中層; 中層.parentNode = 外層;
+  const fld = fakeEl(''); fld.getAttribute = () => null;          // .fld
+  const det = fakeEl(''); det.getAttribute = () => null;          // .det
+  const row = fakeEl(''); row.getAttribute = (k) => (k === 'data-n' ? String(n) : null);
+  f.parentNode = fld; fld.parentNode = det; det.parentNode = row;
   return f;
 }
 
@@ -449,5 +464,207 @@ test('⬛ 對照：選了人按新增 ⇒ 真的多一列，而且狀態鈕回�
   assert.match(r.els.list.innerHTML, new RegExp(丙), '新增的那一列沒有畫出來');
   assert.match(r.els.list.innerHTML, /測試丙/, '新增的那一列沒有帶姓名（要人用內部碼認人＝等於沒做）');
   assert.equal(r.els.save.disabled, true, '🔴 新增之後存檔鈕還開著 ⇒ 新的那一列從沒被驗過');
+  r.cleanup();
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+ * `#117`：版面改成「一列一行」之後，三件會靜默壞掉的事
+ *
+ * ⚠️ **這三條是原始碼斷言，不是行為測試。** 上面那個假 DOM 的 `classList`
+ *    與 `querySelector` 都是空殼，量不到「展開」「篩選」「日期鈕」真的做了什麼
+ *    ——那一半是在真瀏覽器裡量的（`#117` 留言貼了 26 條的輸出與兩個突變）。
+ *    這三條只釘住**structure**：壞掉的寫法連 diff 上都看不出有問題。
+ * ⚠️ 一律先剝註解再掃——檔頭本來就在解釋這些寫法為何不可以用
+ *    （`feedback_comment_is_source_code`：註解會讓自己的斷言假通過）。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ⚠️ **取函式本體走 `helpers/source-scan.js`，不自己寫抽取式。**
+ *    第一版是手寫的「找到 `function X()` 再切到下一個 function」——
+ *    `tests/source-scan-tripwire.test.js` 當場把它抓出來。那支存在的理由就是
+ *    這種近似抽取法會在版面一改時靜靜少取一段，而**少取跟「這頁沒有」一模一樣**。
+ */
+const S = require('./helpers/source-scan.js');
+
+test('🔴 篩選／排序不可以重畫清單——重畫會抹掉使用者正在打的字', () => {
+  ['套用篩選', '排列'].forEach((名) => {
+    const 體 = S.stripComments(S.fnSrc(名, 'authz.html'));
+    assert.ok(體.indexOf('render()') < 0,
+      '🔴 ' + 名 + '() 裡呼叫了 render() ⇒ 每次篩選/排序都重畫整份清單'
+      + ' ⇒ 使用者打到一半的字與勾選會被靜靜換掉（本專案為此誤發過一次訊息）。'
+      + ' 篩選要用 class 切換、排序要用 appendChild 搬節點。');
+    assert.ok(體.indexOf('innerHTML') < 0,
+      '🔴 ' + 名 + '() 裡動了 innerHTML ⇒ 同上，那也是一次重畫');
+  });
+  // ⬛ 對照組：這把尺對「真的呼叫了 render()」的函式體會命中（否則上面是恆過）。
+  // ⚠️ 對照組的字串裡刻意**不寫** `function` 那個字：`source-scan-tripwire` 的判準是
+  //    「有沒有字串字面量含 `function␣`」，寫了它就會被判成在手寫抽取式（實測紅過一次）。
+  assert.ok(S.stripComments('f(){ render(); }').indexOf('render()') >= 0,
+    '⬛ 對照組失效：這把尺連明明有 render() 的碼都認不出來');
+  // ⬛ 零點：這兩支真的取得到（取不到時 fnSrc 會丟例外，但零點要明說）。
+  assert.ok(S.fnSrc('render', 'authz.html').length > 100, '⬛ 零點：render 取不到 ⇒ 上面兩條的定義域是空的');
+});
+
+test('🔴 停用日是一顆鈕，不是常駐的輸入框（`#117` 的 Ｄ）', () => {
+  const 碼 = S.stripComments(fs.readFileSync(path.join(ROOT, 'authz.html'), 'utf8'));
+  assert.ok(/data-act="date"/.test(碼),
+    '🔴 找不到停用日那顆鈕 ⇒ Ｄ 沒有落地，或它的標記改名了');
+  // 🔴 鈕面上要看得出已經設了哪一天——沒有這一格，「已設」與「沒設」長得一樣。
+  // ⚠️ 要掃的是 `render()` **裡面**有沒有用它，不是「全檔找不找得到這個名字」：
+  //    後者在「render 改掉了、但函式還定義著」時**照樣綠**（實測突變紅 0 條）。
+  const 畫 = S.stripComments(S.fnSrc('render', 'authz.html'));
+  assert.ok(畫.indexOf('停用日鈕(') >= 0,
+    '🔴 render() 沒有用 停用日鈕() 產生鈕面的字 ⇒ 已設的日期可能沒顯示在鈕上');
+  assert.ok(畫.indexOf('data-act="date"') >= 0,
+    '🔴 render() 沒有畫出停用日那顆鈕');
+  // 🔴 這顆鈕**不可以**碰狀態欄：`#100` 拍板「停用是改狀態不刪列」，兩件事分開。
+  // 🔴 這顆鈕**不可以**碰狀態欄：`#100` 拍板「停用是改狀態不刪列」，兩件事分開。
+  //    整支 `接上監聽` 都掃——只切那個 if 的前 200 字，是另一種「自己寫抽取式」，
+  //    而寫法一長就靜靜少掃到（少掃跟「乾淨」一模一樣）。
+  const 監聽 = S.stripComments(S.fnSrc('接上監聽', 'authz.html'));
+  assert.ok(監聽.indexOf("act === 'date'") >= 0, '⬛ 零點：找不到日期鈕的處理分支');
+  assert.ok(監聽.indexOf('狀態值域') < 0 && 監聽.indexOf('iStat') < 0,
+    '🔴 監聽裡動到了狀態欄 ⇒ 按停用日可能變成「按了就停用」，那是另一件事');
+});
+
+test('🔴 取「這是第幾列」要往上走到底，不可以寫死巢狀層數', () => {
+  const 碼 = S.stripComments(fs.readFileSync(path.join(ROOT, 'authz.html'), 'utf8'));
+  assert.ok(碼.indexOf('parentNode.parentNode') < 0,
+    '🔴 又出現 parentNode.parentNode ⇒ 版面一改巢狀深度就取不到 data-n，'
+    + ' 而失敗的長相是「改了一格卻沒變髒」：畫面停在綠色的「七道都過」，'
+    + ' 送出去的是沒有那一格的舊草稿，零錯誤訊息。');
+  // ⚠️ 問**引擎**有沒有這支，不要拿字串 'function 哪一列(' 去比對原始碼：
+  //    那個字串本身含 `function␣` ⇒ `source-scan-tripwire` 會把這一檔判成手寫抽取式
+  //    （實測紅過一次）。而且問引擎本來就比較準——改成 `var 哪一列 = function` 也算數。
+  assert.ok(S.fnNames('authz.html').indexOf('哪一列') >= 0,
+    '🔴 往上走到底的那支不見了');
+  // ⬛ 對照組：這把尺對真的寫死層數的碼會命中。
+  assert.ok('var box = f.parentNode.parentNode;'.indexOf('parentNode.parentNode') >= 0,
+    '⬛ 對照組失效');
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 🔴 改別的欄位，不可以動到停用日那顆鈕（`#117` 驗證軌 2026-09-17 抓到的）
+ *
+ * ══ 這一顆為什麼躲過了所有既有的尺 ═══════════════════════════════════
+ *
+ * ① **行為量測看的是 `JSON.stringify(草稿)`** —— 而草稿**確實一格都沒動**，
+ *    壞的是**呈現**。判準對「資料有沒有變」有鑑別力，對「畫面說了什麼」沒有。
+ * ② **上面那個假 DOM 的 `querySelector` 一律回 null** ⇒ `同步同欄` 裡更新鈕面的
+ *    那四行**從來沒有被執行過**。沒有被執行的碼，斷言再多也不會紅。
+ * ⇒ 🔴 **是驗證軌看截圖看出來的，不是任何一條斷言喊的。**
+ *
+ * ══ 所以這一條刻意不用上面那個假欄位 ═══════════════════════════════════
+ *
+ * 它自己造一個**查得到子元素**的假列（`querySelector`／`querySelectorAll` 真的會回東西），
+ * 那段碼才會真的跑到。⚠️ 加一條在假 DOM 下同樣回 null 的斷言等於什麼都沒加
+ *    ——它會綠，而且永遠綠。
+ *
+ * ══ 為何這一格會害到人 ═════════════════════════════════════════════════
+ *
+ * 🔴 **不是 ISO 形狀的停用日（`2026/03/15`、`未定`），全頁只有鈕面看得到它**
+ *    ——`<input type="date">` 吃不下那種值，顯示成空白。
+ *    鈕面一被蓋掉，那個值在畫面上**再也顯示不出來**，而草稿裡還留著。
+ *    ⇒ 使用者看到「沒設停用日」，於是去設一個——把原值覆蓋掉。**零錯誤訊息。**
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/** 一個「查得到子元素」的假列：`同步同欄` 那段碼要跑得到才測得到。 */
+function 假列可查(n, 欄位們, 鈕) {
+  const kids = 欄位們.slice();
+  const row = fakeEl('');
+  row.getAttribute = (k) => (k === 'data-n' ? String(n) : null);
+  row.querySelectorAll = (sel) => {
+    const m = /\[data-c="(\d+)"\]/.exec(sel);
+    if (!m) return [];
+    return kids.filter((f) => f.getAttribute('data-c') === m[1]);
+  };
+  row.querySelector = (sel) => {
+    if (sel === '[data-act="date"]') return 鈕;
+    if (sel === '.dpop [data-c]') return null;
+    const all = row.querySelectorAll(sel);
+    return all.length ? all[0] : null;
+  };
+  kids.forEach((f) => { f.parentNode = row; });
+  if (鈕) 鈕.parentNode = row;
+  return row;
+}
+
+function 假格(c) {
+  const f = fakeEl('');
+  f.getAttribute = (k) => (k === 'data-c' ? String(c) : null);
+  return f;
+}
+
+test('🔴 在備註打字，不可以把停用日那顆鈕的字蓋掉（非 ISO 值全頁只剩鈕面看得到）', async () => {
+  const r = run({});
+  await settle();
+  const iTo = HDR.indexOf('停用日'), iNote = HDR.indexOf('備註');
+  assert.ok(iTo >= 0 && iNote >= 0 && iTo !== iNote, '⬛ 零點：欄位索引取不到');
+
+  const 原值 = '2026/03/15';                     // 刻意用**非 ISO**：全頁只有鈕面看得到它
+  const 鈕 = fakeEl('');
+  鈕.getAttribute = (k) => (k === 'data-act' ? 'date' : null);
+  鈕.textContent = '停用日　' + 原值;
+  let 有has = true;
+  鈕.classList = { add: () => { 有has = true; }, remove: () => { 有has = false; },
+                   toggle() {}, contains: () => 有has };
+
+  const 備註格 = 假格(iNote);
+  const 列 = 假列可查(0, [備註格, 假格(iTo)], 鈕);
+
+  // ⬛ 零點：這個替身真的會讓那段碼跑到——先用**停用日那一欄**證明鈕面會被更新。
+  const 停用日格 = 假格(iTo);
+  停用日格.parentNode = 列;
+  停用日格.value = '2026-12-31';
+  (r.els.list.__on.input || []).forEach((fn) => fn({ target: 停用日格 }));
+  assert.match(鈕.textContent, /2026-12-31/,
+    '⬛ 零點失敗：改停用日那一欄時鈕面沒被更新 ⇒ 這個替身根本沒跑到那段碼，下面那條等於沒測');
+
+  // 把鈕面放回原本那個非 ISO 值，再改**備註**。
+  鈕.textContent = '停用日　' + 原值;
+  有has = true;
+  // ⚠️ 上面那個零點**真的**改了草稿的停用日那一格（它就是在改那一欄）。
+  //    所以下面要比的是「改備註前後」，不是「跟最初的值比」——
+  //    拿最初的值比會紅在一件我自己剛做的事情上（第一版就是這樣紅的）。
+  const 改備註前的停用日 = r.ctx.草稿[0][iTo];
+  備註格.value = '隨便打的備註';
+  (r.els.list.__on.input || []).forEach((fn) => fn({ target: 備註格 }));
+
+  assert.match(鈕.textContent, new RegExp(原值.replace(/\//g, '\\/')),
+    '🔴 在備註打字把停用日那顆鈕的字蓋掉了（現在是「' + 鈕.textContent + '」）'
+    + ' ⇒ 擁有者那條 Ｄ 的檢核破了；而且非 ISO 的值全頁只剩鈕面看得到，'
+    + ' 蓋掉之後畫面再也顯示不出原值，使用者會以為沒設過。');
+  assert.equal(有has, true,
+    '🔴 在備註打字把鈕的 has 樣式拔掉了 ⇒ 「已設」與「沒設」在畫面上長得一樣');
+  // 🔴 而且草稿那一格不可以被碰到——它才是存檔會送出去的東西。
+  assert.equal(r.ctx.草稿[0][iTo], 改備註前的停用日,
+    '🔴 備註那一發改到了停用日那一格（草稿）');
+  assert.equal(r.ctx.草稿[0][iNote], '隨便打的備註', '⬛ 零點：備註那一格本來就該被寫進去');
+
+  /* 🔴 **還要把備註「清空」再看一次——上面那一段自己擋不住一半的回歸。**
+   *    （`#117` 驗證軌第二輪 2026-09-17）
+   *
+   * ⚠️ 上面只在備註**打字**（非空值）⇒ 走到的永遠是 `classList.add('has')`
+   *    ⇒ 那句 `assert.equal(有has, true)` 在那個情境**沒有任何一條路會是 false**。
+   *    它讀起來在守「has 不可以被拔掉」，實際上是**一盞永遠的綠燈**。
+   * ⬛ 實測（樹外真瀏覽器那把尺抓到的）：把守門改成**只擋 `textContent`、不擋 class**——
+   *      if (Number(c) === 欄('停用日')) b.textContent = 停用日鈕(值);
+   *      if (值) b.classList.add('has'); else b.classList.remove('has');   // ← 沒守住
+   *    ⇒ **補這一段之前，repo 全套 1254 綠、退出碼 0、紅 0 條**，而真瀏覽器紅 2 條。
+   * 🔴 為什麼那一半也會害到人：`has` 被拔掉之後，「已設 2026/03/15」與「沒設」
+   *    在畫面上**長得一模一樣**——那正是票上 Ｄ 明寫不可以發生的事。
+   * ⇒ 清空才走得到 `remove('has')`，這一步是那條斷言唯一能是 false 的路。 */
+  const 清空前的停用日 = r.ctx.草稿[0][iTo];
+  備註格.value = '';
+  (r.els.list.__on.input || []).forEach((fn) => fn({ target: 備註格 }));
+
+  assert.equal(有has, true,
+    '🔴 把備註清空就把停用日那顆鈕的 has 樣式拔掉了'
+    + ' ⇒ 「已設 ' + 原值 + '」與「沒設」在畫面上長得一模一樣，票上 Ｄ 的檢核破了。');
+  assert.match(鈕.textContent, new RegExp(原值.replace(/\//g, '\\/')),
+    '🔴 把備註清空就把停用日那顆鈕的字蓋掉了（現在是「' + 鈕.textContent + '」）');
+  assert.equal(r.ctx.草稿[0][iTo], 清空前的停用日,
+    '🔴 清空備註那一發改到了停用日那一格（草稿）');
+  assert.equal(r.ctx.草稿[0][iNote], '', '⬛ 零點：備註那一格確實被清成空字串了（這一步真的跑到）');
   r.cleanup();
 });

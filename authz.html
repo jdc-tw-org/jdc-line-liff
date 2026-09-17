@@ -17,11 +17,38 @@
   h1.state { font-size: 14px; font-weight: 400; color: var(--ink2); }
   h1.err { color: var(--bad); }
 
-  /* 一列一張卡：手機上表格排不下七欄，而這一頁的主要使用場景就是手機（LINE 內開）。 */
-  .row { border: 1px solid var(--ln); border-radius: 3px; padding: 12px; margin-bottom: 10px; background: #fff; }
+  /* ══ 一列＝一行，點開才編輯（`#117` 的 Ａ）═══════════════════════════
+     舊版一列渲染成七個 `.fld` 各佔一行 ⇒ **一列＝一大塊**，5 列就很長、50 列會爆炸。
+     ⚠️ 收合是**純 CSS 的 class 切換，不重畫**。重畫會把使用者正在打的字與游標位置
+        一起換掉（`feedback_swr_repaint_eats_user_input`：這一頁全是輸入欄位）。 */
+  .row { border: 1px solid var(--ln); border-radius: 3px; margin-bottom: 6px; background: #fff; overflow: hidden; }
   .row.dis { background: #f7f7f5; }
-  .row .who { font-size: 15px; font-weight: 600; color: var(--ink); }
-  .row .code { font-size: 12px; color: var(--ink3); margin-left: 6px; font-weight: 400; }
+  .row.hid { display: none; }
+  /* 剛加進來的那一列。下一次重畫就沒了（`render()` 會整份重建），**這是刻意的**：
+     它只是「你剛剛加的是這一列」的指路，不是一個要維護的狀態。 */
+  .row.new { border-color: var(--g); box-shadow: inset 3px 0 0 var(--g); }
+
+  /* 摺起來的那一行。`<button>` ⇒ 鍵盤可聚焦、Enter 可啟動，全是原生行為。 */
+  .sum {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    font: inherit; text-align: left; padding: 9px 10px; cursor: pointer;
+    background: none; border: 0; color: var(--ink); min-height: 40px;
+  }
+  .sum:hover { background: #fafaf9; }
+  .sum:focus-visible { outline: 2px solid var(--b); outline-offset: -2px; }
+  .caret { flex: none; width: 12px; color: var(--ink3); font-size: 11px; transition: transform .12s; }
+  .row.open .caret { transform: rotate(90deg); }
+  .sum .who { font-size: 14.5px; font-weight: 600; white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; max-width: 7em; flex: none; }
+  .sum .code { font-size: 11px; color: var(--ink3); flex: none; }
+  .sum .sp { flex: 1 1 auto; min-width: 4px; }
+  .sum .pg { font-size: 11.5px; color: var(--ink3); flex: none; white-space: nowrap; }
+  .row.dis .sum .who { color: var(--ink2); text-decoration: line-through; }
+
+  /* 展開之後才是舊版那幾個欄位。 */
+  .det { padding: 2px 10px 12px; border-top: 1px solid var(--ln); }
+  .row:not(.open) .det { display: none; }
+
   .fld { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
   .fld label { font-size: 12.5px; color: var(--ink2); flex: none; width: 4.5em; }
   .fld select, .fld input {
@@ -29,6 +56,59 @@
     border: 1px solid var(--ln); border-radius: 3px; background: #fff; color: var(--ink);
   }
   .fld input[readonly] { background: #f4f4f2; color: var(--ink2); }
+
+  /* ══ Ｄ 停用日：平常是一顆鈕，按了才跳出選日期 ═══════════════════════
+     ⚠️ 鈕面上**看得出已經設了哪一天**——不然「已設 2026-01-31」與「沒設」
+        在畫面上長得一樣，而那兩件事完全不同。 */
+  .dbtn {
+    flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 6px 8px; text-align: left;
+    border: 1px dashed var(--ln); border-radius: 3px; background: #fff; color: var(--ink3); cursor: pointer;
+  }
+  .dbtn.has { border-style: solid; color: var(--ink); }
+  .dbtn:focus-visible { outline: 2px solid var(--b); outline-offset: 1px; }
+  .dpop { margin: 6px 0 0 calc(4.5em + 8px); padding: 10px; background: #fafaf9;
+          border: 1px solid var(--ln); border-radius: 3px; }
+  .dpop .lbl { font-size: 11.5px; color: var(--ink2); margin-bottom: 5px; }
+  .dpop input { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px;
+                padding: 6px 8px; border: 1px solid var(--ln); border-radius: 3px; background: #fff; }
+  .dpop .rowbtn { display: flex; gap: 8px; margin-top: 8px; }
+
+  /* ══ Ｂ 角色 ↔ 頁面 ═══════════════════════════════════════════════════
+     🔴 這是**呈現**，不是判斷。資料整份來自後端那一發的 `rolePages`。 */
+  details.ref { border: 1px solid var(--ln); border-radius: 3px; background: #fff; margin-bottom: 12px; }
+  /* ⚠️ `display:block` 是拿掉預設三角的那一格——現行 Chrome 走 `::marker`，
+     `list-style:none` 與 `::-webkit-details-marker` **都擋不掉它**
+     （實測截圖上仍有一個小點）。三者都留著是為了涵蓋舊版 Safari。 */
+  details.ref > summary { display: block; padding: 10px 12px; font-size: 13.5px; font-weight: 600;
+                          cursor: pointer; color: var(--ink); list-style: none; }
+  details.ref > summary::-webkit-details-marker { display: none; }
+  details.ref > summary::marker { content: ''; }
+  details.ref > summary:focus-visible { outline: 2px solid var(--b); outline-offset: -2px; }
+  details.ref > summary::before { content: '▸ '; color: var(--ink3); font-size: 11px; }
+  details.ref[open] > summary::before { content: '▾ '; }
+  .refbody { padding: 0 12px 12px; }
+  .refrow { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--ln); font-size: 13px; }
+  .refrow .rn { flex: none; width: 6.5em; font-weight: 600; color: var(--ink); }
+  .refrow .rc { font-size: 11px; color: var(--ink3); font-weight: 400; display: block; }
+  .refrow .rp { flex: 1; color: var(--ink2); line-height: 1.7; }
+  .refnote { font-size: 11.5px; color: var(--ink3); margin-top: 10px; line-height: 1.7; }
+
+  /* 展開後那一列自己的「這個角色看得到什麼」／「這個人合計看得到什麼」。 */
+  .seen { font-size: 11.5px; color: var(--ink2); margin-top: 9px; padding: 7px 9px;
+          background: var(--g-bg); border-radius: 3px; line-height: 1.7; }
+  .seen b { color: var(--g); font-weight: 600; }
+
+  /* ══ Ａ 的另一半：篩選與搜尋。**在 #list 之外**，所以重畫清單不會動到它 ══ */
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  #bar input, #bar select {
+    font: inherit; font-size: 13.5px; padding: 6px 8px; border: 1px solid var(--ln);
+    border-radius: 3px; background: #fff; color: var(--ink); min-width: 0;
+  }
+  #q { flex: 1 1 8em; }
+  /* ⚠️ `padding-left` 是必要的，不是裝飾：篩選列少一顆控制項之後三顆剛好排滿一行，
+     這一格會直接貼到右邊那顆下拉上（實測截圖上擠在一起）。 */
+  #count { font-size: 12px; color: var(--ink3); flex: none; margin-left: auto; padding-left: 8px; }
+  #count.on { color: var(--warn); font-weight: 600; }
 
   /* dry-run 的結果面板。**它是這一頁存在的理由**，所以它不是一行小字。 */
   #panel { padding: 14px 16px; border-radius: 3px; font-size: 14px; margin: 14px 0; }
@@ -51,6 +131,22 @@
 <div class="brand"><img src="assets/logo-full.svg" alt="日商日本國土開發股份有限公司台灣分公司"></div>
 <h1 id="who" class="state">確認身分中…</h1>
 <div class="meta" id="meta"></div>
+
+<!-- Ｂ：角色 ↔ 頁面。整份由後端 `getAuthzList` 的 `rolePages` 填，這裡一格都不寫死。
+     預設收起來——它是**查閱用**的對照表，不是每次進來都要看的東西。 -->
+<details class="ref" id="refcard" hidden>
+  <summary id="refsum">角色看得到哪些頁</summary>
+  <div class="refbody" id="refbody"></div>
+</details>
+
+<!-- Ａ 的另一半：搜尋與篩選。刻意放在 `#list` **外面**——重畫清單時不會動到它，
+     使用者打到一半的搜尋字不會被抹掉。 -->
+<div id="bar" hidden>
+  <input id="q" type="search" placeholder="搜尋姓名或內部碼" autocomplete="off">
+  <select id="fst"></select>
+  <select id="frole"></select>
+  <span id="count"></span>
+</div>
 
 <div id="list"></div>
 
@@ -121,6 +217,17 @@ var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
 
 /** 後端送來的：欄名、值域、名冊。**一份都不在這裡寫死。** */
 var HDR = [], 角色值域 = [], 狀態值域 = [], 名冊 = [];
+/**
+ * 後端算好的「角色 ↔ 頁面」（`#117` 的 Ｂ）。形狀：
+ * `[{ role, label, pages:[{page,title}] }]`，**整份來自 `getAuthzList` 的 `rolePages`**。
+ *
+ * 🔴 **這一頁不自己從任何地方推導這張表。** 那不是潔癖：2026-09-17 有人用手寫的正則
+ *    去解析後端原始碼算過一次，`'admin,' + MESSAGING_ROLE_SPEC` 被切成 `'admin,'`
+ *    ⇒ 算出「那個角色一頁都看不到」，**而那個答案看起來完全合理**。
+ * ⚠️ 也**不讀** `tests/fixtures/action-roles.json`：那是測試夾具（由 gas 產、以 sha256 釘著），
+ *    讓正式頁面依賴它就是把「測試夾具」升格成「生產相依」。
+ */
+var 角色頁面 = [];
 /** 目前的草稿（資料列，不含表頭）。每一列都是 HDR.length 格。 */
 var 草稿 = [];
 /** 通過檢查的那一份草稿的字面（null ＝還沒檢查，或檢查後又被改過）。 */
@@ -185,19 +292,140 @@ function 面板(cls, html) {
  * 畫面
  * ══════════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════════════
+ * Ｂ：角色 ↔ 頁面（**只呈現後端算出來的，這裡不做任何推導**）
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/** 這個角色的那一筆；查不到回 null（**不編一個**）。 */
+function 角色資料(role) {
+  var hit = null;
+  角色頁面.forEach(function (x) { if (x.role === role) hit = x; });
+  return hit;
+}
+
+/**
+ * 角色的顯示名。有中文就「中文」，沒有就**原封不動顯示代號**。
+ * 🔴 退路刻意是「顯示代號」而不是空白：後端哪天多一個角色而中文沒跟上，
+ *    畫面要看得出那是一個真的角色，不是一格壞掉的版面。
+ * ⚠️ 保證「有中文」的不是這一行，是 gas 的 `tests/role-labels.test.js`
+ *    （值域與中文表雙向相等，少一格就紅）。這裡只保證**不會空白**。
+ */
+function 角色名(role) {
+  var d = 角色資料(role);
+  return (d && d.label) ? d.label : String(role || '');
+}
+
+/**
+ * 這幾個角色合起來看得到哪些頁 —— **各角色清單的聯集**。
+ *
+ * 🔴 「聯集 ＝ 後端真的會給的那一份」不是我假設的，是 gas 的
+ *    `tests/role-pages-union.test.js` 把角色值域的**每一個子集**都跑過一遍釘住的。
+ *    哪天守門不再是單調的（出現「A 和 B 一起持有反而不行」的規則），那條會紅，
+ *    修法是改成由後端算，不是在這裡加一條例外。
+ * ⚠️ 順序跟著 `角色頁面` 裡第一次出現的順序走，而那就是後端分流表的順序。
+ */
+function 聯集頁(roles) {
+  var 有 = {}, out = [];
+  (roles || []).forEach(function (role) {
+    var d = 角色資料(role);
+    if (!d) return;
+    d.pages.forEach(function (pg) {
+      if (有[pg.page]) return;
+      有[pg.page] = 1; out.push(pg);
+    });
+  });
+  return out;
+}
+
+/** 這一頁上「生效」的判準：狀態不是停用值。**與後端同一條**（只看狀態，不看日期）。 */
+function 生效(r, iStat) { return r[iStat] !== 狀態值域[1]; }
+
+/**
+ * 同一個人（同內部碼）身上**生效中**的角色。
+ * ⚠️ 只看狀態——後端算角色時也只看狀態（授予日／停用日是紀錄欄，不參與判斷，
+ *    一手依據：`rules/authz.js` 只在 `stat === STATUS_ACTIVE` 時才把角色記進去）。
+ *    這裡多看一個日期，畫面就會跟實際放行的結果分家，而且不會報錯。
+ */
+function 某人生效角色(code, iCode, iRole, iStat) {
+  var out = [];
+  草稿.forEach(function (r) {
+    if (r[iCode] !== code || !生效(r, iStat)) return;
+    if (out.indexOf(r[iRole]) < 0) out.push(r[iRole]);
+  });
+  return out;
+}
+
+function 畫對照表() {
+  if (!角色頁面.length) { el('refcard').hidden = true; return; }
+  el('refcard').hidden = false;
+  el('refsum').textContent = '角色看得到哪些頁（' + 角色頁面.length + ' 個角色）';
+  el('refbody').innerHTML = 角色頁面.map(function (d) {
+    return '<div class="refrow"><div class="rn">' + esc(d.label || d.role)
+      + '<span class="rc">' + esc(d.role) + '</span></div>'
+      + '<div class="rp">' + (d.pages.length
+          ? d.pages.length + ' 頁：' + d.pages.map(function (p) { return esc(p.title); }).join('、')
+          : '（這個角色目前沒有任何頁）') + '</div></div>';
+  }).join('')
+    + '<div class="refnote">一個人有多個角色時，看得到的是那幾個角色的<strong>聯集</strong>'
+    + '——每一列展開後會算給你看。<br>'
+    + '這張表由後端現算，跟「實際放不放得進去」是同一份判斷。</div>';
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+ * 畫面
+ * ══════════════════════════════════════════════════════════════════════ */
+
 function opt(值, 現值) {
   return '<option value="' + esc(值) + '"' + (值 === 現值 ? ' selected' : '') + '>' + esc(值) + '</option>';
 }
 
+/** Ｄ：停用日那顆鈕的字。**已經有值時要看得出是哪一天。** */
+function 停用日鈕(值) {
+  return 值 ? '停用日　' + esc(值) : '尚未設定停用日';
+}
+
+/**
+ * 🔴 **一列＝一行**（`#117` 的 Ａ）。展開後才是原本那幾個欄位。
+ *
+ * ⚠️ 展開／收合走 class，**不重畫**（見 `.row` 那段 CSS 的理由）。
+ *    所以這裡一次把全部列連同 `.det` 都畫出來、靠 CSS 藏起來——
+ *    「點開才建立節點」會讓每次展開都重建一次輸入欄位，而那正是會吃掉字的形狀。
+ */
 function render() {
   var iCode = 欄('內部碼'), iRole = 欄('角色'), iStat = 欄('狀態');
   var iFrom = 欄('授予日'), iTo = 欄('停用日'), iNote = 欄('備註'), iName = 欄('姓名');
   var html = '';
   草稿.forEach(function (r, n) {
     var 停 = r[iStat] === 狀態值域[1];
-    html += '<div class="row' + (停 ? ' dis' : '') + '" data-n="' + n + '">'
-      + '<div class="who">' + esc(r[iName] || '(未填姓名)')
-      + '<span class="code">' + esc(r[iCode]) + '</span></div>'
+    var 我的頁 = 聯集頁([r[iRole]]);
+    var 他的角色 = 某人生效角色(r[iCode], iCode, iRole, iStat);
+    var 他的頁 = 聯集頁(他的角色);
+    // 這一列自己看得到什麼；這個人（可能有好幾列）合計看得到什麼。
+    var 看得到 = '<div class="seen">這個角色看得到 <b>' + 我的頁.length + ' 頁</b>'
+      + (我的頁.length ? '：' + 我的頁.map(function (p) { return esc(p.title); }).join('、') : '')
+      + (他的角色.length > 1
+          ? '<br>這個人身上生效中的角色有 ' + 他的角色.length + ' 個（'
+            + 他的角色.map(function (x) { return esc(角色名(x)); }).join('、')
+            + '），合計看得到 <b>' + 他的頁.length + ' 頁</b>：'
+            + 他的頁.map(function (p) { return esc(p.title); }).join('、')
+          : '')
+      + (停 ? '<br>這一列的狀態是「' + esc(狀態值域[1]) + '」⇒ 它不會給這個人任何一頁。' : '')
+      + '</div>';
+
+    html += '<div class="row' + (停 ? ' dis' : '') + '" data-n="' + n + '"'
+      + ' data-name="' + esc(r[iName] || '') + '" data-code="' + esc(r[iCode] || '')
+      + '" data-role="' + esc(r[iRole] || '') + '" data-stat="' + esc(r[iStat] || '') + '">'
+      // 摺起來的那一行
+      + '<button class="sum" type="button" data-act="exp">'
+      + '<span class="caret">▶</span>'
+      + '<span class="who">' + esc(r[iName] || '(未填姓名)') + '</span>'
+      + '<span class="code">' + esc(r[iCode]) + '</span>'
+      + '<span class="tag' + (停 ? '' : ' g') + '">' + esc(角色名(r[iRole])) + '</span>'
+      + '<span class="sp"></span>'
+      + '<span class="pg">' + (停 ? esc(狀態值域[1]) : 我的頁.length + ' 頁') + '</span>'
+      + '</button>'
+      // 展開後：原本那幾個欄位，一格都沒少
+      + '<div class="det">'
       + '<div class="fld"><label>角色</label><select data-c="' + iRole + '">'
       + 角色值域.map(function (v) { return opt(v, r[iRole]); }).join('')
       // 🔴 值域外的值也要**看得見**，不可以靜靜被下拉選單改成第一個合法值。
@@ -209,11 +437,145 @@ function render() {
       + (狀態值域.indexOf(r[iStat]) < 0 ? opt(r[iStat], r[iStat]) : '')
       + '</select></div>'
       + '<div class="fld"><label>授予日</label><input data-c="' + iFrom + '" value="' + esc(r[iFrom]) + '"></div>'
-      + '<div class="fld"><label>停用日</label><input data-c="' + iTo + '" value="' + esc(r[iTo]) + '"></div>'
+      // Ｄ：停用日平常只是一顆鈕，按了才跳出下面那塊。
+      // 🔴 這顆鈕**不碰狀態欄**——「把狀態改成停用」與「填一個停用日」是兩件事（gas `#100`）。
+      + '<div class="fld"><label>停用日</label>'
+      + '<button type="button" class="dbtn' + (r[iTo] ? ' has' : '') + '" data-act="date">'
+      + 停用日鈕(r[iTo]) + '</button></div>'
+      + '<div class="dpop" hidden>'
+      + '<div class="lbl">選一個日期。⚠️ 這一格只是紀錄——要停掉一個人，是把上面的「狀態」'
+      + '改成「' + esc(狀態值域[1]) + '」。</div>'
+      + '<input type="date" data-c="' + iTo + '" value="' + esc(r[iTo]) + '">'
+      + '<div class="rowbtn"><button type="button" class="btn btn-sm btn-grey" data-act="dclr">清除</button>'
+      + '<button type="button" class="btn btn-sm btn-up" data-act="dok">收起來</button></div>'
+      + '</div>'
       + '<div class="fld"><label>備註</label><input data-c="' + iNote + '" value="' + esc(r[iNote]) + '"></div>'
-      + '</div>';
+      + 看得到
+      + '</div></div>';
   });
   el('list').innerHTML = html || '<div class="empty">名單是空的。</div>';
+  套用篩選();
+}
+
+/**
+ * Ａ 的另一半：搜尋與篩選。
+ *
+ * 🔴 **只藏，不刪。** 被藏起來的列**仍然在草稿裡、仍然會被存檔**——
+ *    篩選是看的方式，不是選取。所以一定要把「顯示 N／M」寫在畫面上：
+ *    少了那一格，他會以為自己在看整份名單。
+ * ⚠️ 走 class 切換，**不重畫**（重畫＝把正在打的字連同游標一起換掉）。
+ */
+function 套用篩選() {
+  var q = String(el('q').value || '').toLowerCase().replace(/^\s+|\s+$/g, '');
+  var st = el('fst').value, ro = el('frole').value;
+  var kids = el('list').children || [];
+  var 看得見 = 0, 全部 = 0;
+  for (var i = 0; i < kids.length; i++) {
+    var d = kids[i];
+    if (!d || !d.getAttribute || d.getAttribute('data-n') === null) continue;
+    全部++;
+    var hay = ((d.getAttribute('data-name') || '') + ' '
+             + (d.getAttribute('data-code') || '')).toLowerCase();
+    var ok = (!q || hay.indexOf(q) >= 0)
+      && (!st || d.getAttribute('data-stat') === st)
+      && (!ro || d.getAttribute('data-role') === ro);
+    if (ok) { d.classList.remove('hid'); 看得見++; } else { d.classList.add('hid'); }
+  }
+  排列();
+  var c = el('count');
+  var 有篩 = !!(q || st || ro);
+  c.textContent = 有篩 ? ('顯示 ' + 看得見 + '／' + 全部 + ' 列') : (全部 + ' 列');
+  // 🔴 有在篩的時候要看得出來——否則「我的名單只剩 3 列」會被當成事實。
+  c.className = 有篩 ? 'on' : '';
+}
+
+/**
+ * **依人分組**——同一個人的幾列永遠排在一起。
+ *
+ * ══ 2026-09-17：這裡本來有一顆「原順序／依人分組」的切換，擁有者看過兩種之後
+ *    拍板**只留依人分組**，切換連同另一種一起拿掉 ══════════════════════
+ * 🔴 **不是「把另一個選項藏起來」，是整顆控制項都不留。** 一個只剩一種值的下拉
+ *    佔著版面卻不會改變任何東西——而這張票的成因正是「畫面上東西太多、太長」，
+ *    留著它是往反方向走。
+ * ⚠️ 要改回可切換的話，**要連 UI 一起加回來**，不要只在這裡加一個參數然後沒有人能按到
+ *    （那會變成一條測得到、卻永遠不會被使用者走到的分支）。
+ *
+ * 🔴 **搬節點，不重畫。** `appendChild` 是把同一顆既有節點移位，
+ *    所以輸入框裡的字、游標、已經展開的狀態、以及 `data-n`（它才是草稿的索引）
+ *    全都原封不動。重畫一次就會把這些全部換掉，而那正是誤發過一次訊息的形狀。
+ * ⚠️ **排序只動看的順序，不動草稿的順序。** 存檔送出的仍然是 `草稿` 本身，
+ *    所以「畫面上的第 3 列」與「名單裡的第 3 列」**永遠**不是同一列——
+ *    這也是為什麼每一列都自己帶著 `data-n`，而不是靠它在畫面上的位置。
+ *    （切換還在的時候這句話只在分組模式成立；現在它無條件成立。）
+ */
+function 排列() {
+  var list = el('list');
+  if (!list.children || !list.querySelectorAll) return;
+  var 列 = [];
+  for (var i = 0; i < list.children.length; i++) {
+    var d = list.children[i];
+    if (d && d.getAttribute && d.getAttribute('data-n') !== null) 列.push(d);
+  }
+  if (!列.length) return;
+  列.forEach(function (d, i) { d.__i = i; });
+  列.sort(function (a, b) {
+    // 同一個人排在一起。鍵用**內部碼**不是姓名：姓名可能重複、也可能是空的，
+    // 而內部碼才是這張表認人的那一格（`feedback_position_is_not_identity`）。
+    var ka = a.getAttribute('data-code') || '', kb = b.getAttribute('data-code') || '';
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return a.__i - b.__i;   // 同一個人的幾列之間維持原順序（穩定）
+  });
+  列.forEach(function (d) { list.appendChild(d); });
+}
+
+/**
+ * 從某個節點往上找到它屬於哪一列（`data-n`）。
+ *
+ * 🔴 **一路往上走，不是「往上兩層」。** 舊版寫的是
+ *      `var box = f.parentNode && f.parentNode.parentNode;`
+ *    ——那句把「欄位剛好在列的第二層」寫成了程式的前提。
+ *    `#117` 把一列改成「摺起來那一行 ＋ 展開的細節」之後，欄位變成第三層，
+ *    而那句會取到 `.det` ⇒ `data-n` 是 null ⇒ **直接 return**
+ *    ⇒ 草稿不會被更新、而且**也不會變髒**。
+ * 🔴 那個壞法的長相是：他改了一格、畫面停在綠色的「七道都過」、
+ *    按下存檔送出的是**沒有他那一格的舊草稿**——零錯誤訊息。
+ * ⇒ 改成往上走到底，就再也不依賴巢狀有幾層。
+ */
+function 哪一列(node) {
+  var el0 = node;
+  while (el0) {
+    if (el0.getAttribute && el0.getAttribute('data-n') !== null) return el0;
+    el0 = el0.parentNode;
+  }
+  return null;
+}
+
+/**
+ * 這一列裡所有綁在同一欄的輸入框都跟著同步（停用日有兩個入口：日期鈕與 `type=date`）。
+ *
+ * 🔴 **更新鈕面那一段只准在「改的是停用日那一欄」時跑。**（2026-09-17 修）
+ *    第一版沒有問是哪一欄，而 `接上監聽` 對**每一格**輸入都呼叫這支
+ *    ⇒ 在備註打字會把鈕面改成備註的內容、清空備註會把 `has` 樣式拔掉
+ *    （「已設」與「沒設」在畫面上變成一樣）。
+ * 🔴 **而這一顆特別惡性**：不是 ISO 形狀的停用日（`2026/03/15`、`未定`）
+ *    **全頁只有鈕面看得到它**——`<input type="date">` 吃不下那種值，顯示成空白。
+ *    鈕面一被蓋掉，那個值在畫面上再也顯示不出來，而草稿裡還留著
+ *    ⇒ 使用者看到「尚未設定停用日」，於是去設一個，把原值覆蓋掉。**零錯誤訊息。**
+ * ⚠️ 它躲過了所有既有的尺：行為量測看的是 `JSON.stringify(草稿)`（草稿確實沒動，
+ *    壞的是呈現），而單元測試的假 DOM `querySelector` 回 null（那四行從沒被執行過）。
+ *    釘住它的是 `tests/authz-page-wiring.test.js` 裡那條**自備「查得到子元素」假列**的案例。
+ */
+function 同步同欄(列, c, 值) {
+  if (!列 || !列.querySelectorAll) return;
+  var all = 列.querySelectorAll('[data-c="' + c + '"]');
+  for (var i = 0; i < all.length; i++) { if (all[i].value !== 值) all[i].value = 值; }
+  // 🔴 這一問就是上面整段在講的那件事。拿掉它，改任何一欄都會蓋掉鈕面。
+  if (Number(c) !== 欄('停用日')) return;
+  var b = 列.querySelector('[data-act="date"]');
+  if (b) {
+    b.textContent = 停用日鈕(值);
+    if (值) b.classList.add('has'); else b.classList.remove('has');
+  }
 }
 
 /**
@@ -228,12 +590,53 @@ function 接上監聽() {
       if (!f || f.getAttribute == null) return;
       var c = f.getAttribute('data-c');
       if (c === null) return;
-      var box = f.parentNode && f.parentNode.parentNode;
+      var box = 哪一列(f);
       var n = box && box.getAttribute ? box.getAttribute('data-n') : null;
       if (n === null) return;
       草稿[Number(n)][Number(c)] = f.value;
+      // 停用日有兩個入口指向同一格，改了一個另一個要跟著（否則畫面會顯示兩個不同的值）。
+      同步同欄(box, c, f.value);
       髒();
     });
+  });
+
+  /**
+   * 展開／收合、以及 Ｄ 的停用日那顆鈕。
+   *
+   * ⚠️ 這幾件事**一律用 class／hidden 切換，不重畫清單**。
+   *    重畫會把使用者正在打的字、游標位置、以及其他已經展開的列一起換掉
+   *    （`feedback_swr_repaint_eats_user_input`：這一頁整頁都是輸入欄位）。
+   * 🔴 這裡**一格資料都不動**——展開、收合、開關日期面板都不會改到草稿，
+   *    所以也不會（也不可以）把檢查結果弄髒。
+   */
+  el('list').addEventListener('click', function (e) {
+    var t = e.target;
+    // 點在 <button> 裡的 <span> 上時，target 是那個 span ⇒ 往上找帶 data-act 的那一顆。
+    while (t && (!t.getAttribute || t.getAttribute('data-act') === null)) {
+      if (t === el('list')) return;
+      t = t.parentNode;
+    }
+    if (!t || !t.getAttribute) return;
+    var act = t.getAttribute('data-act');
+    var 列 = 哪一列(t);
+    if (!列) return;
+    if (act === 'exp') { 列.classList.toggle('open'); return; }
+
+    var pop = 列.querySelector ? 列.querySelector('.dpop') : null;
+    if (!pop) return;
+    if (act === 'date') { pop.hidden = !pop.hidden; return; }
+    if (act === 'dok') { pop.hidden = true; return; }
+    if (act === 'dclr') {
+      // 清除＝把那一格變成空字串。**走跟使用者自己刪掉一樣的路**：
+      // 寫草稿 → 同步畫面 → 變髒，一步都不少。
+      var n = 列.getAttribute('data-n');
+      var d = 列.querySelector('.dpop [data-c]');
+      if (n === null || !d) return;
+      var c = d.getAttribute('data-c');
+      草稿[Number(n)][Number(c)] = '';
+      同步同欄(列, c, '');
+      髒();
+    }
   });
 }
 
@@ -258,6 +661,35 @@ function 新增() {
   el('msg').textContent = '';
   render();
   髒();
+  帶他去看(草稿.length - 1);
+}
+
+/**
+ * 剛加進來的那一列，**要讓他看得到**。
+ *
+ * ══ 為何需要這一段（2026-09-17，拿掉「原順序」的直接後果）════════════
+ *
+ * 清單現在**永遠依人分組**（照內部碼排），所以新加的一列不會出現在最下面，
+ * 而是被排進那個人所在的位置——50 列的時候那通常在畫面外。
+ * 更糟的是**目前正在篩選**的話，新列可能直接被篩掉 ⇒ 他按了「加進草稿」，
+ * 畫面上**什麼事都沒發生**，而那一列其實已經在草稿裡了。
+ * 🔴 這兩種都不會報錯，看起來就像「按鈕壞了」——而他的下一個動作很可能是再按一次。
+ *
+ * ⚠️ **只動看的東西，一格資料都不碰**：清篩選、捲過去、加一個記號。
+ *    篩選本來就是「看的方式」（見 `套用篩選` 檔頭），清掉它不會改變存檔送出的內容。
+ * ⚠️ 清篩選之後走 `套用篩選()`，**不是 `render()`**——重畫會把其他列正在打的字換掉。
+ */
+function 帶他去看(n) {
+  var 那一列 = el('list').querySelector
+    ? el('list').querySelector('[data-n="' + n + '"]') : null;
+  if (!那一列) return;
+  // 被目前的篩選擋住的話才清篩選——沒擋住就不要動他設好的條件。
+  if (那一列.className.indexOf('hid') >= 0) {
+    el('q').value = ''; el('fst').value = ''; el('frole').value = '';
+    套用篩選();
+  }
+  if (那一列.classList) 那一列.classList.add('new');
+  if (那一列.scrollIntoView) 那一列.scrollIntoView({ block: 'center' });
 }
 
 function 檢查() {
@@ -354,12 +786,25 @@ function load(面板訊息) {
     角色值域 = r.assignableRoles || [];
     狀態值域 = r.statusValues || [];
     名冊 = r.roster || [];
+    // Ｂ：角色 ↔ 頁面。**後端沒送就是沒有**——不在這裡湊一份出來。
+    // ⚠️ 後端還沒上這一格時，`角色頁面` 是空陣列 ⇒ 對照表整張收起來、
+    //    角色顯示退回原代號、頁數那一格顯示 0。難看，但不會說假話。
+    角色頁面 = r.rolePages || [];
     草稿 = (r.rows || []).map(function (row) { return row.slice(); });
     驗過的 = null;
 
     el('addcard').hidden = false;
     el('acts').hidden = false;
+    el('bar').hidden = false;
     el('save').disabled = true;
+    畫對照表();
+    // 篩選的值域也來自後端那一發，**不寫死**。第一個選項是「全部」（空字串）。
+    el('fst').innerHTML = '<option value="">全部狀態</option>'
+      + 狀態值域.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('');
+    el('frole').innerHTML = '<option value="">全部角色</option>'
+      + 角色值域.map(function (v) {
+          return '<option value="' + esc(v) + '">' + esc(角色名(v)) + '</option>';
+        }).join('');
     el('newcode').innerHTML = '<option value="">（選一個人）</option>'
       + 名冊.map(function (p) {
         return '<option value="' + esc(p.code) + '">' + esc(p.name || '(未填姓名)') + '</option>';
@@ -388,6 +833,12 @@ function load(面板訊息) {
 
 function start() {
   el('add').addEventListener('click', 新增);
+  // 篩選列在 `#list` 外面 ⇒ 重畫清單不會動到它，他打到一半的搜尋字不會被抹掉。
+  ['input', 'change'].forEach(function (ev) {
+    el('q').addEventListener(ev, 套用篩選);
+    el('fst').addEventListener(ev, 套用篩選);
+    el('frole').addEventListener(ev, 套用篩選);
+  });
   el('check').addEventListener('click', 檢查);
   el('save').addEventListener('click', 存檔);
   接上監聽();
