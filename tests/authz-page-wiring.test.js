@@ -30,15 +30,32 @@ const ROOT = path.join(__dirname, '..');
  * ══════════════════════════════════════════════════════════════════════ */
 
 const HDR = ['內部碼', '角色', '狀態', '授予日', '停用日', '備註', '姓名'];
-const 甲 = 'JDC-BBBBBB', 乙 = 'JDC-CCCCCC', 丙 = 'JDC-DDDDDD';
+const 甲 = 'JDC-BBBBBB', 乙 = 'JDC-CCCCCC', 丙 = 'JDC-DDDDDD', 丁 = 'JDC-EEEEEE';
+/**
+ * ⬛ **名冊的部門刻意這樣配**（`#60`，2026-09-18）——三件事缺一，分組那一組尺就瞎了：
+ *   ⒜ **`測試單位一` 有兩個人，而且他們在名冊裡不相鄰**（甲…丙）
+ *      ⇒ 分組真的得搬動 `丙`。兩人相鄰的話，分不分組畫出來一模一樣。
+ *   ⒝ **有一個人的部門是空的**（丁）⇒ 「沒有單位的人不准消失」量得到。
+ *      全員都有部門的夾具對那一條零鑑別力。
+ *   ⒞ 名冊順序照後端（按內部碼遞增）⇒ 平的清單與分組後的清單**順序不同**。
+ */
+const 單位 = { [甲]: '測試單位一', [乙]: '測試單位二', [丙]: '測試單位一', [丁]: '' };
 const 名單回應 = () => ({
   ok: true, who: '測試甲', header: HDR.slice(),
   rows: [
     [甲, 'admin', '有效', '2026-09-01', '', '', '測試甲'],
     [乙, 'hr', '有效', '2026-09-01', '', '', '測試乙'],
   ],
-  roster: [{ code: 甲, name: '測試甲' }, { code: 乙, name: '測試乙' }, { code: 丙, name: '測試丙' }],
+  roster: [
+    { code: 甲, name: '測試甲', unit: 單位[甲] },
+    { code: 乙, name: '測試乙', unit: 單位[乙] },
+    { code: 丙, name: '測試丙', unit: 單位[丙] },
+    { code: 丁, name: '測試丁', unit: 單位[丁] },
+  ],
   rosterCollisions: [],
+  // 🔴 後端 gas `#184` 起一定會送這一格（線上 `4710156` 已部署）。
+  //    **夾具跟著送**，否則這裡量到的「不分組」是夾具造成的，不是產品。
+  rosterUnitColumn: true,
   assignableRoles: ['admin', 'hr', 'activity', 'hrstats', 'messaging'],
   statusValues: ['有效', '停用'],
   current: { pass: true, rowCount: 2, adminCount: 1 },
@@ -666,5 +683,162 @@ test('🔴 在備註打字，不可以把停用日那顆鈕的字蓋掉（非 IS
   assert.equal(r.ctx.草稿[0][iTo], 清空前的停用日,
     '🔴 清空備註那一發改到了停用日那一格（草稿）');
   assert.equal(r.ctx.草稿[0][iNote], '', '⬛ 零點：備註那一格確實被清成空字串了（這一步真的跑到）');
+  r.cleanup();
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+ * `#60`：人員下拉按單位分組——**而且一個人都不可以少**
+ *
+ * 🔴 這一節守的壞法是最安靜的那種：分組寫錯時畫面上是一份**看起來完全正常**的
+ *    清單，只是他要找的那個人選不到。沒有錯誤訊息、沒有紅字、數不出少了誰。
+ * ⇒ 所以判準不是「有沒有 optgroup」，是**人數守恆**與**value 逐字不變**。
+ *
+ * ⚠️ 量的是 `#newcode` 的 innerHTML 字串本身——那正是頁面真的塞進 DOM 的東西。
+ *    這個假 DOM 不會把它剖析成節點，所以下面用字串取法，**而且先證明取法有鑑別力**
+ *    （零點那一條：平的清單要量得出 0 個 optgroup、分組要量得出 2 個）。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/** `#newcode` 裡每一個 `<option>`（含最前面那顆空值的「（選一個人）」）。 */
+const 選項們 = (html) => [...String(html).matchAll(/<option value="([^"]*)">([^<]*)<\/option>/g)]
+  .map((m) => ({ 值: m[1], 字: m[2] }));
+/** 人：**排除空值那一顆**。人數守恆數的是這個。 */
+const 人們 = (html) => 選項們(html).filter((o) => o.值 !== '');
+/** 每一組的名字，**照它們在 innerHTML 裡出現的順序**。 */
+const 組們 = (html) => [...String(html).matchAll(/<optgroup label="([^"]*)">/g)].map((m) => m[1]);
+
+test('⬛ 零點：量法分得出「平的」與「分組的」——先證明這把尺不是永遠的綠燈', async () => {
+  const 平 = run({ 回應: { getAuthzList: Object.assign(名單回應(), { rosterUnitColumn: false }) } });
+  await settle();
+  const 分 = run({});
+  await settle();
+  assert.equal(組們(平.els.newcode.innerHTML).length, 0,
+    '⬛ 不分組的那一份量到了 optgroup ⇒ 取法壞掉，下面每一條都不算數');
+  assert.equal(組們(分.els.newcode.innerHTML).length, 3,
+    '⬛ 分組的那一份量到 ' + 組們(分.els.newcode.innerHTML).length
+    + ' 組（夾具是「測試單位一×2、測試單位二×1、沒填×1」⇒ 應該是 2 個具名組 ＋ 未填那一組＝3）');
+  平.cleanup(); 分.cleanup();
+});
+
+test('🔴 人數守恆：分組前後，下拉裡選得到的人數一模一樣', async () => {
+  const 平 = run({ 回應: { getAuthzList: Object.assign(名單回應(), { rosterUnitColumn: false }) } });
+  await settle();
+  const 分 = run({});
+  await settle();
+  const 名冊人數 = 名單回應().roster.length;
+  const a = 人們(平.els.newcode.innerHTML), b = 人們(分.els.newcode.innerHTML);
+  assert.equal(a.length, 名冊人數, '⬛ 前置：平的清單本來就該有 ' + 名冊人數 + ' 個人');
+  assert.equal(b.length, 名冊人數,
+    '🔴 分組之後只剩 ' + b.length + ' 個人（名冊 ' + 名冊人數 + ' 個）'
+    + ' ⇒ 有人在下拉裡選不到了，而畫面上看不出來。少的是：'
+    + JSON.stringify(a.map((o) => o.值).filter((v) => b.every((o) => o.值 !== v))));
+  assert.deepStrictEqual(b.map((o) => o.值).slice().sort(), a.map((o) => o.值).slice().sort(),
+    '🔴 分組前後選得到的「那一群人」不是同一群');
+  平.cleanup(); 分.cleanup();
+});
+
+test('🔴 送出的 value 一個字都不變——分組是純呈現，值仍然是內部碼', async () => {
+  const r = run({});
+  await settle();
+  const 期望 = 名單回應().roster;
+  const 得到 = 人們(r.els.newcode.innerHTML);
+  期望.forEach((p) => {
+    const hit = 得到.filter((o) => o.值 === p.code);
+    assert.equal(hit.length, 1,
+      '🔴 ' + p.code + ' 在下拉裡出現 ' + hit.length + ' 次（該是 1 次）'
+      + ' ⇒ value 被動過（分組不可以改送出去的值）');
+    assert.equal(hit[0].字, p.name, '🔴 ' + p.code + ' 的顯示字被換成了「' + hit[0].字 + '」');
+  });
+  // 反向：沒有任何一顆 option 的 value 變成單位名或姓名。
+  得到.forEach((o) => {
+    assert.equal(期望.some((p) => p.code === o.值), true,
+      '🔴 下拉裡多出一個不在名冊裡的 value：' + JSON.stringify(o.值));
+  });
+  r.cleanup();
+});
+
+test('🔴 沒填部門的人不准消失——他落在「（未填部門）」那一組，而且那一組在最後', async () => {
+  const r = run({});
+  await settle();
+  const html = r.els.newcode.innerHTML;
+  const g = 組們(html);
+  assert.equal(g[g.length - 1], '（未填部門）',
+    '🔴 沒填部門的那一組不在最後（現在的組序是 ' + JSON.stringify(g) + '）');
+  // 他真的在那一組裡面，不是被塞在別組或掉在外面。
+  const 尾 = html.slice(html.lastIndexOf('<optgroup label="（未填部門）">'));
+  assert.equal(人們(尾).map((o) => o.值).indexOf(丁) >= 0, true,
+    '🔴 名冊部門欄空白的那個人不在「（未填部門）」組裡 ⇒ 他去哪了？'
+    + ' 整份下拉是：' + html);
+  r.cleanup();
+});
+
+test('🔴 分組真的發生了：同一個部門的兩個人被排在一起（就算名冊裡不相鄰）', async () => {
+  const r = run({});
+  await settle();
+  const html = r.els.newcode.innerHTML;
+  assert.deepStrictEqual(組們(html), ['測試單位一', '測試單位二', '（未填部門）'],
+    '🔴 組序不是「各組第一個人在名冊裡出現的順序」＋未填那一組墊底');
+  const 序 = 人們(html).map((o) => o.值);
+  assert.deepStrictEqual(序, [甲, 丙, 乙, 丁],
+    '🔴 分組後的人序不對。名冊原順序是 ' + JSON.stringify(名單回應().roster.map((p) => p.code))
+    + ' ⇒ 沒有分組的話會是那一串（丙 沒有被搬到 甲 旁邊）');
+  r.cleanup();
+});
+
+test('🔴 rosterUnitColumn:false ⇒ 退回平的清單，而且在畫面上講出來（不可以靜靜不分組）', async () => {
+  const r = run({ 回應: { getAuthzList: Object.assign(名單回應(), { rosterUnitColumn: false }) } });
+  await settle();
+  assert.equal(組們(r.els.newcode.innerHTML).length, 0, '名冊沒有部門欄卻還是分了組');
+  assert.equal(人們(r.els.newcode.innerHTML).length, 名單回應().roster.length,
+    '🔴 退回平的清單的時候人少了');
+  assert.match(r.els.foot.textContent, /員工名冊沒有「部門」欄/,
+    '🔴 名冊沒有部門欄 ⇒ 分組不會成立，而畫面上一個字都沒講（現在是 '
+    + JSON.stringify(r.els.foot.textContent) + '）');
+  r.cleanup();
+});
+
+test('🔴 後端沒送 rosterUnitColumn（舊版）⇒ 也退回平的清單，但講的是另一句話', async () => {
+  const 回 = 名單回應();
+  delete 回.rosterUnitColumn;
+  const r = run({ 回應: { getAuthzList: 回 } });
+  await settle();
+  assert.equal(組們(r.els.newcode.innerHTML).length, 0, '後端沒說有部門欄，這裡卻自己分了組');
+  assert.match(r.els.foot.textContent, /可能還是舊版/,
+    '🔴 「名冊沒有部門欄」與「後端還沒送這一格」處置不同（補欄 vs 部署），'
+    + ' 畫面上要分得出來。現在是 ' + JSON.stringify(r.els.foot.textContent));
+  // ⚠️ 這兩句話的差別很細，所以判準用的是**兩邊各自獨有**的片語，不是「有沒有部門兩個字」
+  //    ——後者在兩句話裡都出現得到，那種寫法會是一盞永遠的燈。
+  assert.equal(/員工名冊沒有「部門」欄/.test(r.els.foot.textContent), false,
+    '🔴 後端沒回報，卻對他說「名冊沒有部門欄」——那是一句我們不知道的話');
+  r.cleanup();
+});
+
+test('🔴 全名冊都沒填部門 ⇒ 全部落在「（未填部門）」，不是靜靜擠成一坨看不出原因', async () => {
+  const 回 = 名單回應();
+  回.roster = 回.roster.map((p) => ({ code: p.code, name: p.name, unit: '' }));
+  const r = run({ 回應: { getAuthzList: 回 } });
+  await settle();
+  assert.deepStrictEqual(組們(r.els.newcode.innerHTML), ['（未填部門）'],
+    '🔴 大家都沒填部門的時候，那一組要看得出是「未填」');
+  assert.equal(人們(r.els.newcode.innerHTML).length, 回.roster.length, '🔴 人數守恆破了');
+  r.cleanup();
+});
+
+test('🔴 部門只有空白字元 ⇒ 算沒填（不可以長出一個名字是空白的組）', async () => {
+  const 回 = 名單回應();
+  回.roster = 回.roster.map((p, i) => ({ code: p.code, name: p.name, unit: i === 0 ? '   ' : p.unit }));
+  const r = run({ 回應: { getAuthzList: 回 } });
+  await settle();
+  assert.equal(組們(r.els.newcode.innerHTML).indexOf('   '), -1,
+    '🔴 長出了一個名字是空白的組：' + JSON.stringify(組們(r.els.newcode.innerHTML)));
+  assert.equal(人們(r.els.newcode.innerHTML).length, 回.roster.length, '🔴 人數守恆破了');
+  r.cleanup();
+});
+
+test('⬛ 對照：分組不會動到「角色」那個下拉（它本來就沒有組，也不該長出組）', async () => {
+  const r = run({});
+  await settle();
+  assert.equal(組們(r.els.newrole.innerHTML).length, 0, '角色下拉被分了組');
+  assert.equal(組們(r.els.fst.innerHTML).length, 0, '狀態篩選被分了組');
+  assert.equal(組們(r.els.frole.innerHTML).length, 0, '角色篩選被分了組');
   r.cleanup();
 });

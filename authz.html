@@ -435,6 +435,63 @@ function opt(值, 現值) {
   return '<option value="' + esc(值) + '"' + (值 === 現值 ? ' selected' : '') + '>' + esc(值) + '</option>';
 }
 
+/** 沒有部門的人落腳的那一組。**名字裡的「未填」是講給人看的**：
+ *  他們不是不見了，是名冊那一格空的。⬛ 這一組永遠排在具名的組後面。 */
+var 未填部門組 = '（未填部門）';
+
+/**
+ * 人員下拉（`#newcode`）的內容。**純呈現**——`value` 仍然是內部碼，一個字都不變（`#60`）。
+ *
+ * 🔴 **人數守恆是這支唯一不能破的約束**：`名冊` 裡有幾個人，吐出來就有幾個
+ *    `<option>`（不含最前面那顆「（選一個人）」）。
+ *    ⬛ **寫法本身就是那個保證**：這裡走的是**分割**（每個人算出自己的組、丟進那一組），
+ *    不是「把有部門的挑出來畫」。後者漏掉的那幾個會靜靜地不見——畫面上是一份看起來
+ *    完全正常的清單，而他要找的那個人就是選不到，零錯誤訊息。
+ *
+ * 🔴 **`分組` 是後端說的，不是這裡推的。** 它來自 `getAuthzList` 的 `rosterUnitColumn`
+ *    （gas `#184`）＝「員工名冊到底有沒有『部門』那一欄」。
+ *    ⚠️ **不可以改成「看看有沒有人帶得出單位」去猜**：那會把「名冊沒有那一欄」
+ *    與「大家的部門真的都是空的」算成同一件事，而這兩件的處置完全不同
+ *    （一個要去補欄，一個要去補值）。
+ *
+ * ⚠️ **組之間的順序＝各組第一個人在 `名冊` 裡出現的順序**，組內維持 `名冊` 的原順序。
+ *    兩者都不是這裡發明的規則：`名冊` 由後端按內部碼排好（gas `authzRosterNames_`），
+ *    這支一格都沒有重排。
+ *    🔴 **刻意不去讀 `getUnitsAndNames` 的 `unitGroups`（總公司／工地）**：那是**另一支端點**
+ *    的東西、不在這一發回應裡。把它拉進來＝這一頁多一個資料來源，而那一份會跟名冊
+ *    各自老化（名冊新增一個單位、那一份還沒更新 ⇒ 那一組的人靜靜掉進「未填」）。
+ *    要改成那種排法是另一個決定。
+ *
+ * @param {Array<{code:string,name:string,unit:string}>} 名冊 後端 `roster` 原樣
+ * @param {boolean} 分組 `false` ⇒ 退回平的清單（逐字等於 `#60` 之前的樣子）
+ * @returns {string} `#newcode` 的 innerHTML
+ */
+function 人員下拉HTML(名冊, 分組) {
+  var 有這組 = function (o, g) { return Object.prototype.hasOwnProperty.call(o, g); };
+  var 一個 = function (p) {
+    return '<option value="' + esc(p.code) + '">' + esc(p.name || '(未填姓名)') + '</option>';
+  };
+  var 首 = '<option value="">（選一個人）</option>';
+  var 清單 = 名冊 || [];
+  if (!分組) return 首 + 清單.map(一個).join('');
+
+  var 桶 = {}, 出現順序 = [];
+  清單.forEach(function (p) {
+    // 前後空白算沒填——留著的話會長出一個名字是空白的組。
+    var g = String((p && p.unit) || '').replace(/^\s+|\s+$/g, '') || 未填部門組;
+    if (!有這組(桶, g)) { 桶[g] = []; 出現順序.push(g); }
+    桶[g].push(p);
+  });
+  // ⚠️ 不用 `sort` 把未填那一組推到最後——那要依賴排序穩定性才能保住組序。
+  //    直接重組：具名的照出現順序，未填的（如果有人）接在後面。
+  var 組序 = 出現順序.filter(function (g) { return g !== 未填部門組; });
+  if (有這組(桶, 未填部門組)) 組序.push(未填部門組);
+
+  return 首 + 組序.map(function (g) {
+    return '<optgroup label="' + esc(g) + '">' + 桶[g].map(一個).join('') + '</optgroup>';
+  }).join('');
+}
+
 /** Ｄ：停用日那顆鈕的字。**已經有值時要看得出是哪一天。** */
 function 停用日鈕(值) {
   return 值 ? '停用日　' + esc(值) : '尚未設定停用日';
@@ -869,10 +926,10 @@ function load(面板訊息) {
       + 角色值域.map(function (v) {
           return '<option value="' + esc(v) + '">' + esc(角色名(v)) + '</option>';
         }).join('');
-    el('newcode').innerHTML = '<option value="">（選一個人）</option>'
-      + 名冊.map(function (p) {
-        return '<option value="' + esc(p.code) + '">' + esc(p.name || '(未填姓名)') + '</option>';
-      }).join('');
+    // 🔴 **分組成不成立由後端那一格決定**（`rosterUnitColumn`，gas `#184`），
+    //    不是這裡看資料猜的。`=== true` 是刻意的：後端沒送這一格（舊版）時
+    //    退回平的清單＝逐字等於 `#60` 之前的樣子，而不是替它編一個答案。
+    el('newcode').innerHTML = 人員下拉HTML(名冊, r.rosterUnitColumn === true);
     el('newrole').innerHTML = 角色值域.map(function (v) { return opt(v, 角色值域[0]); }).join('');
 
     // 🔴 **現況過不過，一進來就講。** 名單今天是壞的時候，他要先知道自己在修什麼；
@@ -888,10 +945,22 @@ function load(面板訊息) {
     render();
     // 🔴 名冊有碰撞（同一個內部碼出現兩次）時**要講**：那幾個人在上面的下拉裡選不到，
     //    而「選不到」與「這個人沒有內部碼」的處置完全不同。
-    el('foot').textContent = (r.rosterCollisions && r.rosterCollisions.length)
-      ? ('⚠️ 員工名冊有 ' + r.rosterCollisions.length
-         + ' 個重複的內部碼，那幾位在上面的清單裡選不到，要先請人把名冊修好。')
-      : '';
+    // 🔴 **分組沒有成立的時候要講，而且兩個原因要分得出來**（`#60`）：
+    //    「名冊沒有部門欄」（去補一欄）與「後端還沒送這一格」（去部署）處置完全不同，
+    //    而兩者在畫面上長得一模一樣——都是一份平的清單。
+    //    ⚠️ 靜靜地不分組＝後端已經知道分組不會成立、而他看不出來，等於沒講。
+    var 腳註 = [];
+    if (r.rosterCollisions && r.rosterCollisions.length) {
+      腳註.push('⚠️ 員工名冊有 ' + r.rosterCollisions.length
+        + ' 個重複的內部碼，那幾位在上面的清單裡選不到，要先請人把名冊修好。');
+    }
+    if (r.rosterUnitColumn === false) {
+      腳註.push('⚠️ 員工名冊沒有「部門」欄 ⇒ 上面的人員清單暫時不分組（是平的一整串）。');
+    } else if (typeof r.rosterUnitColumn !== 'boolean') {
+      腳註.push('⚠️ 這一發沒有回報名冊有沒有「部門」欄（後端可能還是舊版）'
+        + ' ⇒ 上面的人員清單暫時不分組。');
+    }
+    el('foot').textContent = 腳註.join('　');
   });
 }
 
