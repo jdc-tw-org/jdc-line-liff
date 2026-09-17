@@ -1258,7 +1258,23 @@ test('🔴 參數走 POST body，網址上一個都不留（她寫的公告不�
   await open(page, {});
   await page.locator('#wf-tpl').fill('中'.repeat(1500));
   await page.locator('#btn-save').click();
-  await expect.poll(() => reqs.length).toBeGreaterThan(0);
+  // 🔴 **等的是「按下存檔之後送出的那一發」，不是「有請求了」。**
+  //    `open()` 開頁時已經送過幾發 ⇒ `reqs.length > 0` 在點擊之前就成立，
+  //    等於沒有等：下面的斷言撞上的是開頁那幾發，存檔那一發還在路上。
+  //    CI 為此紅過一次（body 實際 **992**＝開頁那一發，預期 **14,571**＝存檔那一發），
+  //    **同一顆 commit 重跑就綠**。
+  //    flaky 的成本不在它偶爾紅，在於**它讓紅燈失去意義**——下一個人的第一反應
+  //    會是「又來了，重跑」，**而真的抓到東西的那一次長得跟它一模一樣**。
+  //
+  // ⚠️ `action` 要用**和替身同一種讀法**取（POST 讀 body、其餘讀網址），不能只讀 body：
+  //    只讀 body 的話，「參數搬回網址上」這個**本條要防的回歸**會讓目標那一發認不出來，
+  //    於是死在「等不到」而不是死在下面那句說得出原因的 `還在用 GET`。
+  const actionOf = (r) => (r.method === 'POST'
+    ? new URLSearchParams(r.body)
+    : new URL(r.url).searchParams).get('action');
+  await expect.poll(() => reqs.filter((r) => actionOf(r) === 'saveWelfareTemplate').length,
+    { message: '按下存檔之後沒有等到 action=saveWelfareTemplate 那一發' })
+    .toBeGreaterThan(0);
 
   const 壞的 = [];
   reqs.forEach((r) => {

@@ -20,7 +20,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const OUT = process.argv[2] || path.join(require('os').tmpdir(), 'msg-ui');
+const outdir = require('./outdir.js');
+/* 預設輸出目錄帶「這棵工作樹」的指紋，assets 連結每次都驗指向——理由見 outdir.js（#128）。 */
+const REPO = outdir.repoRootOf(__dirname);
+const OUT = process.argv[2] || outdir.manualOutDir('msg-ui', REPO);
 const GAS = process.argv[3] ||
   path.join(__dirname, '..', '..', '..', 'jdc-line-hub', 'hub', 'gateway.js');
 
@@ -134,10 +137,11 @@ html = html.replace('<head>', '<head>\n' + stub);
 
 fs.mkdirSync(OUT, { recursive: true });
 fs.writeFileSync(path.join(OUT, 'messages-test.html'), html);
-const link = path.join(OUT, 'assets');
-if (!fs.existsSync(link)) fs.symlinkSync(path.join(__dirname, '..', '..', 'assets'), link, 'dir');
+const assets = outdir.linkAssets(OUT, REPO);
 
 console.log('測試頁：' + path.join(OUT, 'messages-test.html'));
+/* 把「這一頁配的是誰的 assets」印到眼前：#128 的病灶就是這件事沒有人看得見。 */
+console.log('assets → ' + assets.target + (assets.reused ? '（沿用既有連結，已驗證是本工作樹）' : ''));
 console.log('批次 ' + BATCHES.length + ' 筆、列 ' + rows.length + ' 筆');
 console.log('跑法：cd ' + OUT + ' && python3 -m http.server 8897');
 console.log('     開 http://localhost:8897/messages-test.html?t=dummy');
