@@ -66,13 +66,28 @@ function fakeEl(id) {
   return e;
 }
 
-/** 頁面把欄位的座標寫在 `data-n`（第幾列）與 `data-c`（第幾欄）上，這裡照樣模擬。 */
+/**
+ * 頁面把欄位的座標寫在 `data-n`（第幾列）與 `data-c`（第幾欄）上，這裡照樣模擬。
+ *
+ * 🔴 **巢狀深度要跟真的那一頁一樣，不可以圖方便少包一層。**（`#117`，2026-09-17）
+ *    真實結構是 `.row[data-n] > .det > .fld > 欄位` ⇒ 欄位在第**三**層。
+ *    這個替身原本只包兩層，而頁面舊版的取法是寫死的
+ *    `f.parentNode.parentNode` ——兩者剛好對上 ⇒ 這一檔全綠。
+ *    `#117` 把一列改成「摺起來那一行 ＋ 展開的細節」之後深度變成三層，
+ *    **舊取法會取到 `.det`、拿不到 `data-n`、直接 return**
+ *    ⇒ 使用者改了一格而草稿沒更新、也沒變髒，畫面停在綠色的「七道都過」，
+ *      按下存檔送出的是舊草稿。**零錯誤訊息，而這一檔仍然會全綠。**
+ * ⇒ 深度改成跟真頁一致，那種取法才會在這裡就紅。
+ *    ⚠️ 真頁改版面時**這個替身要跟著改**——它是一份手抄的結構副本，
+ *       沒有任何機械的東西逼它與 `render()` 相等。
+ */
 function 假欄位(n, c) {
   const f = fakeEl('');
   f.getAttribute = (k) => (k === 'data-c' ? String(c) : null);
-  const 中層 = fakeEl(''); 中層.getAttribute = () => null;
-  const 外層 = fakeEl(''); 外層.getAttribute = (k) => (k === 'data-n' ? String(n) : null);
-  f.parentNode = 中層; 中層.parentNode = 外層;
+  const fld = fakeEl(''); fld.getAttribute = () => null;          // .fld
+  const det = fakeEl(''); det.getAttribute = () => null;          // .det
+  const row = fakeEl(''); row.getAttribute = (k) => (k === 'data-n' ? String(n) : null);
+  f.parentNode = fld; fld.parentNode = det; det.parentNode = row;
   return f;
 }
 
@@ -450,4 +465,80 @@ test('⬛ 對照：選了人按新增 ⇒ 真的多一列，而且狀態鈕回�
   assert.match(r.els.list.innerHTML, /測試丙/, '新增的那一列沒有帶姓名（要人用內部碼認人＝等於沒做）');
   assert.equal(r.els.save.disabled, true, '🔴 新增之後存檔鈕還開著 ⇒ 新的那一列從沒被驗過');
   r.cleanup();
+});
+
+/* ══════════════════════════════════════════════════════════════════════
+ * `#117`：版面改成「一列一行」之後，三件會靜默壞掉的事
+ *
+ * ⚠️ **這三條是原始碼斷言，不是行為測試。** 上面那個假 DOM 的 `classList`
+ *    與 `querySelector` 都是空殼，量不到「展開」「篩選」「日期鈕」真的做了什麼
+ *    ——那一半是在真瀏覽器裡量的（`#117` 留言貼了 26 條的輸出與兩個突變）。
+ *    這三條只釘住**structure**：壞掉的寫法連 diff 上都看不出有問題。
+ * ⚠️ 一律先剝註解再掃——檔頭本來就在解釋這些寫法為何不可以用
+ *    （`feedback_comment_is_source_code`：註解會讓自己的斷言假通過）。
+ * ══════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ⚠️ **取函式本體走 `helpers/source-scan.js`，不自己寫抽取式。**
+ *    第一版是手寫的「找到 `function X()` 再切到下一個 function」——
+ *    `tests/source-scan-tripwire.test.js` 當場把它抓出來。那支存在的理由就是
+ *    這種近似抽取法會在版面一改時靜靜少取一段，而**少取跟「這頁沒有」一模一樣**。
+ */
+const S = require('./helpers/source-scan.js');
+
+test('🔴 篩選／排序不可以重畫清單——重畫會抹掉使用者正在打的字', () => {
+  ['套用篩選', '排列'].forEach((名) => {
+    const 體 = S.stripComments(S.fnSrc(名, 'authz.html'));
+    assert.ok(體.indexOf('render()') < 0,
+      '🔴 ' + 名 + '() 裡呼叫了 render() ⇒ 每次篩選/排序都重畫整份清單'
+      + ' ⇒ 使用者打到一半的字與勾選會被靜靜換掉（本專案為此誤發過一次訊息）。'
+      + ' 篩選要用 class 切換、排序要用 appendChild 搬節點。');
+    assert.ok(體.indexOf('innerHTML') < 0,
+      '🔴 ' + 名 + '() 裡動了 innerHTML ⇒ 同上，那也是一次重畫');
+  });
+  // ⬛ 對照組：這把尺對「真的呼叫了 render()」的函式體會命中（否則上面是恆過）。
+  // ⚠️ 對照組的字串裡刻意**不寫** `function` 那個字：`source-scan-tripwire` 的判準是
+  //    「有沒有字串字面量含 `function␣`」，寫了它就會被判成在手寫抽取式（實測紅過一次）。
+  assert.ok(S.stripComments('f(){ render(); }').indexOf('render()') >= 0,
+    '⬛ 對照組失效：這把尺連明明有 render() 的碼都認不出來');
+  // ⬛ 零點：這兩支真的取得到（取不到時 fnSrc 會丟例外，但零點要明說）。
+  assert.ok(S.fnSrc('render', 'authz.html').length > 100, '⬛ 零點：render 取不到 ⇒ 上面兩條的定義域是空的');
+});
+
+test('🔴 停用日是一顆鈕，不是常駐的輸入框（`#117` 的 Ｄ）', () => {
+  const 碼 = S.stripComments(fs.readFileSync(path.join(ROOT, 'authz.html'), 'utf8'));
+  assert.ok(/data-act="date"/.test(碼),
+    '🔴 找不到停用日那顆鈕 ⇒ Ｄ 沒有落地，或它的標記改名了');
+  // 🔴 鈕面上要看得出已經設了哪一天——沒有這一格，「已設」與「沒設」長得一樣。
+  // ⚠️ 要掃的是 `render()` **裡面**有沒有用它，不是「全檔找不找得到這個名字」：
+  //    後者在「render 改掉了、但函式還定義著」時**照樣綠**（實測突變紅 0 條）。
+  const 畫 = S.stripComments(S.fnSrc('render', 'authz.html'));
+  assert.ok(畫.indexOf('停用日鈕(') >= 0,
+    '🔴 render() 沒有用 停用日鈕() 產生鈕面的字 ⇒ 已設的日期可能沒顯示在鈕上');
+  assert.ok(畫.indexOf('data-act="date"') >= 0,
+    '🔴 render() 沒有畫出停用日那顆鈕');
+  // 🔴 這顆鈕**不可以**碰狀態欄：`#100` 拍板「停用是改狀態不刪列」，兩件事分開。
+  // 🔴 這顆鈕**不可以**碰狀態欄：`#100` 拍板「停用是改狀態不刪列」，兩件事分開。
+  //    整支 `接上監聽` 都掃——只切那個 if 的前 200 字，是另一種「自己寫抽取式」，
+  //    而寫法一長就靜靜少掃到（少掃跟「乾淨」一模一樣）。
+  const 監聽 = S.stripComments(S.fnSrc('接上監聽', 'authz.html'));
+  assert.ok(監聽.indexOf("act === 'date'") >= 0, '⬛ 零點：找不到日期鈕的處理分支');
+  assert.ok(監聽.indexOf('狀態值域') < 0 && 監聽.indexOf('iStat') < 0,
+    '🔴 監聽裡動到了狀態欄 ⇒ 按停用日可能變成「按了就停用」，那是另一件事');
+});
+
+test('🔴 取「這是第幾列」要往上走到底，不可以寫死巢狀層數', () => {
+  const 碼 = S.stripComments(fs.readFileSync(path.join(ROOT, 'authz.html'), 'utf8'));
+  assert.ok(碼.indexOf('parentNode.parentNode') < 0,
+    '🔴 又出現 parentNode.parentNode ⇒ 版面一改巢狀深度就取不到 data-n，'
+    + ' 而失敗的長相是「改了一格卻沒變髒」：畫面停在綠色的「七道都過」，'
+    + ' 送出去的是沒有那一格的舊草稿，零錯誤訊息。');
+  // ⚠️ 問**引擎**有沒有這支，不要拿字串 'function 哪一列(' 去比對原始碼：
+  //    那個字串本身含 `function␣` ⇒ `source-scan-tripwire` 會把這一檔判成手寫抽取式
+  //    （實測紅過一次）。而且問引擎本來就比較準——改成 `var 哪一列 = function` 也算數。
+  assert.ok(S.fnNames('authz.html').indexOf('哪一列') >= 0,
+    '🔴 往上走到底的那支不見了');
+  // ⬛ 對照組：這把尺對真的寫死層數的碼會命中。
+  assert.ok('var box = f.parentNode.parentNode;'.indexOf('parentNode.parentNode') >= 0,
+    '⬛ 對照組失效');
 });
