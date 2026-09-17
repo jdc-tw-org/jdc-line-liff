@@ -30,7 +30,7 @@ const ROOT = path.join(__dirname, '..');
  * ══════════════════════════════════════════════════════════════════════ */
 
 const HDR = ['內部碼', '角色', '狀態', '授予日', '停用日', '備註', '姓名'];
-const 甲 = 'JDC-BBBBBB', 乙 = 'JDC-CCCCCC', 丙 = 'JDC-DDDDDD', 丁 = 'JDC-EEEEEE';
+const 甲 = 'JDC-BBBBBB', 乙 = 'JDC-CCCCCC', 丙 = 'JDC-DDDDDD', 丁 = 'JDC-EEEEEE', 戊 = 'JDC-AAAAAA';
 /**
  * ⬛ **名冊的部門刻意這樣配**（`#60`，2026-09-18）——三件事缺一，分組那一組尺就瞎了：
  *   ⒜ **`測試單位一` 有兩個人，而且他們在名冊裡不相鄰**（甲…丙）
@@ -38,8 +38,12 @@ const 甲 = 'JDC-BBBBBB', 乙 = 'JDC-CCCCCC', 丙 = 'JDC-DDDDDD', 丁 = 'JDC-EEE
  *   ⒝ **有一個人的部門是空的**（丁）⇒ 「沒有單位的人不准消失」量得到。
  *      全員都有部門的夾具對那一條零鑑別力。
  *   ⒞ 名冊順序照後端（按內部碼遞增）⇒ 平的清單與分組後的清單**順序不同**。
+ *   ⒟ 🔴 **名冊第一個人就是沒填部門的那個**（戊＝`JDC-AAAAAA`）。
+ *      ⬛ 這一格是突變逼出來的：沒填的人全排在名冊後面時，「未填那一組墊底」
+ *      與「照出現順序」畫出來一模一樣 ⇒ 把墊底那兩行拿掉，**這一檔全綠**
+ *      （2026-09-18 實測 M6 存活）。放一個在最前面，那兩種寫法才分得開。
  */
-const 單位 = { [甲]: '測試單位一', [乙]: '測試單位二', [丙]: '測試單位一', [丁]: '' };
+const 單位 = { [戊]: '', [甲]: '測試單位一', [乙]: '測試單位二', [丙]: '測試單位一', [丁]: '' };
 const 名單回應 = () => ({
   ok: true, who: '測試甲', header: HDR.slice(),
   rows: [
@@ -47,6 +51,7 @@ const 名單回應 = () => ({
     [乙, 'hr', '有效', '2026-09-01', '', '', '測試乙'],
   ],
   roster: [
+    { code: 戊, name: '測試戊', unit: 單位[戊] },
     { code: 甲, name: '測試甲', unit: 單位[甲] },
     { code: 乙, name: '測試乙', unit: 單位[乙] },
     { code: 丙, name: '測試丙', unit: 單位[丙] },
@@ -778,7 +783,7 @@ test('🔴 分組真的發生了：同一個部門的兩個人被排在一起（
   assert.deepStrictEqual(組們(html), ['測試單位一', '測試單位二', '（未填部門）'],
     '🔴 組序不是「各組第一個人在名冊裡出現的順序」＋未填那一組墊底');
   const 序 = 人們(html).map((o) => o.值);
-  assert.deepStrictEqual(序, [甲, 丙, 乙, 丁],
+  assert.deepStrictEqual(序, [甲, 丙, 乙, 戊, 丁],
     '🔴 分組後的人序不對。名冊原順序是 ' + JSON.stringify(名單回應().roster.map((p) => p.code))
     + ' ⇒ 沒有分組的話會是那一串（丙 沒有被搬到 甲 旁邊）');
   r.cleanup();
@@ -825,7 +830,8 @@ test('🔴 全名冊都沒填部門 ⇒ 全部落在「（未填部門）」，�
 
 test('🔴 部門只有空白字元 ⇒ 算沒填（不可以長出一個名字是空白的組）', async () => {
   const 回 = 名單回應();
-  回.roster = 回.roster.map((p, i) => ({ code: p.code, name: p.name, unit: i === 0 ? '   ' : p.unit }));
+  // ⚠️ 挑 i===1（甲，本來有部門的那個）。挑 i===0 的話他本來就沒填，這一條什麼都沒測到。
+  回.roster = 回.roster.map((p, i) => ({ code: p.code, name: p.name, unit: i === 1 ? '   ' : p.unit }));
   const r = run({ 回應: { getAuthzList: 回 } });
   await settle();
   assert.equal(組們(r.els.newcode.innerHTML).indexOf('   '), -1,
