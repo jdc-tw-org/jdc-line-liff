@@ -113,7 +113,8 @@ if (src.indexOf('<head>') === -1) { console.error('wall.html 找不到 <head>，
 fs.mkdirSync(OUT, { recursive: true });
 
 /* --artifact＝產出可以遠端開的版本（人不在本機時用）。
-   差別只在外殼：拆掉 <!DOCTYPE>/<html>/<head>（發布端會自己包一層），
+   外殼：拆掉 <!DOCTYPE>/<html>/<head>（發布端會自己包一層）；
+   **所有 `assets/` 的外部檔（logo 與兩支 js）全部內嵌進單檔**（發布端 CSP 擋外部請求），
    輪詢改成跑完循環回第一輪，並在角落標明這是模擬資料。牆本身一個字都不改。 */
 if (process.argv.indexOf('--artifact') > -1) {
   const cuts = [
@@ -142,6 +143,31 @@ if (process.argv.indexOf('--artifact') > -1) {
   const IMG = /src="assets\/logo-full\.svg"/;
   if (!IMG.test(out)) { console.error('❌ 找不到 logo 的 img src，header 結構變了'); process.exit(1); }
   out = out.replace(IMG, 'src="' + dataUri + '"');
+
+  /* 其餘 `assets/*.js` 一律連檔案內容一起內嵌。
+     🔴 **刻意用掃的，不列舉檔名**：這一段原本只換 logo 一處，而底下那句斷言要求
+     「一處都不准剩」——**替換範圍與斷言範圍各自長大**。`wall.html` 後來又接了兩支
+     腳本（url-token／liff-relogin），這個模式就在 main 上一直是紅的而沒有人發現
+     （jdc-tw/jdc-line-gas#135）。改成同一條樣式去掃，兩邊就不可能再分岔。
+
+     兩支都是 **真的會被叫到**，不是可有可無的附屬品：
+       · `url-token.js` → 頁面第一行就是 `var TOKEN=q('t')`，`q` 包的是 `urlParam`
+       · `liff-relogin.js` → `jsonp()` 每一發都走 `reloginOnDeadCredential`
+     漏任一支，預覽頁會在 ReferenceError 上整段停掉（畫面空白，不會說話）。
+
+     ⚠️ 取代值一定要用 **function**，不能用字串：`url-token.js` 裡有 `'\\$&'`，
+        字串形式的 `$&` 會被 String.replace 展開成「整個比對結果」，把內嵌的碼靜默改壞。
+     ⚠️ 漏網的寫法（例如多帶一個屬性）**刻意不另設守門**——底下那句斷言就是它的網。
+        多加一道擋同一件事，兩道會互相遮蔽，拿掉任一道突變都不會紅。 */
+  const SRC_JS = /<script src="assets\/([^"]+)"><\/script>/g;
+  const inlined = [];
+  out = out.replace(SRC_JS, function (m, rel) {
+    const js = path.join(__dirname, '..', '..', 'assets', rel);
+    if (!fs.existsSync(js)) { console.error('❌ 找不到要內嵌的 assets/' + rel); process.exit(1); }
+    inlined.push(rel);
+    return '<script>\n' + fs.readFileSync(js, 'utf8') + '</script>';
+  });
+
   if (/src="assets\//.test(out)) { console.error('❌ 仍有指向 assets/ 的 src，發布後會是破圖'); process.exit(1); }
   // 主題第三態：原檔只處理了「系統偏好深色」，補上「檢視者手動選深色」
   const DARK_STAMP = `
@@ -167,6 +193,9 @@ if (process.argv.indexOf('--artifact') > -1) {
   out = out.replace('setInterval(tick,15000)', 'setInterval(tick,4000)');
   fs.writeFileSync(path.join(OUT, 'wall-artifact.html'), out);
   console.log('✅ 產出 ' + path.join(OUT, 'wall-artifact.html') + '（遠端預覽版）');
+  /* 把「這一頁把哪些外部檔吐進來了」放到眼前：這個清單變短了，就是有人動了結構。 */
+  console.log('   已內嵌：assets/logo-full.svg（data URI）' +
+    inlined.map(function (r) { return '、assets/' + r; }).join(''));
   process.exit(0);
 }
 
