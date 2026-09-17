@@ -24,6 +24,9 @@
   .row { border: 1px solid var(--ln); border-radius: 3px; margin-bottom: 6px; background: #fff; overflow: hidden; }
   .row.dis { background: #f7f7f5; }
   .row.hid { display: none; }
+  /* 剛加進來的那一列。下一次重畫就沒了（`render()` 會整份重建），**這是刻意的**：
+     它只是「你剛剛加的是這一列」的指路，不是一個要維護的狀態。 */
+  .row.new { border-color: var(--g); box-shadow: inset 3px 0 0 var(--g); }
 
   /* 摺起來的那一行。`<button>` ⇒ 鍵盤可聚焦、Enter 可啟動，全是原生行為。 */
   .sum {
@@ -102,7 +105,9 @@
     border-radius: 3px; background: #fff; color: var(--ink); min-width: 0;
   }
   #q { flex: 1 1 8em; }
-  #count { font-size: 12px; color: var(--ink3); flex: none; margin-left: auto; }
+  /* ⚠️ `padding-left` 是必要的，不是裝飾：篩選列少一顆控制項之後三顆剛好排滿一行，
+     這一格會直接貼到右邊那顆下拉上（實測截圖上擠在一起）。 */
+  #count { font-size: 12px; color: var(--ink3); flex: none; margin-left: auto; padding-left: 8px; }
   #count.on { color: var(--warn); font-weight: 600; }
 
   /* dry-run 的結果面板。**它是這一頁存在的理由**，所以它不是一行小字。 */
@@ -140,10 +145,6 @@
   <input id="q" type="search" placeholder="搜尋姓名或內部碼" autocomplete="off">
   <select id="fst"></select>
   <select id="frole"></select>
-  <select id="fsort">
-    <option value="">原順序</option>
-    <option value="p">依人分組</option>
-  </select>
   <span id="count"></span>
 </div>
 
@@ -489,17 +490,25 @@ function 套用篩選() {
 }
 
 /**
- * Ａ 的第二個方向：**依人分組**——同一個人的幾列排在一起。
+ * **依人分組**——同一個人的幾列永遠排在一起。
+ *
+ * ══ 2026-09-17：這裡本來有一顆「原順序／依人分組」的切換，擁有者看過兩種之後
+ *    拍板**只留依人分組**，切換連同另一種一起拿掉 ══════════════════════
+ * 🔴 **不是「把另一個選項藏起來」，是整顆控制項都不留。** 一個只剩一種值的下拉
+ *    佔著版面卻不會改變任何東西——而這張票的成因正是「畫面上東西太多、太長」，
+ *    留著它是往反方向走。
+ * ⚠️ 要改回可切換的話，**要連 UI 一起加回來**，不要只在這裡加一個參數然後沒有人能按到
+ *    （那會變成一條測得到、卻永遠不會被使用者走到的分支）。
  *
  * 🔴 **搬節點，不重畫。** `appendChild` 是把同一顆既有節點移位，
  *    所以輸入框裡的字、游標、已經展開的狀態、以及 `data-n`（它才是草稿的索引）
  *    全都原封不動。重畫一次就會把這些全部換掉，而那正是誤發過一次訊息的形狀。
  * ⚠️ **排序只動看的順序，不動草稿的順序。** 存檔送出的仍然是 `草稿` 本身，
- *    所以「畫面上的第 3 列」與「名單裡的第 3 列」在分組模式下不是同一列——
+ *    所以「畫面上的第 3 列」與「名單裡的第 3 列」**永遠**不是同一列——
  *    這也是為什麼每一列都自己帶著 `data-n`，而不是靠它在畫面上的位置。
+ *    （切換還在的時候這句話只在分組模式成立；現在它無條件成立。）
  */
 function 排列() {
-  var 模式 = el('fsort') ? el('fsort').value : '';
   var list = el('list');
   if (!list.children || !list.querySelectorAll) return;
   var 列 = [];
@@ -510,13 +519,11 @@ function 排列() {
   if (!列.length) return;
   列.forEach(function (d, i) { d.__i = i; });
   列.sort(function (a, b) {
-    if (模式 === 'p') {
-      // 同一個人排在一起。鍵用**內部碼**不是姓名：姓名可能重複、也可能是空的，
-      // 而內部碼才是這張表認人的那一格（`feedback_position_is_not_identity`）。
-      var ka = a.getAttribute('data-code') || '', kb = b.getAttribute('data-code') || '';
-      if (ka !== kb) return ka < kb ? -1 : 1;
-    }
-    return a.__i - b.__i;   // 同一組之內維持原順序（穩定）
+    // 同一個人排在一起。鍵用**內部碼**不是姓名：姓名可能重複、也可能是空的，
+    // 而內部碼才是這張表認人的那一格（`feedback_position_is_not_identity`）。
+    var ka = a.getAttribute('data-code') || '', kb = b.getAttribute('data-code') || '';
+    if (ka !== kb) return ka < kb ? -1 : 1;
+    return a.__i - b.__i;   // 同一個人的幾列之間維持原順序（穩定）
   });
   列.forEach(function (d) { list.appendChild(d); });
 }
@@ -638,6 +645,35 @@ function 新增() {
   el('msg').textContent = '';
   render();
   髒();
+  帶他去看(草稿.length - 1);
+}
+
+/**
+ * 剛加進來的那一列，**要讓他看得到**。
+ *
+ * ══ 為何需要這一段（2026-09-17，拿掉「原順序」的直接後果）════════════
+ *
+ * 清單現在**永遠依人分組**（照內部碼排），所以新加的一列不會出現在最下面，
+ * 而是被排進那個人所在的位置——50 列的時候那通常在畫面外。
+ * 更糟的是**目前正在篩選**的話，新列可能直接被篩掉 ⇒ 他按了「加進草稿」，
+ * 畫面上**什麼事都沒發生**，而那一列其實已經在草稿裡了。
+ * 🔴 這兩種都不會報錯，看起來就像「按鈕壞了」——而他的下一個動作很可能是再按一次。
+ *
+ * ⚠️ **只動看的東西，一格資料都不碰**：清篩選、捲過去、加一個記號。
+ *    篩選本來就是「看的方式」（見 `套用篩選` 檔頭），清掉它不會改變存檔送出的內容。
+ * ⚠️ 清篩選之後走 `套用篩選()`，**不是 `render()`**——重畫會把其他列正在打的字換掉。
+ */
+function 帶他去看(n) {
+  var 那一列 = el('list').querySelector
+    ? el('list').querySelector('[data-n="' + n + '"]') : null;
+  if (!那一列) return;
+  // 被目前的篩選擋住的話才清篩選——沒擋住就不要動他設好的條件。
+  if (那一列.className.indexOf('hid') >= 0) {
+    el('q').value = ''; el('fst').value = ''; el('frole').value = '';
+    套用篩選();
+  }
+  if (那一列.classList) 那一列.classList.add('new');
+  if (那一列.scrollIntoView) 那一列.scrollIntoView({ block: 'center' });
 }
 
 function 檢查() {
@@ -786,7 +822,6 @@ function start() {
     el('q').addEventListener(ev, 套用篩選);
     el('fst').addEventListener(ev, 套用篩選);
     el('frole').addEventListener(ev, 套用篩選);
-    el('fsort').addEventListener(ev, 套用篩選);
   });
   el('check').addEventListener('click', 檢查);
   el('save').addEventListener('click', 存檔);
