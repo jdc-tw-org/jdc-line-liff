@@ -9,6 +9,8 @@
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg" />
 <link rel="stylesheet" href="assets/ui.css">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- 要早於 gas-call.js：底下 `load()` 的 `.then(reloginOnDeadCredential)` 在解析出口用它。 -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/gas-call.js"></script>
 <style>
   /* 色票、body、.card、.btn、.tag、.msg 全部來自 `assets/ui.css`。
@@ -215,6 +217,68 @@ var LIFF_ID = '2010451233-a781rqsm';
  */
 var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
 
+/* ══════════════════════════════════════════════════════════════════════
+ * 🔴 憑證死掉時，這一頁**分兩條路**：首載自動重登，有草稿的時候交給他決定
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * 其他已接上自動重登的頁面是看板——它們手上沒有「還沒送出的輸入」，
+ * 所以「自動登出再登入」對它們只是慢一趟。**這一頁不是。**
+ *
+ * 🔴 **手上有未存資料的時候，「自動」本身就是那個造成損失的動作。**
+ *    `liff.login()` 會整頁導走，而 `草稿` 是純記憶體變數（這一頁刻意不做本機暫存，
+ *    見下面 `草稿` 的宣告）⇒ **導走＝他編到一半的東西沒了，而且沒有任何地方留著。**
+ *
+ * ⬛ **這是量過的，不是推論**（2026-09-17，真 Chrome ＋真的這一頁，
+ *    `liff.login` 的替身做真的整頁導向）：
+ *      受測  編到一半按檢查・憑證死 ＋ 三個呼叫點全接   → 草稿 **WIPED**（logout=1 login=1）
+ *      受測  按存檔・憑證死（**驗過的那一份**）＋ 全接  → 草稿 **WIPED**
+ *      受測  同兩格、改成只有首載那一發接             → 草稿 **KEPT**
+ *      ⬛對照 已知會洗掉（直接整頁導走）              → **WIPED**（尺回得出「有」）
+ *      ⬛對照 什麼都不做／`role_mismatch`／存檔成功    → **KEPT**（尺不是一律回 WIPED）
+ *    🔴 最難看的是**全接那一版導回來之後畫面上一句錯誤訊息都沒有**
+ *      ——面板寫著「改好之後先按檢查」，而他剛加的那一列不見了。
+ *
+ * ⇒ **首載那一發自動**（那一刻還沒有草稿，沒有東西可以損失）；
+ *   **檢查／存檔那兩發不自動**，改成把鈕交回去、並且**先講代價**。
+ *
+ * ⚠️ 這同時修掉一個**今天就存在**的洞，不是新功能：
+ *    `呼叫失敗()`（檢查／存檔的失敗處置）原本連那顆鈕都不給
+ *    ⇒ 一個編到一半憑證才死的人，草稿看得見、存不進去、**而且沒有任何一條出路**。
+ */
+
+/**
+ * 🔴 **使用者唯一的資訊來源。** 他要不要按那顆鈕，唯一的依據就是這句話；
+ *    這句話消失、或被改成不含「草稿會不見」的意思，就是一次靜默的損失
+ *    ——他會按下去，然後才發現東西沒了。`tests/e2e/authz-relogin.spec.js` 釘著它。
+ */
+var 草稿會不見警告 = '按下去會離開這一頁重新登入，這份草稿會不見。要留的話請先自己複製起來。';
+
+/** 這個代號重新登入有沒有用。**判準只有這一份**（見上面 `重登有用的`）。 */
+function 重登有效(reason) {
+  return !!(reason && Object.prototype.hasOwnProperty.call(重登有用的, reason));
+}
+
+/**
+ * 「重新登入」鈕的樣子。**全頁只有這一份** —— 首載那條與有草稿那條共用同一個處置，
+ * 各寫一份的話「先登出再登入」就是同一個判斷散在兩處，而兩處分歧時畫面不會報錯。
+ * @param {string} 警告 要先講的代價；首載那條沒有草稿可以損失 ⇒ 傳空字串
+ */
+function 重登鈕HTML(警告) {
+  return (警告 ? '<div style="margin-top:8px">' + esc(警告) + '</div>' : '')
+    + '<button class="btn btn-pri" id="relogin" type="button">重新登入</button>';
+}
+
+/** 把處置接到剛畫出來的那顆鈕上。沒有那顆鈕就什麼都不做。 */
+function 接上重登鈕() {
+  var b = el('relogin');
+  if (!b) return;
+  b.addEventListener('click', function () {
+    // 先登出再登入：只呼叫 login 的話 LINE 會直接帶著同一把過期憑證回來。
+    try { if (window.liff && liff.isLoggedIn()) liff.logout(); } catch (e) {}
+    liff.login({ redirectUri: location.href });      // 保留 query
+  });
+}
+
 /** 後端送來的：欄名、值域、名冊。**一份都不在這裡寫死。** */
 var HDR = [], 角色值域 = [], 狀態值域 = [], 名冊 = [];
 /**
@@ -254,21 +318,13 @@ function setName(who) { var w = el('who'); w.textContent = who || '已登入'; w
 /** 把整頁換成一段話。**永遠說得出「接下來該做什麼」**。 */
 function showMsg(msg, reason) {
   var html = '<div class="card" style="color:var(--bad)">' + esc(msg) + '</div>';
-  if (reason && Object.prototype.hasOwnProperty.call(重登有用的, reason)) {
-    html += '<button class="btn btn-pri" id="relogin" type="button">重新登入</button>';
-  }
+  // 走到這裡＝首載那一發失敗，**草稿還不存在** ⇒ 不必先講「會不見」（那句話會是假的）。
+  if (重登有效(reason)) html += 重登鈕HTML('');
   el('list').innerHTML = html;
   el('panel').hidden = true;
   el('acts').hidden = true;
   el('addcard').hidden = true;
-  var b = el('relogin');
-  if (b) {
-    b.addEventListener('click', function () {
-      // 先登出再登入：只呼叫 login 的話 LINE 會直接帶著同一把過期憑證回來。
-      try { if (window.liff && liff.isLoggedIn()) liff.logout(); } catch (e) {}
-      liff.login({ redirectUri: location.href });
-    });
-  }
+  接上重登鈕();
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -749,9 +805,13 @@ function 存檔() {
 function 呼叫失敗(r) {
   驗過的 = null;
   el('save').disabled = true;
+  // 🔴 憑證死掉時**給鈕、但不自動按**——這一刻草稿在他手上（理由見上面那一段）。
+  //    ⚠️ 鈕與代價要一起出現：只給鈕等於讓他在不知道代價的情況下按下去。
   面板('fail', esc((r && r.msg) || '呼叫失敗。')
     + (r && r.transport ? '<div style="margin-top:8px">這是連線問題，請確認網路後再按一次。</div>'
-                        : '<div style="margin-top:8px">這不是連線問題，重按不會好。</div>'));
+                        : '<div style="margin-top:8px">這不是連線問題，重按不會好。</div>')
+    + (重登有效(r && r.reason) ? 重登鈕HTML(草稿會不見警告) : ''));
+  接上重登鈕();
 }
 
 /* ══════════════════════════════════════════════════════════════════════
@@ -770,7 +830,11 @@ function freshIdToken() {
  */
 function load(面板訊息) {
   // 憑證在呼叫當下才取，不是開頁時取一次存起來（它只有效一小時）。
-  return gasCall(GAS_URL, 'getAuthzList', { idToken: freshIdToken() }).then(function (r) {
+  return gasCall(GAS_URL, 'getAuthzList', { idToken: freshIdToken() })
+    // 解析出口接 `assets/liff-relogin.js`：**與已接上的那幾頁同一條路**，不在這裡另寫一份。
+    // 🔴 **只有這一發自動**（這一刻還沒有草稿）——檢查／存檔那兩發刻意不接，見上面那一段。
+    .then(reloginOnDeadCredential)
+    .then(function (r) {
     if (!r || r.ok !== true) {
       if (r && r.transport) {
         setWho('連不上伺服器', true);
