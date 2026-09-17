@@ -1283,10 +1283,30 @@ test('🔴 參數走 POST body，網址上一個都不留（她寫的公告不�
   });
   assert2(壞的);
 
+  // 網址這一條取「最長的那一發」**是對的**：它斷言的是「每一發都短」，
+  // 最大值 < 300 ⇔ 全部 < 300。那是全稱句的正確聚合，跟「哪一發」無關。
   const longest = reqs.reduce((a, b) => (a.url.length >= b.url.length ? a : b), reqs[0]);
-  const biggestBody = reqs.reduce((a, b) => (a.body.length >= b.body.length ? a : b), reqs[0]);
-  console.log('[POST 之後] 最長網址 ' + longest.url.length + ' 字元；最大 body '
-    + biggestBody.body.length + ' 字元');
+  // 🔴 **但 body 這一條不能取「最大的那一發」**——它要斷言的是
+  //    **存檔那一發**帶著公告全文，那是個**存在句**；用「最大的那一發」
+  //    等於**用大小代替身分**：只要別人比它大，這句話就改去問別人了。
+  //    2026-09-17 實測：開頁那一發的 body 是 **992**、門檻是 **1000**
+  //    ⇒ **開頁那一發只要再長 9 個字元**，存檔那一發就算被掏空也照樣綠。
+  //    而「開頁那一發有多長」會隨資料長大，**失效的時候不會有任何訊號**。
+  //    （突變實測：把存檔那一發掏成 38 字元、開頁那一發撐到 1092
+  //      ⇒ 舊寫法 exit=0 **綠**、新寫法 exit=1 **紅**；`jdc-line-gas#141`。）
+  //    ⇒ 改成用 `actionOf` **認人**（與上面的等待條件同一種讀法），
+  //      且對**每一發** `saveWelfareTemplate` 都要求（取最小值），不挑其中一發。
+  const 存檔 = reqs.filter((r) => actionOf(r) === 'saveWelfareTemplate');
+  // ⚠️ 一發都沒取到時 `Math.min()` 回 `Infinity` ⇒ 下面那句會**靜默通過**。
+  //    先斷言取到了幾發，讓「什麼都沒驗」是紅的而不是綠的。
+  expect(存檔.length, '一發 saveWelfareTemplate 都沒取到 ⇒ 下面那句什麼都沒驗')
+    .toBeGreaterThan(0);
+  const 存檔body = Math.min.apply(null, 存檔.map((r) => r.body.length));
+  // 把「最大的那一發」一併印出來：兩個數字差很多的時候，
+  // 就是「舊寫法會去問別人」這件事的現場證據（寫在輸出裡，不是寫在散文裡）。
+  console.log('[POST 之後] 最長網址 ' + longest.url.length + ' 字元；存檔那一發 body '
+    + 存檔body + ' 字元（共 ' + 存檔.length + ' 發；全部請求裡最大的 body 是 '
+    + reqs.reduce((m, r) => Math.max(m, r.body.length), 0) + '）');
   // ⚠️ **這一條取代了改 POST 之前的兩條長度測試**（「最長的網址有多長」與
   //    「量最壞的那一支」）。它們量的是 GET 時代的曝險，改成 POST 之後
   //    兩條都只會量到固定長度的 /exec ⇒ **名字還在，但已經量不到它們要防的東西。**
@@ -1296,8 +1316,9 @@ test('🔴 參數走 POST body，網址上一個都不留（她寫的公告不�
   // 改之後：網址 114、body 14,587 ⇒ **整篇公告從網址搬進了 body。**
   expect(longest.url.length,
     '網址還是很長 ⇒ 參數沒有真的搬到 body 裡').toBeLessThan(300);
-  expect(biggestBody.body.length,
-    'body 是空的 ⇒ 參數不見了，後端會說每一支都缺參數').toBeGreaterThan(1000);
+  expect(存檔body,
+    '存檔那一發的 body 只有 ' + 存檔body + ' 字元 ⇒ 公告沒有進到 body 裡，'
+    + '後端會說這一支缺參數').toBeGreaterThan(1000);
 });
 
 function assert2(arr) {
