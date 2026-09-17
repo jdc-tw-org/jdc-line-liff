@@ -23,7 +23,8 @@ const TYPES = {
 };
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const PORT = Number(process.env.E2E_PORT || 4173);
+// port 的唯一來源見 ./port.js（config 讀的是同一支）
+const { PORT } = require('./port');
 
 http.createServer(function (req, res) {
   let rel;
