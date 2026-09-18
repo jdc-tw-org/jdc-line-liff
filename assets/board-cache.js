@@ -127,12 +127,14 @@ var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
  *    ⚠️ **這只量到那一格，不是全站保證**——`settleRefresh`／`markRefreshFail` 的
  *    呼叫點是逐處手寫的，沒有覆蓋到的區塊仍然會安靜地停在舊資料。
  *
- * 🔴 **這條退場條件有兩個端點。另一端還在後端，本票沒動**（跨 repo，要另開票）：
- *    後端把那一句拒絕文案逐字交給前端的那一格匯出——就是本檔測試讀的
- *    `gateContract.legacyDenyMsg` 的來源。退路拆了，它就沒有消費者了。
- *    ⚠️ **但它今天仍有一個用途**：`tests/board-cache.test.js` 用它來**釘住這條退路
- *    真的不在了**（餵那一句 ⇒ 必須回 `ok`）。⇒ **後端要拿掉它之前，先改本檔那一條
- *    測試**，否則那一條會因為副本缺欄位而紅，而紅的理由跟真正的缺陷無關。
+ * 🔴 **這條退場條件有兩個端點。另一端還在後端**（跨 repo，gas `#203`）：
+ *    後端把那一句拒絕文案逐字交給前端的那一格匯出（`gateContract.legacyDenyMsg`）。
+ *    退路拆了，它就沒有消費者了。
+ *    ⏳ **本 repo 這一側已經解開**（2026-09-18，gas `#203` 的第①步）：
+ *    `tests/board-cache.test.js` 那條墓碑測試改成釘**全稱命題**——契約表裡後端真的
+ *    送出來的**每一句**拒絕文案，抽掉 `reason` 之後都必須回 `ok`——**不再讀那一格匯出**。
+ *    ⇒ 後端現在可以拆掉它，本 repo 不會因為副本缺欄位而紅。涵蓋範圍只增不減：
+ *    那一句本來就是契約表 `revoked_token_path`／`token_removed` 兩列的 `msg`。
  *
  * 🪦 `jdc-line-hub` 那個第二生產者 2026-09-16（hub`#27`）就已經不在這條路上了：
  *    `line-messages.html` 的 `EXEC_URL` 與 `callApi` 被整個刪掉，這一頁結構上再也
