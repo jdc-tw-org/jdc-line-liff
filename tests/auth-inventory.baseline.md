@@ -27,7 +27,7 @@
 | `admin.html`         | 活的                     | `未宣告`                                     | `admin,activity,view`<br>`admin,any`<br>`admin,any,view`<br>`admin,hrstats` |
 | `attend.html`        | 活的                     | `getActivityStats [admin,activity,view]`     | `admin,activity,view`<br>`admin,any,view` |
 | `authz.html`         | 墓碑（只在註解）         | `getAuthzList [admin]`                       | `（抽不到）` |
-| `board.html`         | 活的                     | `getCheckinPending [admin,hr]`               | `admin,any`<br>`admin,any,view`<br>`admin,hr`<br>`admin,public` |
+| `board.html`         | 墓碑（讀了但不送）       | `getCheckinPending [admin,hr]`               | `admin,any`<br>`admin,any,view`<br>`admin,hr`<br>`admin,public` |
 | `checkin.html`       | 活的                     | `未宣告`                                     | `admin,activity` |
 | `hr-stats.html`      | 活的                     | `getHrStats [admin,hrstats]`                 | `admin,hrstats` |
 | `index.html`         | 沒有這條路               | `未宣告`                                     | `admin,public` |

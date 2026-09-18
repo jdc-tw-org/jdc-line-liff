@@ -232,18 +232,67 @@
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
 var EMAIL_DOMAIN='@jdc-corpn.com.tw';
 var SENTINEL='（找不到，由人事填寫）';   // 新人「找不到」哨兵 → 看板停在請選擇
-// 取值走共用的 assets/url-token.js（E2 準備）——全站四種寫法先收成一支，
-// 之後換來源只有一個地方要改。⚠️ 這一輪**只有本頁在用**，其餘 6 頁維持原樣。
-function getToken(){return urlToken();}
+/* 🪦 **`?t=` 那條路在這一頁已經停用**（`jdc-tw/jdc-line-gas#99`，2026-09-18）。
+ *
+ * 原本這裡是 `function getToken(){return urlToken();}`，而 `var TOKEN=getToken()` 之後
+ * 全頁二十幾個呼叫點各自把它塞進 `token` 參數，`startAuth()` 第一行還寫著
+ * `if(TOKEN)return Promise.resolve('token')` ⇒ **帶 `?t=` 進來的人完全不經過 LINE 登入**，
+ * 身分來自後端那張人手維護的 `BOARD_TOKENS` 對照表。
+ *
+ * 🔴 **為何非拆不可**：那條路繞過了走 LINE 登入才會經過的在職檢查（gas `#138`）
+ *    ——標成離職的人拿舊連結照樣進得來，而且沒有任何人看得到這件事。
+ *
+ * ⚠️ **拆法刻意不是「擋下來」，是「把 `t` 丟掉之後照常走 LINE 登入」**：
+ *    舊連結散在書籤、LINE 聊天室與舊信件裡，**那些量不到、也收不回來**。
+ *    擋下來的話他看到的是一句「連結已失效」而手上沒有新網址；
+ *    丟掉 `t` 的話他就是多按一次 LINE 登入，然後看到一模一樣的頁面。
+ *
+ * ⚠️ 用 `history.replaceState` 就地改網址、**不 reload**（reload 會多一趟、也會閃）。
+ *    這一段必須跑在 `startAuth()` 之前：`liff.login({redirectUri:location.href})`
+ *    讀的是當下的網址，晚一步的話那串 token 會被原封不動送進 LINE 的轉址鏈。
+ *    ⬛ 釘住「先後順序」的是 tests/board-token-retired.test.js 的「redirectUri 不含 t」那條。
+ *
+ * 🔴 全檔讀 `t` 只有下面這一處（`?mt=` 是另一套東西，不在此列）。
+ *    ⬛ 自證不要用 `git grep -c`（它數的是行，而這段註解自己就提到了 `urlToken`）
+ *      ——釘在 tests/board-token-retired.test.js 的「`t` 在這一頁只有一個來源」那一條。
+ */
+var LEGACY_T=urlToken();
+/**
+ * 把 `t` 從網址上拿掉，並在畫面最上方留一句話。**不擋住這一頁**。
+ * 排版刻意用行內樣式、不借 `.alert-bar`：那一格是紅色的「未送出」警語，
+ * 這一句不是警報，共用一個容器會讓紅色不再代表任何事。
+ */
+function retireTokenPath(){
+  try{
+    // 逐個參數重組，**不要用字串挖洞**：`?a=1&t=X&b=2` 挖掉中間那一段會留下 `&&`，
+    // 而那種網址在多數瀏覽器上不會報錯、只會安靜地多一個空參數。
+    var kept=location.search.replace(/^\?/,'').split('&').filter(function(kv){
+      return kv&&kv.split('=')[0]!=='t';
+    }).join('&');
+    history.replaceState(null,'',location.pathname+(kept?'?'+kept:'')+location.hash);
+  }catch(e){}
+  var box=document.createElement('div');
+  box.id='legacy-t';
+  box.setAttribute('role','status');
+  box.setAttribute('style','margin:0 0 12px;padding:10px 12px;border-radius:8px;'
+    +'background:#fff8e1;border:1px solid #ecd9a0;color:#6b5410;font-size:14px;line-height:1.7');
+  box.textContent='這一頁改用 LINE 登入了，網址上不再需要帶 token。'
+    +'請把舊連結換成 board.html（不帶參數）；舊連結仍然開得起來，只是會多一次 LINE 登入。';
+  var host=document.getElementById('alertBar');
+  if(host&&host.parentNode)host.parentNode.insertBefore(box,host);
+  else document.body.insertBefore(box,document.body.firstChild);
+}
+if(LEGACY_T)retireTokenPath();
 // 管理者專屬跨看板切換（只有管理者的 token 顯示；受眾分離維持：人事/企劃等其他看板使用者看不到）
 // ⚠️ 本 repo 為 PUBLIC，註解與程式碼都不要寫同仁真實姓名。
 function showAdminSwitch(isAdmin){
   if(!isAdmin||document.getElementById('adm-switch'))return;
   var a=document.createElement('a');
   a.id='adm-switch';a.textContent='⇄ 活動紀錄看板';
-  // E1b：stats.html 已有 LINE 登入 ⇒ ②（沒有 `?t=`）直接連 `stats.html`、由那一頁自己登入；
-  // ①的網址與改動前逐字相同。（E1a 時這裡在②整個不顯示，理由只有「stats 還沒改」，已不成立。）
-  a.href='stats.html'+(TOKEN?'?t='+encodeURIComponent(TOKEN):'');
+  // stats.html 自己有 LINE 登入 ⇒ 直接連過去、由那一頁自己認人。
+  // 🪦 這裡原本寫 `+(TOKEN?'?t='+encodeURIComponent(TOKEN):'')`——本頁不再持有 token，
+  //    而且**本頁不該再鑄造任何帶 token 的網址**（那等於把舊路又散播出去一條）。
+  a.href='stats.html';
   a.style.cssText='position:fixed;top:10px;right:10px;z-index:99;background:#fff;border:1px solid #ddd;border-radius:20px;padding:6px 14px;font-size:13px;font-weight:700;color:#333;text-decoration:none;box-shadow:0 1px 4px rgba(0,0,0,.12)';
   a.addEventListener('click',function(e){e.preventDefault();location.href=a.href;}); // iOS standalone：<a> 會彈內嵌 Safari，JS 導頁留在 App 內
   document.body.appendChild(a);
@@ -266,7 +315,12 @@ function jsonp(action,params){
   //    但它**不是一道防線**。真正的處置在 `assets/liff-relogin.js`。
   var p={};
   Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
-  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  // 🔴 **`token`／`t` 一律拿掉，不是靠呼叫端不要傳。**（同 line-messages.html 的 `callGas`）
+  //    後端 `doGet` 的分流條件是「`token` 或 `t` 非空就走舊守門」——留一個縫等於沒拆：
+  //    任何一個呼叫點（含 assets/ 底下共用的那幾支）不小心傳了一顆，那一支就靜靜地
+  //    改走 `?t=` 那條路，而畫面上完全看不出來。⇒ 在這裡刪掉，**結構上送不出去**。
+  delete p.token; delete p.t;
+  var fresh=freshIdToken();if(fresh)p.idToken=fresh;
   params=p;
   var qs=Object.keys(params||{}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
@@ -284,19 +338,25 @@ function jsonp(action,params){
   return attempt().catch(function(){
     return new Promise(function(res){setTimeout(res,2000);}).then(attempt);
   }).catch(function(e){return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時（伺服器喚醒中），請重新整理再試。':'連線失敗'};});}
-var TOKEN=getToken();
 
-/* ══ E1a：這一頁有兩條進來的路（2026-09-12）═══════════════════════════════
+/* ══ 這一頁只剩一條進來的路：LINE 登入（2026-09-18）═══════════════════════
  *
- *   ① 網址帶 `?t=`  → **舊路，一行都沒變**。守門走 line-platform 的 `gateAction`。
- *   ② 網址沒有 `?t=` → **LINE 登入**。帶 idToken 上去，後端驗簽→換內部碼→查名冊。
+ *   帶 idToken 上去，後端驗簽 → 換內部碼 → 查授權名單。
  *
- * 🔴 **分流的依據是「網址上有沒有那串」，不是開關。** 所以退路就是「把舊連結給他」
- *    ——舊連結一貼上去，這一頁的行為與 2026-09-12 之前逐字相同，**不必部署**。
- *    後端那一側還有第二道退路（`ROLE_SOURCE` 切回 `token`，見 roles.js 的
- *    `LINE_NEEDS_SHEET`），那一道會讓②整條路關閉並請他改用舊連結。
+ * 🪦 **2026-09-12～2026-09-18 之間這裡是兩條路**：網址帶 `?t=` 走舊守門
+ *    （`gateAction` 的 board 分支、身分來自 `BOARD_TOKENS`），沒有才走 LINE。
+ *    分流的依據是「網址上有沒有那串」，所以**退路就是把舊連結給他**。
+ *    那條路已於 `gas#99` 拆除，上面 `retireTokenPath()` 是它留下的墓碑。
  *
- * ⚠️ **這是上線變更不是重構**：走②進來的人若在名冊／授權名單上對不上，
+ * 🔴 **所以這一頁現在沒有「不必部署的退路」了。** 這不是漏掉，是知情的取捨：
+ *    留著舊路就等於留著一個繞過在職檢查的入口（`gas#138`）。
+ *    後端那一側的退路也跟著換了形狀——`ROLE_SOURCE` 切回 `token` 之後
+ *    **這一頁不會因此變得可用**（沒有人再帶 token 進來），
+ *    救火走的是 gas 那把救火鍵（`firekey.js`，`#99` ④／甲案）。
+ *    ⚠️ 讀到後端 `LINE_NEEDS_SHEET` 那句「請改用原本的連結」時請注意：
+ *       **那句話對這一頁已經不成立**，gas 那一顆要跟著改（`gas#99` 拆表那一顆）。
+ *
+ * ⚠️ **這是上線變更不是重構**：走進來的人若在名冊／授權名單上對不上，
  *    **他當場進不去**，而這一頁管著當天的報到核准與異動核定。
  *    所以每一種失敗都要講出「他接下來該做什麼」——後端回的 `reason` 就是為此存在。
  */
@@ -310,13 +370,16 @@ var TOKEN=getToken();
 var LIFF_ID='2010451233-a781rqsm';
 var ID_TOKEN='';            // ②才有值；jsonp 會把它掛上每一支呼叫
 /**
- * 快取指紋。**不可以直接用 TOKEN**——②的 TOKEN 是空字串，
- * 同一台裝置上不同人就會共用 `''` 這個指紋，**A 的名冊資料會被 B 解開**。
- * ②改用 LINE 的 `sub`（穩定、每人一個）。
- * ⚠️ 它不是機密，加密強度比①的 token 弱；但資料本來就只存在他自己的裝置上，
- *    而①的 token 也一直是明文寫在網址列的。**這是取捨，寫在這裡讓下一個人看得到。**
+ * 快取指紋 ＝ LINE 的 `sub`（穩定、每人一個），登入完才知道。
+ *
+ * 🔴 **初值必須是空字串，而且在它還是空字串的時候一格快取都不可以動**
+ *    ——同一台裝置上不同人會共用 `''` 這個指紋，**A 的名冊資料會被 B 解開**。
+ *    擋住這件事的是 `CACHE_READY` 排在 `AUTH_READY` 之後（見下方），
+ *    以及 tests/board-token-retired.test.js 那條「指紋不可以是空字串」。
+ * ⚠️ `sub` 不是機密，加密強度比舊的 `?t=` 弱；但資料本來就只存在他自己的裝置上，
+ *    而那顆 token 也一直是明文寫在網址列的。**這是取捨，寫在這裡讓下一個人看得到。**
  */
-var FP=TOKEN;
+var FP='';
 
 function freshIdToken(){
   if(!(window.liff&&typeof liff.getIDToken==='function'))return '';
@@ -341,8 +404,11 @@ function authBlock(msg,isErr){
 /** 永遠不 resolve ⇒ 後面的首載整批不會發車。**fail-closed，不是忘了 resolve。** */
 function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
 
+/* 🪦 原本第一行是 `if(TOKEN)return Promise.resolve('token');`（①舊路不載 SDK、不登入）。
+ *    `?t=` 那條路拆掉之後它是死枝，拿掉（同 line-messages.html 那一顆的處置）。
+ *    ⚠️ 它一旦被加回來，這一整顆就白做了——釘住它的是
+ *       tests/board-token-retired.test.js 的「帶 `?t=` 仍然要走 LINE 登入」那條。 */
 function startAuth(){
-  if(TOKEN)return Promise.resolve('token');           // ①舊路
   if(!(window.liff&&typeof liff.init==='function')){
     return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
       +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
@@ -412,7 +478,7 @@ function wireUndeliveredAlert(second) {
   return second.then(function (env) {
     if (!env) return null;
     return queueRead(function () {
-      return jsonp('getUndelivered', { token: TOKEN }).then(function (r) {
+      return jsonp('getUndelivered', {}).then(function (r) {
         if (r && r.ok && r.pending > 0) {
           var bar = document.getElementById('alertBar');
           bar.textContent = '🔴 有 ' + r.pending + ' 則 LINE 訊息沒有送出去，請開試算表的「未送出」分頁確認是否要重發。';
@@ -437,7 +503,7 @@ var FIRST_ITEMS=[{a:'getCheckinOptions'},{a:'getCheckinPending'},
 //    ①（網址帶 ?t=）的 AUTH_READY 是已經 resolve 的 Promise，**只差一個微任務**，
 //    首屏速度實質不變；而登入失敗時它永遠不 resolve ⇒ 整批不會帶著空憑證送出去。
 var FIRST=AUTH_READY.then(function(){return queueRead(function(){
-  return jsonp('batch',{token:TOKEN,list:JSON.stringify(FIRST_ITEMS)}).then(function(env){
+  return jsonp('batch',{list:JSON.stringify(FIRST_ITEMS)}).then(function(env){
     return handleVerdict(FP,env).then(function(v){
       if(v!=='ok')return {ok:false,_verdict:v,msg:env.msg};
       return persistBatchSlices(FP,env,FIRST_ITEMS,nameOfSlice).then(function(){return env;});
@@ -464,7 +530,7 @@ var SECOND_ITEMS=[{a:'getRosterList'},{a:'listHrNotices'},{a:'listOptions'}];
 var SECOND=FIRST.then(function(first){
   if(!first||first.ok!==true)return null;   // 第一發撤銷或離線 → 不送第二發
   return queueRead(function(){
-    return jsonp('batch',{token:TOKEN,list:JSON.stringify(SECOND_ITEMS)}).then(function(env){
+    return jsonp('batch',{list:JSON.stringify(SECOND_ITEMS)}).then(function(env){
       if(cacheVerdict(env)!=='ok')return null;
       return persistBatchSlices(FP,env,SECOND_ITEMS,nameOfSlice).then(function(){return env;});
     });
@@ -646,7 +712,7 @@ function renderRow(o){
     setMsg(msg,'處理中…','info');
     var who=val('姓名');
     sendModal('busy','核准中…');
-    jsonp('approveCheckin',{token:TOKEN,nonce:nonce,row:o._row,name:val('姓名'),unit:val('單位'),title:title,birth:val('生日'),email:email,empno:val('員編')})
+    jsonp('approveCheckin',{nonce:nonce,row:o._row,name:val('姓名'),unit:val('單位'),title:title,birth:val('生日'),email:email,empno:val('員編')})
       .then(function(r){
         if(r&&r.ok){
           addDoneItem({'報到日期':o['報到日期'],'姓名':val('姓名'),'單位':val('單位'),'職稱':title,'員編':val('員編')}, true);
@@ -674,7 +740,7 @@ function requeueMail(row,btn){
   if(!confirm('把這位同仁的留存信重新排入寄送？（今日 17:00 自動寄出）'))return;
   msg.textContent='處理中…';msg.className='resend-msg';
   sendModal('busy','排入待寄中…');
-  jsonp('requeueCheckinMail',{token:TOKEN,nonce:nonce,row:row}).then(function(r){
+  jsonp('requeueCheckinMail',{nonce:nonce,row:row}).then(function(r){
     var t=(r&&r.msg)||(r&&r.ok?'已排入待寄':'失敗');
     msg.textContent=t;
     msg.className='resend-msg '+(r&&r.ok?'ok':'err');
@@ -730,7 +796,7 @@ function loadLog(){
   pick2('listHrNotices').then(function(r){
     if(r){renderLog(r);return;}               // 第二發已備妥
     return queueRead(function(){               // 沒有才自己打
-      return jsonp('listHrNotices',{token:TOKEN}).then(function(r2){
+      return jsonp('listHrNotices',{}).then(function(r2){
         return cacheSave(FP,N.hrNotices,r2).then(function(){
           // 失敗而畫面上是快取 ⇒ 不重繪、掛提示（原本這一格一個字都不說，見 settleRefresh）
           if(settleRefresh('log-list',r2,cached))renderLog(r2);
@@ -830,7 +896,7 @@ function renderHrRow(o){
       if(!confirm('撤銷「'+o['姓名']+'」的待生效？會回到待確認，需重新核定。'))return;
       setMsg(pmsg,'處理中…','info');
       sendModal('busy','撤銷中…');
-      jsonp('revertHrChange',{token:TOKEN,nonce:nonce,row:o._row}).then(function(r){
+      jsonp('revertHrChange',{nonce:nonce,row:o._row}).then(function(r){
         if(r&&r.ok){actDone(pmsg,'已撤銷','ok');setTimeout(loadHr,800);}
         else actDone(pmsg,(r&&r.msg)||'失敗','err');
       });
@@ -865,7 +931,7 @@ function renderHrRow(o){
     if(isFail&&!val('name')){setMsg(msg,'請先指定名冊中的同仁（或手動輸入姓名）。','err');return;}
     if(cat==='調動'&&!val('unit')){setMsg(msg,'請核定新單位。','err');return;}
     if(cat==='晉升'&&!val('title')){setMsg(msg,'請核定新職稱。','err');return;}
-    var p={token:TOKEN,nonce:nonce,row:o._row,effDate:val('eff')};
+    var p={nonce:nonce,row:o._row,effDate:val('eff')};
     if(isFail)p.name=val('name');
     if(val('unit'))p.newUnit=val('unit');
     if(cat==='晉升')p.newTitle=val('title');
@@ -882,7 +948,7 @@ function renderHrRow(o){
     if(reason===null)return;
     setMsg(msg,'處理中…','info');
     sendModal('busy','駁回中…');
-    jsonp('rejectHrChange',{token:TOKEN,nonce:nonce,row:o._row,reason:reason}).then(function(r){
+    jsonp('rejectHrChange',{nonce:nonce,row:o._row,reason:reason}).then(function(r){
       if(r&&r.ok){actDone(msg,'已駁回','ok');setTimeout(loadHr,800);}
       else actDone(msg,(r&&r.msg)||'失敗','err');
     });
@@ -898,7 +964,7 @@ function batchTransfer(){
   if(!confirm('確定把「'+oldU+'」全體在職同仁整批轉到「'+newU+'」？\n此動作立即寫入名冊並通知佳岑改 LINE 標籤。'))return;
   setMsg(msg,'處理中…','info');
   sendModal('busy','轉移中…');
-  jsonp('batchTransferUnit',{token:TOKEN,nonce:nonce,oldUnit:oldU,newUnit:newU}).then(function(r){
+  jsonp('batchTransferUnit',{nonce:nonce,oldUnit:oldU,newUnit:newU}).then(function(r){
     if(r&&r.ok){actDone(msg,'已轉移 '+r.moved+' 人 ✅','ok');document.getElementById('bt-new').value='';setTimeout(loadHr,800);}
     else actDone(msg,(r&&r.msg)||'失敗','err');
   });
@@ -910,7 +976,7 @@ function addUnitGo(){
   if(!name){setMsg(msg,'請輸入名稱。','err');return;}
   setMsg(msg,'處理中…','info');
   sendModal('busy','新增中…');
-  jsonp('addUnit',{token:TOKEN,nonce:nonce,name:name,group:document.getElementById('au-group').value}).then(function(r){
+  jsonp('addUnit',{nonce:nonce,name:name,group:document.getElementById('au-group').value}).then(function(r){
     if(r&&r.ok){actDone(msg,'已新增「'+name+'」✅','ok');document.getElementById('au-name').value='';optLoaded=false;loadOptionsAdmin();setTimeout(loadHr,400);}
     else actDone(msg,(r&&r.msg)||'失敗','err');
   });
@@ -922,7 +988,7 @@ function addTitleGo(){
   if(!name){setMsg(msg,'請輸入名稱。','err');return;}
   setMsg(msg,'處理中…','info');
   sendModal('busy','新增中…');
-  jsonp('addTitle',{token:TOKEN,nonce:nonce,name:name,group:document.getElementById('at-group').value,self:document.getElementById('at-self').value}).then(function(r){
+  jsonp('addTitle',{nonce:nonce,name:name,group:document.getElementById('at-group').value,self:document.getElementById('at-self').value}).then(function(r){
     if(r&&r.ok){actDone(msg,'已新增「'+name+'」✅','ok');document.getElementById('at-name').value='';optLoaded=false;loadOptionsAdmin();setTimeout(loadHr,400);}
     else actDone(msg,(r&&r.msg)||'失敗','err');
   });
@@ -952,7 +1018,7 @@ function loadOptionsAdmin(){
   pick2('listOptions').then(function(r){
     if(r){renderOptionsAdmin(r);return;}         // 第二發已備妥
     return queueRead(function(){                 // 沒有才自己打
-      return jsonp('listOptions',{token:TOKEN}).then(function(r2){
+      return jsonp('listOptions',{}).then(function(r2){
         return cacheSave(FP,N.options,r2).then(function(){
           settleRefresh('eo-pick',r2,cached);      // renderOptionsAdmin 對失敗本來就不畫；這裡只負責說出來
           renderOptionsAdmin(r2);
@@ -981,7 +1047,7 @@ function saveOptionGo(){
   var v=document.getElementById('eo-pick').value;
   if(!v)return;
   var t=v.split('|')[0], n=v.split('|')[1];
-  var p={token:TOKEN,nonce:nonce,type:t,name:n,group:document.getElementById('eo-group').value,status:document.getElementById('eo-status').value};
+  var p={nonce:nonce,type:t,name:n,group:document.getElementById('eo-group').value,status:document.getElementById('eo-status').value};
   if(t==='職稱')p.self=document.getElementById('eo-self').value;
   setMsg(msg,'處理中…','info');
   sendModal('busy','儲存中…');
@@ -1007,7 +1073,7 @@ function loadHr(){
     clearDirty('hr-pending');
   }
   // 首發吃 batch 切片；之後的刷新（核定/駁回/轉移後）必須重打，不能回舊快照
-  var src=hrFirst?pick('getHrPending'):jsonp('getHrPending',{token:TOKEN});
+  var src=hrFirst?pick('getHrPending'):jsonp('getHrPending',{});
   hrFirst=false;
   src.then(function(r){
     // 🔴 失敗而畫面上是快取（2026-09-13）：原本這裡是 `else if(!cached)paintHr(r)`——
@@ -1044,7 +1110,7 @@ function reviveNotice(row,btn){
   if(!confirm('恢復這筆已駁回的異動？會回到人事異動分頁的待確認清單。'))return;
   msg.textContent='處理中…';msg.className='resend-msg';
   sendModal('busy','恢復中…');
-  jsonp('revertHrChange',{token:TOKEN,nonce:nonce,row:row}).then(function(r){
+  jsonp('revertHrChange',{nonce:nonce,row:row}).then(function(r){
     var t=(r&&r.ok)?'已恢復，請至「人事異動」分頁核定':(r&&r.msg)||'失敗';
     msg.textContent=t;
     msg.className='resend-msg '+(r&&r.ok?'ok':'err');
@@ -1084,7 +1150,7 @@ function loadRoster(){
   pick2('getRosterList').then(function(r){
     if(r){paintRoster(r);return;}                 // 第二發已備妥
     return queueRead(function(){                  // 沒有才自己打
-      return jsonp('getRosterList',{token:TOKEN}).then(function(r2){
+      return jsonp('getRosterList',{}).then(function(r2){
         return cacheSave(FP,N.rosterList,r2).then(function(){
           // 提示掛在人數列上方——人數與名單是同一份資料，兩者一起停在快取
           if(settleRefresh('r-count',r2,cached))paintRoster(r2);
@@ -1201,7 +1267,7 @@ function markOffline(savedAt){
     tag.setAttribute('style','margin-left:8px;color:#b26a00;font-size:13px');el.appendChild(tag);}
   tag.textContent=offlineLabel(savedAt);
 }
-rosterDlInit({ jsonp: jsonp, token: TOKEN, leaversId: 'r-dl-leavers',
+rosterDlInit({ jsonp: jsonp, leaversId: 'r-dl-leavers',
   msg: function (t, ty) { var el = document.getElementById('r-dl-msg'); el.className = 'msg show msg-' + (ty || 'info'); el.textContent = t; } });
 load();
 loadHr();   // 人事異動與報到互不相依 → 並行載入（徽章也一起到位）
