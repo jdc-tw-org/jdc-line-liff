@@ -419,11 +419,16 @@ test('🔴 line.html 的訊息紀錄入口：連到 line-messages.html?from=welf
  *    ——所以下面另外釘一條「靜態 markup 也不准有」。
  */
 /* 逐頁的零點探針：一個**已知存在於這一頁 `<script>` 程式碼裡**（不是註解裡）的字串。
- * ⚠️ 不可以偷懶寫成「每一頁都含 `line-messages.html`」——`admin.html` 拆完之後
- *    它的程式碼裡一次都不提了（連結在靜態 markup 上），那個零點會自己變成假陽性。
- *    ⬛ 我第一版就是這樣寫的，被這一格當場擋下來。 */
+ * ⚠️ 不可以偷懶寫成「每一頁都含 `line-messages.html`」——那個零點會自己變成假陽性。
+ *    ⬛ 我第一版就是這樣寫的，被這一格當場擋下來。
+ *
+ * 🪦 **`admin.html` 2026-09-18 從這張表上整列拿掉**（`jdc-tw/jdc-line-gas#99`）：
+ *    那一頁退場成墓碑，`showMsgLog`／`msg-note`／`getMsgLogToken` 連同整個入口一起消失
+ *    ⇒ 它**不再是一台鑄造機**，留在表上只會讓零點探針永遠找不到 `showMsgLog`。
+ * ⚠️ **那不代表這條規則對它變寬了。** 下面另有一條專門釘「`admin.html` 的程式碼裡
+ *    不准再出現任何 `line-messages.html`」——拿掉一列與放鬆一條規則長得很像，
+ *    所以那一條要存在。 */
 const MINT_PAGES = {
-  'admin.html': 'showMsgLog',
   'board.html': 'msgLogLink',
   'stats.html': 'msgLogLink',
   'line.html': 'renderMsgLogEntry',
@@ -455,10 +460,20 @@ test('⬛ 對照組：同一把尺量得到「鑄造」，也還是濾得掉「�
 });
 
 /* ⚠️ `stripComments` 的定義域到不了 HTML 屬性。三個入口的靜態 markup 各自釘一次。 */
+test('🪦 `admin.html` 退場之後，訊息紀錄的入口整個不見了（不是變成不帶 token 的版本）', () => {
+  // 🔴 **這一條補的是「從 MINT_PAGES 拿掉一列」留下的洞。** 拿掉一列與放鬆一條規則
+  //    在 diff 裡長得一模一樣；有了這一條，`admin.html` 要嘛完全沒有那個入口（今天），
+  //    要嘛就得回到 MINT_PAGES 上被逐條檢查。**沒有中間地帶。**
+  const src = S.sourceText('admin.html');
+  assert.equal(/line-messages\.html/.test(src), false,
+    '`admin.html` 又出現 line-messages.html 了 ⇒ 它要嘛回到 MINT_PAGES 上，'
+    + '要嘛這一條要改——但不可以兩邊都沒有人管');
+  // ⬛ 對照組：這把尺量得到東西（不是整份檔案讀成空字串）。
+  assert.ok(src.length > 500, '`admin.html` 只讀到 ' + src.length + ' 字元 ⇒ 上面那個 false 是假的');
+  assert.match(src, /me\.html/, '`admin.html` 連 me.html 都沒有 ⇒ 讀到的不是那一頁');
+});
+
 test('🪦 靜態 markup 也不准帶 token：訊息紀錄的連結一律是不帶 query 的 line-messages.html', () => {
-  const admin = S.sourceText('admin.html');
-  assert.match(admin, /<a class="card" id="go-messages" href="line-messages\.html" hidden>/,
-    'admin 的卡片 href 變了');
   for (const f of ['board.html', 'stats.html']) {
     const html = S.sourceText(f);
     const m = html.match(/<a id="msgLogLink"[^>]*>/);

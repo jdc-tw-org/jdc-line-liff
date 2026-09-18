@@ -4,201 +4,113 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<!-- 🔴 這一頁可能被帶著 `?t=` 打開（舊書籤）。`no-referrer` 讓那串東西不會跟著
+     Referer 跑到 `me.html` 去。剝網址那一段（見下面）是主防線，這一行是保險。 -->
+<meta name="referrer" content="no-referrer">
 <link rel="manifest" href="assets/app.webmanifest">
 <link rel="apple-touch-icon" sizes="180x180" href="assets/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<title>管理入口</title>
+<title>管理入口（已改到 me.html）</title>
+<!--
+  🪦 ═══ 管理入口退場（`jdc-tw/jdc-line-gas#99`，2026-09-18 擁有者拍板）═══════════
+
+  **這一頁原本是什麼**：三張卡片（人事異動看板／活動紀錄看板／人事資訊看板）
+  ＋一張 LINE 訊息紀錄入口，把網址上的 `?t=` 接到每一張卡片的 href 上。
+
+  🔴 **為何退場，而不是「補一套 LINE 登入」**（兩個量出來的事實，不是偏好）：
+
+    ① **它結構上沒有 LINE 登入。** 全檔 `liff.init` 出現 0 次、`getIDToken` 0 次。
+       `BOARD_TOKENS` 縮成一把 `screen` 專用鑰匙之後，這一頁**整頁死透**
+       ——不是少一塊功能，是三張卡片全部指向會被拒絕的網址。
+    ② **它的角色已經被 `me.html` 取代。** 那是純 LINE 登入的分流頁，
+       清單由後端 `DISPATCH_PAGES` 現算（`listMyPages`）⇒ 誰看得到哪幾頁由授權名單決定，
+       不必有人手維護一張卡片表。
+       ⚠️ 而這一頁**不在 `DISPATCH_PAGES` 上，也沒有任何測試在守它**——
+          它的三張卡片是手寫的，新增一頁不會出現在這裡，而且沒有東西會紅。
+
+  🔴 **為何留下檔案而不是刪掉**：舊書籤散在瀏覽器、LINE 聊天室與舊信件裡，
+     **那些量不到、也收不回來**。刪檔的話那些書籤拿到 GitHub Pages 的 404
+     （一頁英文、沒有任何指路）。留一個著陸點，他至少知道要去哪。
+
+  🔴 **三條鑄造出去的 `?t=` 連結一起停產**（`board.html` / `stats.html` / `hr-stats.html`）。
+     鑄造是這一頁最後一個會擴散舊路的動作：留著它等於每點一次就再散播一條舊連結。
+     ⬛ 自證不要用 `git grep -c`（它數的是行，而這段註解自己就提到了 `?t=`）
+        ——釘在 `tests/admin-retired.test.js` 的「本頁不再鑄造任何帶 token 的網址」那一條。
+
+  ⚠️ **`stats.html` 與 `attend.html` 這一輪維持雙軌**（副總走 `VIEW_TOKENS`，
+     而 `view` 在 `NOT_ASSIGNABLE_ROLES` 裡、結構上沒有 LINE 路）。
+     那與本頁退場不衝突：本頁鑄造的是 **`?t=`（BOARD）**，不是副總那把。
+     副總從來不走這一頁。
+
+  🔘 **留給擁有者的**：`getMsgLogToken` 換來的那顆 token 本頁原本會存進加密快取。
+     本頁不再打任何後端 ⇒ 那一格自然停止產生。既有裝置上的殘留由 TTL（7 天）自行過期。
+  ══════════════════════════════════════════════════════════════════════════════
+-->
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang TC','Noto Sans TC',sans-serif;background:#f5f6f8;color:#333;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
   .wrap{width:100%;max-width:420px}
   h1{font-size:20px;margin-bottom:4px}
-  .sub{font-size:13px;color:#888;margin-bottom:20px}
+  .sub{font-size:13px;color:#888;margin-bottom:20px;line-height:1.7}
   a.card{display:block;background:#fff;border:1px solid #e3e5e8;border-radius:14px;padding:18px 20px;margin-bottom:12px;text-decoration:none;color:#333;box-shadow:0 1px 4px rgba(0,0,0,.06)}
   a.card:active{background:#f0f1f3}
-  /* a.card 是 display:block，會蓋過 hidden 屬性 —— 沒有這一行，LINE 訊息紀錄那張藏不住 */
-  a.card[hidden]{display:none}
   .t{font-size:16px;font-weight:700}
   .d{font-size:13px;color:#888;margin-top:4px}
-  /* 沒帶 mt 時的說明（不可點）：整張消失會讓人以為「改的沒生效」，看不出是缺參數 */
-  div.note{background:#fbfbfc;border:1px dashed #d5d8dc;border-radius:14px;padding:16px 20px;margin-bottom:12px}
-  /* ⚠️ 這行**目前是冗餘的**（2026-08-20 突變實測：拿掉它，說明卡照樣藏得住）。
-     原理：`[hidden]{display:none}` 來自瀏覽器內建樣式，只會被**作者寫的 display 宣告**蓋掉。
-     div.note 沒有宣告 display ⇒ 內建樣式本來就生效。
-     留著是為了「日後有人給 div.note 加上 display:flex/grid」的那一刻——那時 hidden 會立刻失效。
-     對照上面的 a.card[hidden]：那個是**真的在擋**（a.card 有 display:block），突變測試會抓到。 */
-  div.note[hidden]{display:none}
-  div.note .t{color:#999}
-  code{background:#eceef0;padding:1px 5px;border-radius:4px;font-size:12px}
-  /* 版本標記：用來分辨「載到新版但缺參數」與「瀏覽器拿到快取的舊版」 */
+  .note{background:#fff8e1;border:1px solid #ecd9a0;border-radius:14px;padding:16px 20px;margin-bottom:16px;color:#6b5410;font-size:14px;line-height:1.7}
+  /* 版本標記：用來分辨「載到新版」與「瀏覽器拿到快取的舊版」 */
   .ver{margin-top:14px;text-align:center;font-size:11px;color:#c0c4c8;letter-spacing:.04em}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>管理入口</h1>
-  <div class="sub">選擇要進入的看板</div>
-  <a class="card" id="go-board" href="board.html">
-    <div class="t">🗂 人事異動看板</div>
-    <div class="d">新人報到核准・人事異動・員工名冊・資訊維護</div>
+  <h1>管理入口已經搬家</h1>
+  <div class="note" id="moved" role="status">
+    這個入口改用 LINE 登入了，新的入口是「我的頁面」。請把書籤換成下面那一條；
+    舊網址上的 token 已經不需要，也不再有作用。
+  </div>
+  <a class="card" id="go-me" href="me.html">
+    <div class="t">➜ 我的頁面</div>
+    <div class="d">用 LINE 登入，自動列出你有權限的看板</div>
   </a>
-  <a class="card" id="go-stats" href="stats.html">
-    <div class="t">📊 活動紀錄看板</div>
-    <div class="d">活動出席統計・活動管理・年資里程碑</div>
-  </a>
-  <a class="card" id="go-hr" href="hr-stats.html">
-    <div class="t">📈 人事資訊看板</div>
-    <div class="d">年資／年齡分佈・單位結構・退休預警</div>
-  </a>
-  <!-- 帶了 mt 顯示這張（可點）；沒帶則顯示下面那張說明，不會整個不見 -->
-  <a class="card" id="go-messages" href="line-messages.html" hidden>
-    <div class="t">✉️ LINE 訊息紀錄</div>
-    <div class="d">每一則 LINE 通知的發送紀錄・依批次摺疊</div>
-  </a>
-  <div class="note" id="msg-note" hidden>
-    <div class="t" id="msg-note-t">✉️ LINE 訊息紀錄</div>
-    <div class="d" id="msg-note-d">正在確認權限…</div>
+  <div class="sub">
+    找不到你要的看板，代表你的帳號還沒有那一頁的權限，請找資訊人員。
   </div>
   <!-- 版本標記由 JS 填 document.lastModified —— 手打的固定字串沒有用：
-       2026-08-20 我寫死 v2026-08-20a，之後連改三版都忘了動它，
-       使用者拿快取的舊檔時它照樣顯示同一個字串，等於分辨不出新舊。
+       2026-08-20 寫死過一次 v2026-08-20a，之後連改三版都忘了動它。
        document.lastModified 反映的是**這一份實際載到的檔案**的時間，不必維護。 -->
   <div class="ver" id="ver"></div>
 </div>
-<script src="assets/board-cache.js"></script>
 <script>
 // 版本標記放最前面：後面任何一段出錯，這行都已經跑完，
 // 才問得出「你載到的到底是哪一份檔案」——那是快取問題與程式問題的分水嶺。
-//
-// ⚠️ **它只反映本頁 HTML，不含 `assets/*.js`。** 這是刻意的留白，標在這裡是因為
-//    不標的話它會反過來騙人：瀏覽器可能 HTML 拿新的、assets 從記憶體快取拿舊的，
-//    這時版本標記照樣顯示新時間，看的人就不再懷疑 assets 了。
-//    （yu-agent-a5 於 2026-08-20 實測踩到：改了 board-cache.js，開頁判定「修法無效」，
-//      追下去才發現執行中的是舊的那份。零徵兆。）
-//
-//    為什麼不順手補上 assets：`fetch(src,{cache:'no-store'})` 拿到的是**伺服器上**的
-//    Last-Modified，而問題出在**瀏覽器記憶體裡執行中的那份**——補了只會多一道假的保證。
-//    真要驗，唯一可靠的是檢查執行中函式的原始碼特徵，例如
-//    `/case 'getAnniversaries':\s*return null/.test(nameOfSlice.toString())`，
-//    但那要為每支 asset 各寫一條，不通用。
-//
-//    ⇒ 這一格歸「下一個要擴充版本標記的人」決定；在那之前，看到這裡的時間**只能**
-//      推論 HTML 的新舊，不能推論 assets。
 try{ document.getElementById('ver').textContent='版本 '+document.lastModified; }catch(e){}
 
-// 純轉傳：本頁無資料、不打後端；token 帶去的看板自己驗
-var m=location.search.match(/[?&]t=([^&]+)/),t=m?m[1]:'';
-// mt＝hub 的 viewer token，與 t（line-platform）是兩套權限來源，不可互換。
-// 本頁是入口，順手把它轉傳下去：只要換這一個書籤，三個看板的「LINE 訊息紀錄 →」就都會出現。
-var mm=location.search.match(/[?&]mt=([^&]+)/),mt=mm?mm[1]:'';
-if(t){
-  var q='?t='+t+(mt?'&mt='+mt:'');
-  document.getElementById('go-board').href='board.html'+q;
-  document.getElementById('go-stats').href='stats.html'+q;
-  // hr-stats.html 還沒有 LINE 訊息紀錄的 UI，帶 mt 過去也沒東西讀，所以不帶
-  document.getElementById('go-hr').href='hr-stats.html?t='+t;
-}
-// LINE 訊息紀錄入口。三條路，**任何一條都要留下可見的東西**——
-// 整張消失時看不出是「改沒生效」還是「權限不足」，2026-08-20 就卡在這一格。
-//   1. 網址帶了 mt → 直接用（沿用舊行為，也方便臨時用別人的身分驗）
-//   2. 沒帶 mt 但有 t → 跟後端換一顆（舊書籤直接生效，不必要求任何人改網址）
-//   3. 連 t 都沒有 → 說明卡
-var ml=document.getElementById('go-messages');
-// 🪦 **不再把 token 接進網址**（`jdc-tw-org/jdc-line-hub#27`，2026-09-16）：訊息紀錄頁只剩 LINE 登入一條路。
-//    卡片的 href 本來就寫著不帶 token 的 `line-messages.html`（見上面的 markup），這裡只負責顯示它。
-// ⚠️ **三條路的分流、`getMsgLogToken` 那一發、加密快取全部逐字不變**——
-//    誰看得到這張卡一個人都沒有變（票上改過的閘門：「打 gas 的呼叫逐字不變」）。
-//    留著參數 `tok` 是刻意的：呼叫端兩處（有 mt／跟後端換一顆）不必動，diff 只有鑄造那一段。
-// 🔘 留給擁有者的後續：`getMsgLogToken` 換來的那顆 token 現在沒有人用了（見票 #27）。
-function showMsgLog(tok){ ml.hidden=false; }
-function showNote(title,desc){
-  document.getElementById('msg-note-t').textContent=title;
-  document.getElementById('msg-note-d').textContent=desc;
-  document.getElementById('msg-note').hidden=false;
-}
-var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-// fetch 匿名(credentials:'omit')：JSONP script 會帶瀏覽器 Google session，帳號狀態半殘的電腦被 Google 拒絕
-function jsonp(action,params,timeoutMs){
-  var qs=Object.keys(params||{}).filter(function(k){return params[k]!=='';}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
-  // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
-  // 讓整段 init 同步當掉 → 畫面永遠停在「載入中」且不顯示任何錯誤（2026-07-31 查本頁時發現）。
-  // 改用 Promise.race 計時：舊瀏覽器一樣有逾時，代價只是底層請求不會被真的取消（低頻看板無影響）。
-  var timer, timeout=new Promise(function(_,rej){timer=setTimeout(function(){var e=new Error('timeout');e.name='AbortError';rej(e);},timeoutMs||15000);});
-  return Promise.race([timeout, fetch(GAS_URL+'?action='+encodeURIComponent(action)+qs+'&callback=cb',{credentials:'omit',redirect:'follow'})
-    .then(function(r){return r.text();})
-    .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return JSON.parse(t.slice(a+1,b));})])
-    .then(function(v){clearTimeout(timer);return v;})
-    .catch(function(e){clearTimeout(timer);return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時（伺服器喚醒中），請重新整理再試。':'連線失敗，請重新整理。'};});}
-// LINE 訊息紀錄入口。三條路，**任何一條都要留下可見的東西**——
-// 整張消失時看不出是「改沒生效」還是「權限不足」，2026-08-20 就卡在這一格。
-//   1. 網址帶了 mt → 直接用（沿用舊行為，也方便臨時拿別人的身分驗）
-//   2. 沒帶 mt 但有 t → 跟後端換一顆（舊書籤直接生效，不必要求任何人改網址）
-//   3. 連 t 都沒有 → 說明卡
-//
-// ⚠️ 這段**必須放在 `var GAS_URL` 賦值之後**。原本寫在檔案上半部，
-//    `function jsonp` 會 hoist 所以叫得到，但 `var GAS_URL` hoist 的只有宣告、不是值
-//    ⇒ 呼叫當下 GAS_URL 是 undefined，fetch 打到相對路徑 `/undefined?action=…` 拿 404，
-//    畫面顯示「連線失敗」。語法檢查與單元測試都看不到這種順序錯誤。
-//
-// ⚠️ 走 queueRead 不直接 jsonp：本頁下面的預取也用它，兩支並行違反「讀取不並行」
-//    （見下一段註解）。排在預取之前是刻意的——這支決定畫面上看不看得到入口，優先。
-// 換來的 mt 存進既有的加密快取（T280，2026-08-22 使用者拍板方案 D）。
-// 第二次之後開這一頁，LINE 訊息紀錄入口**一趟 API 都不用打**、直接可點。
-// ⚠️ 存的是一顆憑證。加密＝AES-GCM、7 天 TTL、依 t 的指紋分格。
-//    🔴 **2026-09-16（`jdc-tw-org/jdc-line-hub#27`）：原本的理由已經有一半是假的，照現況重寫。**
-//       原文是「mt 本來就會出現在網址列（`line-messages.html?t=<mt>`），沒有新的洩漏類型」。
-//       `?t=` 那條路拆掉之後，**mt 不再出現在任何一條網址上** ⇒ 那半句不成立了。
-//       現在撐著這個決定的只剩另外半句：同一份 board-cache 已經在存人事看板的姓名資料，
-//       所以這裡沒有引進新的**類型**。而它現在存的是一顆**已經沒有人用的** token
-//       （hub 那側 `listMessageLog` 已是墓碑）⇒ 它的價值也同步降到 0。
-//    🔘 這一格是否還要留著，是擁有者的決定，不在本票範圍（本票只拆鑄造出來的網址）。
-var MSG_TOKEN_SLICE='getMsgLogToken';
-if(mt){
-  showMsgLog(mt);                       // 這一頁的後端是 hub，吃的是 mt
-}else if(t){
-  showNote('✉️ LINE 訊息紀錄','正在確認權限…');   // 先顯示，別讓人盯著空白等 API
-  // ⚠️ **整段包在佇列的第一個工作裡**，不可以寫成 `cacheBootstrap(t).then(queueRead(...))`。
-  //    cacheBootstrap 是非同步的，等它 resolve 才排隊的話，下面的預取會插到前面去，
-  //    首次開頁（沒快取）的入口就從 ~1.9 秒變成 ~4.7 秒——那等於偷偷做了「預取先」，
-  //    而使用者拍的是方案 D 不是 B。
-  queueRead(function(){
-    return cacheBootstrap(t).then(function(){
-      var hit=cacheGet(MSG_TOKEN_SLICE);
-      if(hit&&hit.value&&hit.value.token){
-        document.getElementById('msg-note').hidden=true;
-        showMsgLog(hit.value.token);
-        return;                         // 命中就完全不打 API
-      }
-      return jsonp('getMsgLogToken',{token:t}).then(function(r){
-        if(r&&r.ok&&r.token){
-          document.getElementById('msg-note').hidden=true;
-          showMsgLog(r.token);
-          return cacheSave(t,MSG_TOKEN_SLICE,r);   // cacheSave 只收 ok:true
-        }
-        showNote('✉️ LINE 訊息紀錄（目前開不了）',(r&&r.msg)||'無法取得檢視權限，請稍後重試。');
-      });
-    });
-  });
-}else{
-  showNote('✉️ LINE 訊息紀錄（這條網址少了 token）','網址要帶 ?t=… 才進得去。');
-}
+/**
+ * 把 `t`／`mt` 從網址上剝掉。**這一頁不讀它們、也不轉傳它們。**
+ *
+ * 🔴 為何要剝：舊書籤一打開，那串東西就停在網址列上，而這一頁旁邊就是一個
+ *    連到別頁的連結 ⇒ 不剝的話它會跟著 Referer 走（`<meta name="referrer">`
+ *    是保險，不是主防線——它在很舊的瀏覽器上不生效）。
+ * ⚠️ 逐個參數重組，**不要用字串挖洞**：`?a=1&t=X&b=2` 挖掉中間那一段會留下 `&&`，
+ *    而那種網址在多數瀏覽器上不會報錯、只會安靜地多一個空參數。
+ * ⚠️ 用 `history.replaceState` 就地改、**不 reload**（reload 會多一趟、也會閃）。
+ */
+(function(){
+  try{
+    var kept=location.search.replace(/^\?/,'').split('&').filter(function(kv){
+      if(!kv)return false;
+      var k=kv.split('=')[0];
+      return k!=='t'&&k!=='mt';
+    }).join('&');
+    if(kept!==location.search.replace(/^\?/,'')){
+      history.replaceState(null,'',location.pathname+(kept?'?'+kept:'')+location.hash);
+    }
+  }catch(e){}
+})();
 
-// 預取種子（2026-07-25 建，2026-08-19 改寫）：停在本頁時背景先抓，點進去即秒顯。
-// 原本兩支 seed 並行、且直接寫明文 sessionStorage——快取搬到加密 localStorage 之後
-// 那些鍵不再有人讀（死碼），而兩支並行也違反「讀取不並行」。改成單一 batch。
-// 仍刻意不預取 board.html：它帶待報到者姓名。
-if(t){
-  var SEED_ITEMS=[{a:'getHrStats'},{a:'getActivityStats',p:{act:''}}];
-  queueRead(function(){
-    return jsonp('batch',{token:t,list:JSON.stringify(SEED_ITEMS)}).then(function(env){
-      if(cacheVerdict(env)!=='ok')return;
-      return persistBatchSlices(t,env,SEED_ITEMS,nameOfSlice);
-    });
-  });
-}
 // iOS「加到主畫面」standalone 模式：<a> 導頁會彈出帶網址列的內嵌 Safari，
-// 改用 JS 導頁就留在 App 視窗內（桌機瀏覽器行為不變）
+// 改用 JS 導頁就留在 App 視窗內（桌機瀏覽器行為不變）。
 document.querySelectorAll('a.card').forEach(function(a){
   a.addEventListener('click',function(e){e.preventDefault();location.href=this.href;});
 });
