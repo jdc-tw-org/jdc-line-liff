@@ -126,9 +126,13 @@ test('★對照組　沒有快取卡 + 失敗 ⇒ 仍然安靜（獎金卡是加
   await expect(page.locator(提示)).toBeHidden();
 });
 
+/**
+ * ⚠️ 這條刻意**帶著快取卡**跑。不帶卡的話「只有畫面上有卡才說話」那道守衛會先攔下來，
+ *    於是把這一格寫反（把合法狀態算成失敗）也照樣是綠的——那就什麼都沒測到。
+ */
 test('★對照組　ok:true 但未報到（checkedIn:false）＝合法的「這區不出現」，不是失敗', async ({ page }) => {
-  await 開通行證(page, { seedCard: false, lotteryResp: { ok: true, enabled: true, checkedIn: false } });
-  await expect(page.locator('#pass-qr')).toBeVisible();
+  await 開通行證(page, { seedCard: true, lotteryResp: { ok: true, enabled: true, checkedIn: false } });
+  await expect(page.locator('#pass-lottery')).toContainText('12,000');
   await page.waitForTimeout(1200);
   await expect(page.locator(提示)).toBeHidden();
 });
