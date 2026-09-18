@@ -7,7 +7,7 @@
  *    **各寫一份的話，兩份的嚴格度會分歧，而分歧是靜默的**：
  *    退路那一份少給一個替身，量到的差異就會是替身造成的，讀起來卻像程式改壞了。
  *
- * ⚠️ `board-e1a-wiring.test.js` 有一份**自己的**同型環境，這一輪刻意不動它——
+ * ⚠️ `board-token-retired.test.js` 有一份**自己的**同型環境，這一輪刻意不動它——
  *    改它等於在「hr-stats 上線」這次改動裡順手動到 board 的驗收，
  *    而那一頁已經在線上跑了。要收攏是另外一次改動。
  */
@@ -89,7 +89,7 @@ function runPage({ search, loggedIn = true, idToken = 'IDTOK', sub = 'U_SUB_1', 
     btoa: (s) => Buffer.from(String(s), 'binary').toString('base64'),
     atob: (s) => Buffer.from(String(s), 'base64').toString('binary'),
     Uint8Array, Uint32Array, ArrayBuffer,
-    // 🔴 **`subtle` 給真的，不給永遠 pending 的替身。**（與 board-e1a-wiring 的差別，理由如下）
+    // 🔴 **`subtle` 給真的，不給永遠 pending 的替身。**（與 board-token-retired 的差別，理由如下）
     //    本頁的整個首載都排在 `cacheBootstrap()` 後面，而它第一件事就是
     //    `subtle.digest` 算指紋。替身若永遠不 resolve，**這一頁一個請求都不會送出去**
     //    ⇒ 「還沒登入不可以發車」那三條會全綠，而它們證明的是

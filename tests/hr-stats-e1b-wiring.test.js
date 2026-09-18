@@ -8,7 +8,7 @@
  * 🔴 **只驗新路也不夠**：這一格是切換，**切換本身**才是會出事的東西。
  *    所以兩種模式都驗，而且驗的是同一批斷言的相反面。
  *
- * ⚠️ 手法與 `board-e1a-wiring.test.js` 同型（同一種 stub 環境），
+ * ⚠️ 手法與 `board-token-retired.test.js` 同型（同一種 stub 環境），
  *    刻意不自創第二套——兩套環境的嚴格度會分歧，而分歧是靜默的。
  *    **唯一刻意的差別是「首載有沒有發車」那五條用 `waitFor` 不用 `settle`**：
  *    本頁首載排在真 webcrypto 後面，固定幾輪等不到它。理由見 `helpers/page-stub.js` 的 waitFor。

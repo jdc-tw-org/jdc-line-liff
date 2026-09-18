@@ -5,7 +5,7 @@
  *    所以「清單畫錯、未遷移的頁做成了可點的連結」它一條都不會紅。
  *    而那正是這一頁唯一會害到人的錯：**點下去必定被擋，而他什麼都沒做錯。**
  *
- * ⚠️ 手法沿用 `board-e1a-wiring.test.js`：把頁面的 script 丟進 stub 環境跑，
+ * ⚠️ 手法沿用 `board-token-retired.test.js`：把頁面的 script 丟進 stub 環境跑，
  *    測的是 `me.html` 裡真正那幾行字。DOM 與網路是假的。
  */
 const { test } = require('node:test');
