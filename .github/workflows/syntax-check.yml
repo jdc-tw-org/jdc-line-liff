@@ -15,7 +15,10 @@ on:
     branches: [main]
     paths: ['**.html', 'assets/**.js', '.github/workflows/syntax-check.yml']
   pull_request:
-    paths: ['**.html', 'assets/**.js']
+    # 🔴 這兩份清單必須逐字相同（含 `.github/workflows/syntax-check.yml` 自己那一格）。
+    #    少了自己那一格 ⇒ 改壞這支的 PR 不會跑這支，要等合併進 main 才知道，
+    #    而失敗方向是「檢查清單上少了一格」，不是紅燈——零錯誤訊息。
+    paths: ['**.html', 'assets/**.js', '.github/workflows/syntax-check.yml']
   workflow_dispatch: {}
 
 jobs:
