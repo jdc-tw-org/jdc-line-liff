@@ -667,3 +667,201 @@ test('⬛ #114 問不出 exp 時一律當成「沒過期」（猜錯的代價不
     }
   } finally { 跑.forEach((r) => r.cleanup()); }
 });
+
+/* ══ 🔴 #61：分流頁按 `group` 分組、加小標 ═══════════════════════════════
+ *
+ * ══ 受測的是什麼、不是什麼 ═════════════════════════════════════════════
+ *
+ * 🔴 **順序不是這一頁算的。** 後端 `listMyPagesFor`（gas `#191`）照
+ *    `DISPATCH_GROUPS = ['人事','活動','LINE','管理']` 排好才送出，`me.html` 只做
+ *    「收到的順序裡 `group` 變了就插一個小標」。⇒ 這幾條**不可以**斷言
+ *    「人事一定排在活動前面」——那會在前端釘住一份後端的順序副本，
+ *    而那正是 `#191` 明確否決的東西（同一個判斷的第二個副本）。
+ *    ⇒ 斷言的形狀一律是「**畫出來的順序＝送進去的順序**」。
+ *
+ * ⬛ **一手驗到的後端現況**（2026-09-18，開工前自己量的，不是「PR 合併了所以生效」）：
+ *    · 線上 `/exec` 的 `__whoami` build 尾段＝`e2ec970`，3/3 次一致
+ *      （`jdc-line-gas` 的 `ci/probe-live.sh --expect e2ec970` 回 `verdict=HIT`）
+ *      ⇒ **線上跑的就是加了 `group` 的那一顆**。
+ *    · `e2ec970` 的 `roles.js`：`listMyPagesFor` 對每一列無條件送
+ *      `group: String(row.group == null ? '' : row.group)`，且排序在後端算完。
+ *    · 同一顆的 `roles-matrix-guard` 綠 ⇒ 本 repo 的
+ *      `tests/fixtures/action-roles.json` 與那份現況**逐字相同**
+ *      ⇒ 下面這幾條吃的料，就是線上那張表。
+ *    ⚠️ **量不到的那一半**：真正的 `listMyPages` 回應要一把 LINE ID token 才叫得出來，
+ *       這一端拿不到 ⇒ 「線上回應每一筆真的帶 `group`」是從**部署的那一顆原始碼**
+ *       推出來的，不是打回來的。真機那一半要擁有者開一次頁面才算數。
+ */
+
+/** 畫面上的**視覺順序**：小標與卡片依序攤成一列。順序斷言全部吃這個。 */
+function 版面(h) {
+  const out = [];
+  const re = /<div class="grp">([^<]*)<\/div>|<div class="name">([^<]*)<\/div>/g;
+  let m;
+  while ((m = re.exec(h)) !== null) out.push(m[1] !== undefined ? '組:' + m[1] : '頁:' + m[2]);
+  return out;
+}
+const 小標序 = (h) => 版面(h).filter((s) => s.indexOf('組:') === 0).map((s) => s.slice(2));
+const 卡片序 = (h) => 版面(h).filter((s) => s.indexOf('頁:') === 0).map((s) => s.slice(2));
+/** 看得到的頁數＝可點的 ＋ 不可點的。**小標不是頁**，不可以算進來。 */
+const 卡片數 = (h) => (h.match(/<a class="card"/g) || []).length
+                    + (h.match(/<div class="card off">/g) || []).length;
+
+test('⬛ 零點：後端那一份每一列都帶非空的 group（否則下面每一條都在空集合上跑）', () => {
+  // 🔴 這一條與上面 `lineReady` 那一條同一個形狀：`group` 是後端**宣告**的欄位，
+  //    而宣告欄位會腐爛。它整欄消失時，下面的斷言會紅在「小標序是 ['其他'] 而不是
+  //    ['人事',…]」——讀起來像 me.html 的分組壞了，其實是料沒到。先把紅燈放對地方。
+  矩陣.dispatchPages.forEach((r) => {
+    assert.equal(typeof r.group === 'string' && r.group !== '', true,
+      r.page + ' 的 group 是 ' + JSON.stringify(r.group)
+      + ' ⇒ 後端不再宣告這一欄（或漏標）。me.html 會把它畫到「其他」那一組底下'
+      + '（刻意的，見 me.html 的 `未標示的組`），但清單與畫面的契約已經變了。');
+  });
+  const 組數 = new Set(矩陣.dispatchPages.map((r) => r.group)).size;
+  assert.ok(組數 >= 2,
+    '後端那份只剩 ' + 組數 + ' 個組 ⇒ 分組前後畫出來一模一樣，這一輪什麼都沒測到');
+});
+
+test('🔴 #61 照送來的順序切組：每換一組插一個小標，卡片一張不多一張不少', async () => {
+  const r = runMe({ reply: 清單 });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    // 期望的視覺順序**由送進去的資料現算**，不手寫一份順序表（手寫＝又一份副本，
+    // 而且它會在後端改順序時錯得理直氣壯）。
+    const 期望 = [];
+    let 上一組 = null;
+    清單.pages.forEach((p) => {
+      const g = String(p.group == null ? '' : p.group) || '其他';
+      if (g !== 上一組) { 期望.push('組:' + g); 上一組 = g; }
+      期望.push('頁:' + p.title);
+    });
+    assert.deepStrictEqual(版面(h), 期望,
+      '畫出來的順序與送進來的不一樣。\n實際：' + JSON.stringify(版面(h), null, 1));
+    // ⬛ 鑑別力：料裡真的不只一個組（否則上面那條對「分組」零鑑別力）。
+    assert.ok(new Set(小標序(h)).size >= 3,
+      '這一輪只畫出 ' + JSON.stringify(小標序(h)) + ' ⇒ 沒有多組，分組與不分組長得一樣');
+  } finally { r.cleanup(); }
+});
+
+test('⬛ #61 頁數守恆：分組之後看得到的頁數＝後端送來的列數（含不可點的）', async () => {
+  const r = runMe({ reply: 清單 });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.equal(卡片數(h), 清單.pages.length,
+      '後端送 ' + 清單.pages.length + ' 列，畫面只剩 ' + 卡片數(h) + ' 張卡'
+      + ' ⇒ 分組把頁吃掉了。這是使用者唯一的入口清單，少一列＝他有權限卻找不到入口。');
+    assert.equal(卡片序(h).length, 清單.pages.length, '標題數與列數對不上');
+    // 🔴 小標不可以被算成頁：它們是 `div.grp`，不帶 `card`。
+    assert.equal((h.match(/class="grp"/g) || []).length, 小標序(h).length);
+    // 🔴 **頁尾與卡片同一個述詞**（`=== false`）。分組不可以讓這兩處分道：
+    //    分道的長相是「卡片可點、頁尾卻說它還沒開放」。
+    const 該灰的 = 清單.pages.filter((p) => p.lineReady === false).length;
+    assert.equal((h.match(/<div class="card off">/g) || []).length, 該灰的,
+      '灰卡數與 `lineReady === false` 的列數不符');
+    assert.match(r.get('foot').textContent, new RegExp('其中 ' + 該灰的 + ' 頁還沒改成'),
+      '頁尾的數字與灰卡數分道了：' + JSON.stringify(r.get('foot').textContent));
+  } finally { r.cleanup(); }
+});
+
+test('🔴 #61 前端**不重排**：交錯送進來就交錯畫出來（小標可以重複出現）', async () => {
+  // 🔴 這一條是「順序的第二個副本」唯一測得到的地方。前端若自己照
+  //    ['人事','活動','LINE','管理'] 排一遍，這一條會紅（畫出來會被收成兩組）。
+  //    ⚠️ 取的是後端那份裡真實存在的列，不另造假資料（公開 repo，不放內部識別碼）。
+  const 取 = (g, n) => 矩陣.dispatchPages.filter((p) => p.group === g)[n];
+  const 交錯 = [取('人事', 0), 取('活動', 0), 取('人事', 1)].filter(Boolean);
+  assert.equal(交錯.length, 3, '前置沒成立：後端那份湊不出「人事／活動／人事」三列');
+  const r = runMe({ reply: { ok: true, who: '丁小恆', pages: 交錯 } });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.deepStrictEqual(小標序(h), ['人事', '活動', '人事'],
+      '小標被收成 ' + JSON.stringify(小標序(h))
+      + ' ⇒ 前端自己把清單重排了一遍。順序的權威在後端 `DISPATCH_GROUPS`（gas #191），'
+      + '前端再排一次就是同一個判斷的第二個副本。');
+    assert.deepStrictEqual(卡片序(h), 交錯.map((p) => p.title), '卡片順序被動過');
+    assert.equal(卡片數(h), 3, '交錯時頁數沒守恆');
+  } finally { r.cleanup(); }
+});
+
+test('🔴 #61 group 缺席／空字串 → 那一頁照樣看得見，而且**不被併進上一組**', async () => {
+  // 🔴 併進上一組（＝不印小標）的話，那張卡會貼在上一個小標底下 ⇒ 畫面說
+  //    「這一頁屬於<上一組>」，而那是一句沒有依據的話。藏起來更糟：那是他唯一的入口清單。
+  const 有組 = 矩陣.dispatchPages[0];
+  const 缺鍵 = Object.assign({}, 矩陣.dispatchPages[1]); delete 缺鍵.group;
+  const 空字串 = Object.assign({}, 矩陣.dispatchPages[2], { group: '' });
+  const r = runMe({ reply: { ok: true, who: '丁小恆', pages: [有組, 缺鍵, 空字串] } });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.equal(卡片數(h), 3,
+      '沒標到組的頁消失了（剩 ' + 卡片數(h) + ' 張）⇒ 他有權限卻找不到入口');
+    assert.deepStrictEqual(卡片序(h), [有組.title, 缺鍵.title, 空字串.title],
+      '沒標到組的頁被挪位置了');
+    assert.deepStrictEqual(小標序(h), [有組.group, '其他'],
+      '小標是 ' + JSON.stringify(小標序(h)) + '。'
+      + '只有一個 ⇒ 沒標到組的那兩頁被畫進「' + 有組.group + '」底下，畫面說了一句假話；'
+      + '有三個 ⇒ 缺鍵與空字串被當成兩種不同的組。');
+  } finally { r.cleanup(); }
+});
+
+test('⬛ #61 對照組：整批同一組 → 只有一個小標（證明不是「每張卡各配一個」）', async () => {
+  const 同組 = 矩陣.dispatchPages.map((p) => Object.assign({}, p, { group: '人事' }));
+  const r = runMe({ reply: { ok: true, who: '丁小恆', pages: 同組 } });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.deepStrictEqual(小標序(h), ['人事'],
+      '同一組卻畫出 ' + 小標序(h).length + ' 個小標 ⇒ 小標是跟著卡片走，不是跟著組走');
+    assert.equal(卡片數(h), 同組.length, '同組時頁數沒守恆');
+  } finally { r.cleanup(); }
+});
+
+test('🔴 #61 空清單時分組邏輯不可以搶先跑掉（那一格要留給那三段話）', async () => {
+  const r = runMe({ reply: { ok: true, who: '丁小祥', pages: [] } });
+  await settle();
+  try {
+    const h = r.get('list').innerHTML;
+    assert.equal(/class="grp"/.test(h), false, '空清單卻畫出了小標');
+    assert.equal(卡片數(h), 0, '空清單卻畫出了卡片');
+    // 🔴 那三段話還在（空清單那一格刻意不說「您沒有權限」，理由逐條在 me.html 碼旁）。
+    assert.match(h, /msg-info/, '空清單那一格被分組邏輯擠掉了');
+    assert.match(h, /不會出現在這份清單上/);
+    assert.equal(r.get('foot').textContent, '', '空清單卻在頁尾講「還有幾頁沒開放」');
+  } finally { r.cleanup(); }
+});
+
+test('🔴 #61 前端不得寫死一份組的清單（寫死＝值域與順序的第二個副本）', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'me.html'), 'utf8');
+  const 去註解 = html.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const 值域 = [...new Set(矩陣.dispatchPages.map((p) => p.group))];
+  assert.ok(值域.length >= 2, '前置沒成立：後端那份只有 ' + 值域.length + ' 個組值');
+  值域.forEach((g) => {
+    assert.equal(去註解.indexOf("'" + g + "'") >= 0 || 去註解.indexOf('"' + g + '"') >= 0, false,
+      'me.html 的程式碼裡寫死了組名 ' + g + ' ⇒ 它開始自己維護一份組的值域／順序了');
+  });
+  // ⬛ 對照組：這把尺掃得到真的寫著那些組名的東西（本檔自己就有 '人事' 這個字面值）。
+  const 自己 = fs.readFileSync(__filename, 'utf8');
+  assert.equal(自己.indexOf("'人事'") >= 0, true,
+    '連本檔自己都掃不到 ⇒ 上面那條的「沒有」只是尺壞了');
+});
+
+test('🔴 #61 小標的顏色走變數，不寫死色碼', () => {
+  // 🔴 **這一條是突變逼出來的**（2026-09-18，M7）：e2e 那支用 `getComputedStyle` 量顏色，
+  //    而 `color: #6b6b68` 與 `color: var(--ink2)` **算出來一模一樣** ⇒ 把變數換成寫死的
+  //    十六進位色碼，真瀏覽器那四條**全綠**。量得到的是「算完的顏色」，
+  //    而「有沒有走變數」結構上只有原始碼看得到。⇒ 這一格只能在這裡守。
+  //    （為什麼在意：色票的唯一來源是 `assets/ui.css`。寫死的那一格不會跟著改，
+  //      而它壞掉的樣子是「整頁換了色系，只有這一行還是舊的」——沒有錯誤訊息。）
+  const html = fs.readFileSync(path.join(ROOT, 'me.html'), 'utf8');
+  const 規則 = (html.match(/^\s*\.grp\s*\{[^}]*\}/m) || [])[0];
+  assert.ok(規則, 'me.html 裡找不到 `.grp { … }` 這條規則 ⇒ 下面兩格在空字串上跑');
+  assert.match(規則, /color:\s*var\(--/, '小標的顏色沒有走 CSS 變數：' + 規則);
+  assert.equal(/#[0-9a-fA-F]{3,8}\b/.test(規則), false, '小標的規則裡寫死了色碼：' + 規則);
+  // ⬛ 對照組：這把尺**看得到**寫死的色碼——同一頁的 `.card.off` 就真的寫著一個。
+  const 對照 = (html.match(/^\s*\.card\.off\s*\{[^}]*\}/m) || [])[0];
+  assert.ok(對照, '對照組不見了（`.card.off` 那條規則被改名或刪掉）⇒ 上面那條的綠燈不值得解讀');
+  assert.equal(/#[0-9a-fA-F]{3,8}\b/.test(對照), true,
+    '連 `.card.off` 裡的寫死色碼都掃不到 ⇒ 這把尺什麼都沒測到：' + 對照);
+});
