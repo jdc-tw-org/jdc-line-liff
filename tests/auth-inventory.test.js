@@ -69,13 +69,30 @@ test('⬛ 零點：`staff.html`（解析 API）與 `board.html`（共用函式�
     '兩頁命中了完全一樣的形狀集合 ⇒ 這個零點失去鑑別力（它要證明的是「兩種不同寫法都接得住」）');
 });
 
-test('⬛ 對照：`admin.html`＝活的、`line-messages.html`＝墓碑——兩者都命中形狀但結論相反', () => {
-  const ad = A.tokenVerdict('admin.html');
+test('⬛ 對照：`stats.html`＝活的、`line-messages.html`＝墓碑——兩者都命中形狀但結論相反', () => {
+  // 🪦 **這一條的「活的」那一半 2026-09-18 從 `admin.html` 換成 `stats.html`**
+  //    （`jdc-tw/jdc-line-gas#99`）。原因不是挑一個會過的：`admin.html` 那一頁
+  //    整個退場成墓碑，**它連 token 都不再讀** ⇒ 它一個形狀都不命中，
+  //    而這一條需要的正是「兩頁都命中形狀、結論卻相反」。
+  //    ⚠️ `stats.html` 這一輪刻意維持雙軌（副總走 `VIEW_TOKENS`，`view` 在
+  //       `NOT_ASSIGNABLE_ROLES` 裡、結構上沒有 LINE 路）⇒ 它會是最後一批才退場的。
+  //    🔴 **解除條件**：等 `stats.html` 也退場時，這一條要再換一頁「活的」，
+  //       而不是把它刪掉——刪掉的話「命中數」就悄悄變成判定的依據了。
+  const ad = A.tokenVerdict('stats.html');
   const lm = A.tokenVerdict('line-messages.html');
   assert.ok(ad.shapes.length > 0 && lm.shapes.length > 0,
     '對照組要成立，兩頁都必須命中形狀；有一頁沒命中的話「命中數」就有鑑別力了，本條就白測');
   assert.strictEqual(ad.verdict, '活的');
   assert.strictEqual(lm.verdict, '墓碑（讀了但不送）');
+});
+
+test('🪦 `admin.html` 退場之後，它連 token 都不讀了', () => {
+  // 🔴 這一條是上面那一條「換掉主角」的理由本身，釘成可執行的斷言——
+  //    不然「為什麼換人」只活在註解裡，而註解對下一個人是零攔截力。
+  const ad = A.tokenVerdict('admin.html');
+  assert.strictEqual(ad.shapes.length, 0,
+    '`admin.html` 又開始讀 token 了（命中形狀：' + ad.shapes.join('、') + '）'
+    + ' ⇒ 那一頁是墓碑，它不該再有任何認人的動作');
 });
 
 test('兩把尺不一致時必須是 `不確定`，不可以靜靜挑一邊', () => {

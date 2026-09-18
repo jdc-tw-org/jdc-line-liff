@@ -232,11 +232,6 @@
 <script src="assets/board-cache.js"></script>
 <script>
 var GAS_URL='https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqdRL8gRhfTEMfjosdh1A0T4rmzj4Pl7F3k5PToe2po-xtg/exec';
-// 取值走共用的 assets/url-token.js（E1a 收攏的那一支，board.html 已在用）——
-// 全站原本四種寫法，改來源時會漏掉其中幾處而**症狀是那幾頁靜靜地繼續走舊路**。
-// ⚠️ 這裡刻意保留 `q(k)` 這個名字當薄包裝，不改呼叫端：改名會讓這次的 diff
-//    同時含「換來源」與「改名」兩件事，而後者會把前者藏起來。
-function q(k){return urlParam(k);}
 // fetch 匿名(credentials:'omit')：JSONP script 會帶瀏覽器 Google session，帳號狀態半殘的電腦被 Google 拒絕（2026-07-24 verify 實證後全站換）
 function jsonp(action,params){
   // 🔴 **憑證只掛在這一個地方**（同 board.html 的 jsonp、line.html 的 wfCall）。
@@ -252,11 +247,16 @@ function jsonp(action,params){
   //    「按下去說請重新登入、而他根本沒登出過」**照樣會發生**。
   //    在這裡取仍然是對的（開頁時取會連「登入完才拿得到」都錯過），
   //    但它**不是一道防線**。真正的處置在 `assets/liff-relogin.js`。
-  // ⚠️ 條件是 `!TOKEN`：帶 `?t=` 的舊路**不可以**順手帶 idToken 上去，
-  //    那會打到後端 `doGet` 的分流條件、把舊路整條改道（福委會那型）。
+  // 🔴 **`token`／`t` 一律拿掉，不是靠呼叫端不要傳。**（同 board.html 的 jsonp）
+  //    後端 `doGet` 的分流條件是「`token` 或 `t` 非空就走舊守門」——留一個縫等於沒拆：
+  //    任何一個呼叫點（含 assets/ 底下共用的那幾支）不小心傳了一顆，那一支就靜靜地
+  //    改走 `?t=` 那條路，而畫面上完全看不出來。⇒ 在這裡刪掉，**結構上送不出去**。
+  //    🪦 這裡原本是 `if(!TOKEN){…}`——條件式擋的是「呼叫端有沒有傳」，
+  //       而那正是留一個縫的寫法。
   var p={};
   Object.keys(params||{}).forEach(function(k){p[k]=params[k];});
-  if(!TOKEN){var fresh=freshIdToken();if(fresh)p.idToken=fresh;}
+  delete p.token; delete p.t;
+  var fresh=freshIdToken();if(fresh)p.idToken=fresh;
   params=p;
   var qs=Object.keys(params||{}).map(function(k){return '&'+encodeURIComponent(k)+'='+encodeURIComponent(params[k]);}).join('');
   // 逾時不靠 AbortController：iOS 12.1 以前沒有它，`new AbortController()` 會直接 ReferenceError，
@@ -268,21 +268,92 @@ function jsonp(action,params){
     .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(denyNoRole(JSON.parse(t.slice(a+1,b))));})])
     .then(function(v){clearTimeout(timer);return v;})
     .catch(function(e){clearTimeout(timer);return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時，請重新整理。':'連線失敗'};});}
-var TOKEN=q('t');
+/* 🪦 **`?t=` 那條路在這一頁已經停用**（`jdc-tw/jdc-line-gas#99`，2026-09-18）。
+ *    做法逐條照抄 board.html 那一顆（PR #87），**刻意不發明第二種拆法**。
+ *
+ * 原本這裡是 `var TOKEN=q('t');`，`startAuth()` 第一行寫著
+ * `if(TOKEN)return Promise.resolve('token')` ⇒ **帶 `?t=` 進來的人完全不經過 LINE 登入**，
+ * 身分來自後端那張人手維護的 `BOARD_TOKENS` 對照表。
+ *
+ * 🔴 **為何非拆不可**：那條路繞過了走 LINE 登入才會經過的在職檢查（gas `#138`）
+ *    ——標成離職的人拿舊連結照樣進得來，而且沒有任何人看得到這件事。
+ *
+ * ⚠️ **拆法刻意不是「擋下來」，是「把 `t` 丟掉之後照常走 LINE 登入」**：
+ *    舊連結散在書籤、LINE 聊天室與舊信件裡，**那些量不到、也收不回來**。
+ *    擋下來的話他看到的是一句「連結已失效」而手上沒有新網址；
+ *    丟掉 `t` 的話他就是多按一次 LINE 登入，然後看到一模一樣的頁面。
+ *
+ * ⚠️ 用 `history.replaceState` 就地改網址、**不 reload**。這一段必須在
+ *    `liff.login({redirectUri:location.href})` 之前跑完，否則那串 token 會被原封不動
+ *    送進 LINE 的轉址鏈。
+ *    🔴 **撐住這件事的是「同步 vs 非同步」，不是它寫在哪一行**——`liff.login` 在
+ *       `liff.init().then(...)` 裡面，所以任何**同步**的呼叫點都來得及。
+ *       （board.html 那一顆實測過三種突變，結論逐字相同，這裡不重跑一次當第二份真相。）
+ *
+ * 🔴 全檔讀 `t` 只有下面這一處。⬛ 自證不要用 `git grep -c`（它數的是行，而這段註解
+ *    自己就提到了 `?t=`）——釘在 tests/hr-stats-token-retired.test.js 那一條。
+ *
+ * 🪦 **`function q(k){return urlParam(k);}` 那個薄包裝一起拿掉了。**
+ *    它存在的理由寫得很明白：「刻意保留這個名字、不改呼叫端，讓這次的 diff 不要
+ *    同時含換來源與改名兩件事」。**那個理由屬於 E1a 那一次改動，已經過去了**，
+ *    而拆掉舊路之後它只剩一個呼叫點（⬛ 實測剝註解後 `q(` 命中 2：宣告＋那一處）。
+ *    🔴 **拿掉它不只是清理，它修掉了一個假陽性**：`tests/helpers/auth-scan.js` 的
+ *       `holders()` 會把「讀取式所在的最內層具名函式」當成持有者 ⇒ `q` 進了持有者集合
+ *       ⇒ 賦值傳遞的不動點從它一路長到 `params`／`qs`／`r`／`c`／`p`，於是尺 A 判定
+ *       「讀出來的值落進了傳輸函式的引數區」⇒ **這一頁被判成 `活的`**。
+ *       ⬛ 實測：改之前 `{"verdict":"活的","shapes":["S1","S4"],"rulerA":true}`，
+ *          而做了同一件事的 `board.html` 是 `墓碑（讀了但不送）`／`rulerA:false`
+ *          ——差別只在 board 直接呼叫 `urlToken()`、沒有中間那層具名函式。
+ *       ⇒ 兩頁做同一件事就該長同一個樣子。**盤點表判錯，比沒有盤點表更糟。**
+ */
+var LEGACY_T=urlToken();
+/**
+ * 把 `t` 從網址上拿掉，並在標題下方留一句話。**不擋住這一頁**。
+ * 排版刻意用行內樣式、不借 `.gate-fail`：那一格是紅色的「主資料沒拿到」警語，
+ * 這一句不是警報，共用一個容器會讓紅色不再代表任何事。
+ */
+function retireTokenPath(){
+  try{
+    // 逐個參數重組，**不要用字串挖洞**：`?a=1&t=X&b=2` 挖掉中間那一段會留下 `&&`，
+    // 而那種網址在多數瀏覽器上不會報錯、只會安靜地多一個空參數。
+    var kept=location.search.replace(/^\?/,'').split('&').filter(function(kv){
+      return kv&&kv.split('=')[0]!=='t';
+    }).join('&');
+    history.replaceState(null,'',location.pathname+(kept?'?'+kept:'')+location.hash);
+  }catch(e){}
+  var box=document.createElement('div');
+  box.id='legacy-t';
+  box.setAttribute('role','status');
+  box.setAttribute('style','margin:0 0 12px;padding:10px 12px;border-radius:8px;'
+    +'background:#fff8e1;border:1px solid #ecd9a0;color:#6b5410;font-size:14px;line-height:1.7');
+  box.textContent='這一頁改用 LINE 登入了，網址上不再需要帶 token。'
+    +'請把舊連結換成 hr-stats.html（不帶參數）；舊連結仍然開得起來，只是會多一次 LINE 登入。';
+  var host=document.getElementById('main');
+  if(host&&host.parentNode)host.parentNode.insertBefore(box,host);
+  else document.body.insertBefore(box,document.body.firstChild);
+}
+if(LEGACY_T)retireTokenPath();
 
-/* ══ E1b 第 1 頁：這一頁有兩條進來的路（2026-09-12）═══════════════════════
+/* ══ 這一頁只剩一條進來的路：LINE 登入（2026-09-18）═══════════════════════
  *
- *   ① 網址帶 `?t=`  → **舊路，行為與改動前逐字相同**。守門走 `gateAction`。
- *   ② 網址沒有 `?t=` → **LINE 登入**。帶 idToken 上去，後端驗簽→換內部碼→查名冊。
+ *   帶 idToken 上去，後端驗簽 → 換內部碼 → 查授權名單。
  *
- * 🔴 **分流的依據是「網址上有沒有那串」，不是開關。** 所以退路就是「把舊連結給他」
- *    ——舊連結一貼上去，這一頁的行為與 2026-09-12 之前逐字相同，**不必部署**。
- *    後端那一側還有第二道退路（`ROLE_SOURCE` 切回 `token`，見 roles.js 的
- *    `LINE_NEEDS_SHEET`），那一道會讓②整條路關閉並請他改用舊連結。
+ * 🪦 **2026-09-12～2026-09-18 之間這裡是兩條路**：網址帶 `?t=` 走舊守門
+ *    （`gateAction` 的 board 分支、身分來自 `BOARD_TOKENS`），沒有才走 LINE。
+ *    分流的依據是「網址上有沒有那串」，所以**退路就是把舊連結給他**。
+ *    那條路已於 `gas#99` 拆除，上面 `retireTokenPath()` 是它留下的墓碑。
+ *
+ * 🔴 **所以這一頁現在沒有「不必部署的退路」了。** 這不是漏掉，是知情的取捨：
+ *    留著舊路就等於留著一個繞過在職檢查的入口（`gas#138`）。
+ *    ⚠️ 讀到後端 `LINE_NEEDS_SHEET` 那句「請改用原本的連結」時請注意：
+ *       **那句話對這一頁已經不成立**。
  *
  * ⚠️ **本頁是唯讀的**（只有 `getHrStats` 一支 action，不寫任何資料、不發任何訊息），
- *    所以②走不通時最壞的後果是「看不到數字」，不是「資料被改壞」。
- *    這就是七頁裡拿它當第 1 頁試跑的理由。
+ *    所以走不通時最壞的後果是「看不到數字」，不是「資料被改壞」。
+ *
+ * ⚠️ **本頁的守門是 `admin,hrstats`。** 線上那三把看板憑證裡沒有 `hrstats`
+ *    ——今天走 `?t=` 進得來的只有 `admin`，而 `admin` 有 LINE 路
+ *    （`#99` 2026-09-18 的切換前斷言 `total=4 passed=4 擋下 0`）。
  */
 
 /**
@@ -292,13 +363,19 @@ var TOKEN=q('t');
  * ⚠️ **那是記載，不是當日複核過的 Console 值**——沿用 board.html 檔頭的同一句保留。
  */
 var LIFF_ID='2010451233-a781rqsm';
-var ID_TOKEN='';            // ②才有值；jsonp 會把它掛上每一支呼叫
+var ID_TOKEN='';            // LINE 登入完才有值；jsonp 會把它掛上每一支呼叫
 /**
- * 快取指紋。**不可以直接用 TOKEN**——②的 TOKEN 是空字串，
- * 同一台裝置上不同人就會共用 `''` 這個指紋，**A 的看板資料會被 B 解開**
- * （本頁快取裡含退休預警的姓名）。②改用 LINE 的 `sub`（穩定、每人一個）。
+ * 快取指紋 ＝ LINE 的 `sub`（穩定、每人一個），登入完才知道。
+ *
+ * 🔴 **初值必須是空字串，而且在它還是空字串的時候一格快取都不可以動**
+ *    ——同一台裝置上不同人會共用 `''` 這個指紋，**A 的看板資料會被 B 解開**
+ *    （本頁快取裡含退休預警的姓名）。擋住這件事的是 `cacheBootstrap(FP)`
+ *    排在 `AUTH_READY` 之後，以及 tests/hr-stats-token-retired.test.js
+ *    那條「指紋不可以是空字串」。
+ * ⚠️ `sub` 不是機密，加密強度比舊的 `?t=` 弱；但資料本來就只存在他自己的裝置上，
+ *    而那顆 token 也一直是明文寫在網址列的。**這是取捨，寫在這裡讓下一個人看得到。**
  */
-var FP=TOKEN;
+var FP='';
 
 function freshIdToken(){
   if(!(window.liff&&typeof liff.getIDToken==='function'))return '';
@@ -321,8 +398,11 @@ function authBlock(msg,isErr){
 /** 永遠不 resolve ⇒ 後面的首載整批不會發車。**fail-closed，不是忘了 resolve。** */
 function authHalt(msg){authBlock(msg,true);return new Promise(function(){});}
 
+/* 🪦 原本第一行是 `if(TOKEN)return Promise.resolve('token');`（①舊路不載 SDK、不登入）。
+ *    `?t=` 那條路拆掉之後它是死枝，拿掉（同 board.html 那一顆的處置）。
+ *    ⚠️ 它一旦被加回來，這一整顆就白做了——釘住它的是
+ *       tests/hr-stats-token-retired.test.js 的「帶 `?t=` 仍然要走 LINE 登入」那條。 */
 function startAuth(){
-  if(TOKEN)return Promise.resolve('token');           // ①舊路
   if(!(window.liff&&typeof liff.init==='function')){
     return authHalt('LINE 的元件沒有載入成功，沒辦法確認您的身分。'
       +'請確認網路正常後重新整理；一直這樣的話請找資訊人員。');
@@ -960,10 +1040,12 @@ function renderHr(r){
 }
 (function () {
   var painted = false;
-  // ⚠️ **排在 AUTH_READY 之後**（E1b）：②要等 LINE 登入拿到憑證才能發車。
-  //    ①（網址帶 `?t=`）的 AUTH_READY 是**已經 resolve 的 Promise**，只差一個微任務，
-  //    送出去的請求與改動前逐字相同。
-  // ⚠️ 連 `hr-stats-pub.json`（公開檔、不需身分）也排在後面：②在導去 LINE 登入時
+  // ⚠️ **排在 AUTH_READY 之後**：要等 LINE 登入拿到憑證才能發車。
+  //    🔴 **2026-09-18 起這一格從「快一點」變成「非如此不可」**：`?t=` 那條路拆掉之後
+  //       `FP` 的初值是空字串，而 `cacheBootstrap(FP)` 在它還是空字串時跑
+  //       ＝同一台裝置上不同人共用同一個指紋。舊文寫的是「①只差一個微任務」，
+  //       那個①已經不存在了。
+  // ⚠️ 連 `hr-stats-pub.json`（公開檔、不需身分）也排在後面：導去 LINE 登入時
   //    這一頁整個會被換掉，先畫的那一下是白畫的；而把它拉到外面就會變成
   //    「同一頁有兩套啟動順序」，那正是這次要收掉的東西。
   AUTH_READY.then(function () { return cacheBootstrap(FP); }).then(function () {
@@ -984,7 +1066,7 @@ function renderHr(r){
         });
     }
     return queueRead(function () {
-      return jsonp('getHrStats', { token: TOKEN }).then(function (r) {
+      return jsonp('getHrStats', {}).then(function (r) {
         return handleVerdict(FP, r).then(function (v) {
           if (v === 'revoked') return;                       // 覆蓋層已蓋上
           if (v === 'offline') {

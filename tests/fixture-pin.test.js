@@ -165,7 +165,7 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 量的時候**不要指到 `~/Projects/jdc-line-liff` 那棵**——它的 main 落後
  *      origin 一百多顆，會給出假的 rc=3「副本過期」。
  */
-const PIN = 'd38a01296e3a95c4f86da22cf9192dce116845d18404a1527c38b461da3b10fd';
+const PIN = '2784f446c70d6e733e8ee76643dfb9a5823f70066e9169f1dcae5b7c28985a3d';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

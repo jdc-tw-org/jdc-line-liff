@@ -260,7 +260,9 @@
     "getAnniversaries": {
       "roles": [
         "admin",
-        "any"
+        "hr",
+        "activity",
+        "hrstats"
       ],
       "who": [
         "admin",
@@ -283,7 +285,8 @@
       "roles": [
         "admin",
         "activity",
-        "view"
+        "view",
+        "screen"
       ],
       "who": [
         "admin",
@@ -432,7 +435,8 @@
     "getEventCheckinStats": {
       "roles": [
         "admin",
-        "activity"
+        "activity",
+        "screen"
       ],
       "who": [
         "admin",
@@ -556,7 +560,9 @@
     "getRosterExport": {
       "roles": [
         "admin",
-        "any"
+        "hr",
+        "activity",
+        "hrstats"
       ],
       "who": [
         "admin",
@@ -568,7 +574,9 @@
     "getRosterList": {
       "roles": [
         "admin",
-        "any"
+        "hr",
+        "activity",
+        "hrstats"
       ],
       "who": [
         "admin",
@@ -754,7 +762,9 @@
     "listOptions": {
       "roles": [
         "admin",
-        "any"
+        "hr",
+        "activity",
+        "hrstats"
       ],
       "who": [
         "admin",

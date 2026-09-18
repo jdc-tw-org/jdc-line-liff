@@ -10,7 +10,7 @@
 |---|---|
 | 產生器 | `tests/helpers/auth-scan.js` |
 | 詞法掃描 | `tests/helpers/action-scan.js` 的 `tokenize()`（**共用同一支**，不另寫） |
-| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `d38a01296e3a` |
+| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `2784f446c70d` |
 | 頁面母體 | repo 根目錄的 `*.html` **現掃**（不是手寫清單） |
 | 頁數 | 14 |
 
@@ -24,17 +24,17 @@
 
 | 頁                   | ① `?t=`                 | ② 入口（第一道）                            | ② 角色門檻 |
 |----------------------|--------------------------|----------------------------------------------|---|
-| `admin.html`         | 活的                     | `未宣告`                                     | `admin,activity,view`<br>`admin,any`<br>`admin,any,view`<br>`admin,hrstats` |
+| `admin.html`         | 墓碑（只在註解）         | `未宣告`                                     | `（抽不到）` |
 | `attend.html`        | 活的                     | `getActivityStats [admin,activity,view]`     | `admin,activity,view`<br>`admin,any,view` |
 | `authz.html`         | 墓碑（只在註解）         | `getAuthzList [admin]`                       | `（抽不到）` |
-| `board.html`         | 墓碑（讀了但不送）       | `getCheckinPending [admin,hr]`               | `admin,any`<br>`admin,any,view`<br>`admin,hr`<br>`admin,public` |
-| `checkin.html`       | 活的                     | `未宣告`                                     | `admin,activity` |
-| `hr-stats.html`      | 活的                     | `getHrStats [admin,hrstats]`                 | `admin,hrstats` |
+| `board.html`         | 墓碑（讀了但不送）       | `getCheckinPending [admin,hr]`               | `admin,any`<br>`admin,any,view`<br>`admin,hr`<br>`admin,hr,activity,hrstats`<br>`admin,public` |
+| `checkin.html`       | 活的                     | `未宣告`                                     | `admin,activity,screen` |
+| `hr-stats.html`      | 墓碑（讀了但不送）       | `getHrStats [admin,hrstats]`                 | `admin,hrstats` |
 | `index.html`         | 沒有這條路               | `未宣告`                                     | `admin,public` |
 | `line-messages.html` | 墓碑（讀了但不送）       | `getMessageLog [admin,activity]`             | `（抽不到）` |
 | `line.html`          | 墓碑（只在註解）         | `getWelfareAudience [admin,messaging]`       | `admin,messaging` |
 | `me.html`            | 墓碑（只在註解）         | `未宣告`                                     | `（抽不到）` |
 | `staff.html`         | 活的                     | `未宣告`                                     | `admin,staff` |
-| `stats.html`         | 活的                     | `getActivityStats [admin,activity,view]`     | `admin,activity`<br>`admin,activity,view`<br>`admin,any`<br>`admin,any,view` |
+| `stats.html`         | 活的                     | `getActivityStats [admin,activity,view]`     | `admin,activity`<br>`admin,activity,view`<br>`admin,any`<br>`admin,any,view`<br>`admin,hr,activity,hrstats` |
 | `verify.html`        | 活的                     | `未宣告`                                     | `admin,public` |
-| `wall.html`          | 活的                     | `未宣告`                                     | `admin,activity,view` |
+| `wall.html`          | 活的                     | `未宣告`                                     | `admin,activity,view,screen` |

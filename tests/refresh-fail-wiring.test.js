@@ -139,7 +139,11 @@ const SWR_TABLE = {
   'line-messages.html':         { cacheGet: 2 },
   'hr-stats.html':         { cacheGet: 1 },
   'assets/anniv.js':       { cacheGet: 1 },
-  'admin.html':            { cacheGet: 1, excluded: '命中快取就不打 API——沒有「第二段」，不是 SWR' },
+  // 🪦 `admin.html` 2026-09-18 整列拿掉（`jdc-tw/jdc-line-gas#99`）：那一頁退場成墓碑，
+  //    不再打任何後端、也不再讀快取 ⇒ 它的 `cacheGet(` 歸零。
+  //    原文是 `{ cacheGet: 1, excluded: '命中快取就不打 API——沒有「第二段」，不是 SWR' }`。
+  //    ⚠️ 這是**清單變短**，不是把一個還在的東西排除掉——`seen` 是現掃的，
+  //       它哪天又出現一個 `cacheGet(`，這條會紅。
   'assets/board-cache.js': { cacheGet: 1, excluded: '定義處（註解外只剩函式宣告那一個）' },
 };
 

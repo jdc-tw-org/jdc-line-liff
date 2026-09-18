@@ -25,7 +25,12 @@ function fakeEl() {
     addEventListener() {}, removeEventListener() {}, querySelector: () => fakeEl(),
     querySelectorAll: () => [], focus() {}, click() {}, remove() {}, scrollIntoView() {},
     textContent: '', innerHTML: '', value: '', checked: false, hidden: false, href: '',
-    parentNode: { removeChild() {} },
+    // 🪦 墓碑那一段（`retireTokenPath`）會 `parentNode.insertBefore(...)` 或
+    //    `body.insertBefore(...)`。⚠️ 少一格的症狀是「整段 inline script 在這裡 throw」，
+    //    而後面的東西全都沒跑 ⇒ **底下每一條都會紅在一個與它自己無關的理由上**。
+    //    （2026-09-18 從 board-token-retired 那一份收攏過來，形狀逐字相同。）
+    insertBefore() {}, firstChild: null,
+    parentNode: { removeChild() {}, insertBefore() {} },
   };
   return el;
 }
@@ -69,6 +74,20 @@ function runPage({ search, loggedIn = true, idToken = 'IDTOK', sub = 'U_SUB_1', 
       href: 'http://localhost/' + file + search, search,
       pathname: '/' + file, origin: 'http://localhost', hash: '',
       replace() {}, assign() {}, reload() {},
+    },
+    // 🪦 墓碑會 `history.replaceState` 把 `t` 剝掉。**替身要同時更新 `location`**
+    //    ——真瀏覽器就是這樣，而 `liff.login({redirectUri:location.href})` 讀的正是它。
+    //    替身若只記一筆而不改 `location`，「剝了沒有」與「剝在 login 之後」兩種失敗
+    //    會長得一模一樣（都是 redirectUri 乾淨），那就等於沒測到順序。
+    //    （形狀逐字沿用 board-token-retired 那一份。）
+    history: {
+      replaceState(_s, _t, url) {
+        ctx.__replacedUrl = String(url);
+        const i = String(url).indexOf('?');
+        ctx.location.search = i >= 0 ? String(url).slice(i) : '';
+        ctx.location.href = 'http://localhost' + String(url);
+      },
+      pushState() {},
     },
     localStorage: storage, sessionStorage: storage,
     fetch: (u) => { urls.push(String(u)); return pending(); },
