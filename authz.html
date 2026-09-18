@@ -23,7 +23,13 @@
      舊版一列渲染成七個 `.fld` 各佔一行 ⇒ **一列＝一大塊**，5 列就很長、50 列會爆炸。
      ⚠️ 收合是**純 CSS 的 class 切換，不重畫**。重畫會把使用者正在打的字與游標位置
         一起換掉（`feedback_swr_repaint_eats_user_input`：這一頁全是輸入欄位）。 */
-  .row { border: 1px solid var(--ln); border-radius: 3px; margin-bottom: 6px; background: #fff; overflow: hidden; }
+  /* ⚠️ `display:flex` ＋ `flex-wrap` 是為了讓「拿掉」那顆鈕能跟摺起來那一行**並排**，
+     而 `.det` 仍然自己佔滿一整行（`width:100%`）。
+     🔴 **刻意不包一層 `<div class="hd">`**：`.row > .det > .fld > 欄位` 這個深度
+        被 `tests/authz-page-wiring.test.js` 的假欄位手抄了一份（見那一檔的 `假欄位`），
+        多包一層就要同步改那份手抄，而沒有任何機械的東西逼兩邊相等。 */
+  .row { border: 1px solid var(--ln); border-radius: 3px; margin-bottom: 6px; background: #fff;
+         overflow: hidden; display: flex; flex-wrap: wrap; }
   .row.dis { background: #f7f7f5; }
   .row.hid { display: none; }
   /* 剛加進來的那一列。下一次重畫就沒了（`render()` 會整份重建），**這是刻意的**：
@@ -33,9 +39,23 @@
   /* 摺起來的那一行。`<button>` ⇒ 鍵盤可聚焦、Enter 可啟動，全是原生行為。 */
   .sum {
     display: flex; align-items: center; gap: 8px; width: 100%;
+    flex: 1 1 auto; min-width: 0;
     font: inherit; text-align: left; padding: 9px 10px; cursor: pointer;
     background: none; border: 0; color: var(--ink); min-height: 40px;
   }
+
+  /* 「拿掉」——**只有這一輪剛加、還沒存檔的列才有這一顆**（見 `本輪新增`）。
+     ⚠️ 它是 `.sum` 的**兄弟**不是子孫：`.sum` 本身就是 `<button>`，
+        `<button>` 裡不可以再包 `<button>`（巢狀按鈕是無效的 HTML，
+        瀏覽器會自己把它拆出去，屆時點擊會落到哪裡沒有人說得準）。 */
+  .del {
+    flex: none; align-self: stretch; padding: 0 11px;
+    font: inherit; font-size: 12.5px; line-height: 1;
+    background: none; border: 0; border-left: 1px solid var(--ln);
+    color: var(--ink3); cursor: pointer; white-space: nowrap;
+  }
+  .del:hover { background: #fdf2f2; color: var(--bad); }
+  .del:focus-visible { outline: 2px solid var(--b); outline-offset: -2px; }
   .sum:hover { background: #fafaf9; }
   .sum:focus-visible { outline: 2px solid var(--b); outline-offset: -2px; }
   .caret { flex: none; width: 12px; color: var(--ink3); font-size: 11px; transition: transform .12s; }
@@ -48,7 +68,8 @@
   .row.dis .sum .who { color: var(--ink2); text-decoration: line-through; }
 
   /* 展開之後才是舊版那幾個欄位。 */
-  .det { padding: 2px 10px 12px; border-top: 1px solid var(--ln); }
+  /* `width:100%` 讓它在 `.row` 這個 flex 容器裡自己換到下一行（全站 `box-sizing: border-box`）。 */
+  .det { width: 100%; padding: 2px 10px 12px; border-top: 1px solid var(--ln); }
   .row:not(.open) .det { display: none; }
 
   .fld { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -294,8 +315,42 @@ var HDR = [], 角色值域 = [], 狀態值域 = [], 名冊 = [];
 var 角色頁面 = [];
 /** 目前的草稿（資料列，不含表頭）。每一列都是 HDR.length 格。 */
 var 草稿 = [];
+/**
+ * 🔴 **這一輪剛按「加進草稿」加進來、還沒存檔的那幾列**（`#66`）。
+ *    存的是**那幾個列陣列本身的參照**，不是索引、不是內部碼、不是 class。
+ *
+ * ══ 為什麼非得是參照 ═══════════════════════════════════════════════════
+ *
+ * 這一格要回答的問題只有一個：「**這一列是不是他這一輪自己加的**」。
+ * 而這一頁可以拿來認人的每一種東西都答不了它：
+ *
+ *   ✗ **`.row.new` 這個 class**：那是呈現，而且是**會消失的**呈現
+ *      ——`帶他去看()` 加上去，下一次 `render()` 就沒了（見 `.row.new` 的註解，
+ *      那是刻意的）。⇒ 加了 A 再加 B，A 的鈕就會憑空不見。
+ *   ✗ **索引／位置**（「排在第 12 列之後的都是新的」）：今天成立**只因為**
+ *      `新增()` 剛好往後面 push。哪天多一條「插在中間」的路徑，這個判準會
+ *      靜靜地把別人的列標成可刪，**而每一格都合法、不會報錯**
+ *      （`feedback_position_is_not_identity`）。
+ *   ✗ **內部碼＋角色**：本輪加的那一列與名單裡既有的那一列**可以完全同值**
+ *      ——那正是這張票的成因（唯一性擋下來的就是「同一組（內部碼, 角色）」）。
+ *      用值去認，會認到既有的那一列身上。
+ *
+ * ⇒ 參照是唯一真的分得出來的：`load()` 的每一列都是 `row.slice()` 造的新陣列，
+ *   `新增()` 造的是另一個新陣列。編輯走 `草稿[n][c] = ...`（**就地改**，參照不變），
+ *   排序只搬 DOM 節點、不動 `草稿`。⇒ 參照在這一頁的生命週期裡是穩定且唯一的。
+ *
+ * ⚠️ **`load()` 一定要把它清空**（重新載入之後，原本那幾列已經是存進去的紀錄了）。
+ * ⚠️ `JSON.stringify(草稿)` 完全看不到這一格 ⇒ 送出去的那一份一個位元組都沒多。
+ */
+var 本輪新增 = [];
 /** 通過檢查的那一份草稿的字面（null ＝還沒檢查，或檢查後又被改過）。 */
 var 驗過的 = null;
+
+/**
+ * 這一列是不是本輪加的。**全頁只有這一份判準**——
+ * 移除鈕畫不畫、以及真的要不要拿掉，問的都是這一支。
+ */
+function 是本輪新增的(r) { return !!r && 本輪新增.indexOf(r) >= 0; }
 
 function el(id) { return document.getElementById(id); }
 function esc(s) {
@@ -525,7 +580,11 @@ function render() {
       + (停 ? '<br>這一列的狀態是「' + esc(狀態值域[1]) + '」⇒ 它不會給這個人任何一頁。' : '')
       + '</div>';
 
+    // 🔴 **只有本輪加的列才有那一顆鈕。** 判準走 `是本輪新增的()`（參照），
+    //    不是 class、不是位置——理由整段寫在 `本輪新增` 的宣告上。
+    var 可拿掉 = 是本輪新增的(r);
     html += '<div class="row' + (停 ? ' dis' : '') + '" data-n="' + n + '"'
+      + (可拿掉 ? ' data-new="1"' : '')
       + ' data-name="' + esc(r[iName] || '') + '" data-code="' + esc(r[iCode] || '')
       + '" data-role="' + esc(r[iRole] || '') + '" data-stat="' + esc(r[iStat] || '') + '">'
       // 摺起來的那一行
@@ -537,6 +596,16 @@ function render() {
       + '<span class="sp"></span>'
       + '<span class="pg">' + (停 ? esc(狀態值域[1]) : 我的頁.length + ' 頁') + '</span>'
       + '</button>'
+      // 🔴 **「拿掉」只畫在本輪加的列上。** 既有的列出現這一顆＝一把沒有人看得到的刀：
+      //    授權名單被刪掉一列時，七道守恆**全部會過**（那份表結構上仍然合法），
+      //    ⇒ 發現的人是「沒有人」（gas `line-platform/authz.js:520`）。
+      //    要讓既有的一列不再生效，既有機制是**把狀態改成「停用」**，就在下面那一格。
+      + (可拿掉
+          ? '<button class="del" type="button" data-act="del"'
+            + ' title="把這一列從草稿裡拿掉（它還沒有被存進名單）"'
+            + ' aria-label="拿掉剛加的這一列：' + esc(r[iName] || r[iCode]) + '　'
+            + esc(角色名(r[iRole])) + '">拿掉</button>'
+          : '')
       // 展開後：原本那幾個欄位，一格都沒少
       + '<div class="det">'
       + '<div class="fld"><label>角色</label><select data-c="' + iRole + '">'
@@ -734,6 +803,7 @@ function 接上監聽() {
     var 列 = 哪一列(t);
     if (!列) return;
     if (act === 'exp') { 列.classList.toggle('open'); return; }
+    if (act === 'del') { 拿掉(Number(列.getAttribute('data-n'))); return; }
 
     var pop = 列.querySelector ? 列.querySelector('.dpop') : null;
     if (!pop) return;
@@ -771,10 +841,53 @@ function 新增() {
   r[欄('授予日')] = 今天();
   r[欄('姓名')] = 那個人 ? 那個人.name : '';
   草稿.push(r);
+  本輪新增.push(r);                            // 🔴 **唯一**會長出「可以拿掉」的那一格
   el('msg').textContent = '';
   render();
   髒();
   帶他去看(草稿.length - 1);
+}
+
+/**
+ * 🔴 **把本輪剛加的那一列從草稿裡拿掉**（`#66`）。
+ *
+ * ══ 這支存在的理由 ═══════════════════════════════════════════════════════
+ *
+ * 2026-09-18 擁有者實際卡住：加了一列（同一個人＋同一個角色）⇒ 七道守恆的
+ * 唯一性擋下來，**而那一列拿不掉**（全檔沒有任何移除路徑）⇒ 唯一的脫身方法是
+ * **重新整理整頁**，連同他已經改好的其他每一格一起丟掉。
+ *
+ * ══ 🔴 範圍卡死在「還不是紀錄的那幾列」═══════════════════════════════════
+ *
+ * 這支**進不去既有的列**，而且是**兩道**擋著：畫面上根本沒有那顆鈕，
+ * 而就算有人直接叫這支（或偽造一次 click），下面那一問也會擋下來。
+ * ⚠️ 兩道各自要擋得住 ——只剩一道時另一道被拿掉不會有任何東西紅。
+ * 🔴 為什麼非擋不可：授權名單被刪掉一列，七道守恆**全部會過**
+ *    （少一列在結構上完全合法）⇒ 沒有任何人會發現
+ *    （gas `line-platform/authz.js:520` 那張表白紙黑字）。
+ *    要讓既有的一列不再生效，既有機制是**把狀態改成「停用」**。
+ *
+ * ══ ⚠️ 這裡重畫（`render()`），而這一頁的其他地方刻意不重畫 ═══════════════
+ *
+ * 平常的紀律是「只切 class、不重畫」（重畫會吃掉正在打的字）。這支是例外，
+ * 而且**非重畫不可**：`splice` 之後每一列的索引都往前挪一格，
+ * 而 `data-n` 就是草稿的索引。不重畫的話，被挪到的那幾個節點會帶著**舊的 `data-n`**
+ * ⇒ 他在第 5 列打的字寫進第 4 列。零錯誤訊息，正是
+ * `feedback_position_is_not_identity` 的形狀。
+ * ⚠️ 同一段 `.det` 裡的「這個人合計看得到幾頁」也是算出來的，少一列就變了
+ *    ——不重畫的話那句話會留著說一件不再成立的事。
+ * ⬛ `新增()` 本來就已經 `render()` 了；這支是它的反向動作，代價本來就一樣。
+ */
+function 拿掉(n) {
+  var r = 草稿[n];
+  // 🔴 第二道。第一道是「既有的列上根本沒有那顆鈕」（`render()`）。
+  if (!是本輪新增的(r)) return;
+  草稿.splice(n, 1);
+  本輪新增.splice(本輪新增.indexOf(r), 1);
+  el('msg').textContent = '';
+  render();
+  // 拿掉一列當然算改動 ⇒ 檢查結果作廢、存檔鈕關掉。
+  髒();
 }
 
 /**
@@ -912,6 +1025,10 @@ function load(面板訊息) {
     //    角色顯示退回原代號、頁數那一格顯示 0。難看，但不會說假話。
     角色頁面 = r.rolePages || [];
     草稿 = (r.rows || []).map(function (row) { return row.slice(); });
+    // 🔴 **重新載入 ⇒ 一列都不是「本輪新增」了**（存檔那一趟也會走到這裡，
+    //    而那一刻剛加的那幾列已經是寫進去的紀錄，再也不可以拿掉）。
+    //    ⚠️ 少了這一行，存檔之後那幾顆鈕會留在畫面上，而按下去就是在刪紀錄。
+    本輪新增 = [];
     驗過的 = null;
 
     el('addcard').hidden = false;
