@@ -12,7 +12,7 @@ on:
     #    ＝**改了守門的依據卻沒有任何東西重跑守門**，而且完全靜默。
     paths: ['**.html', 'assets/**.js', 'tests/**', '.github/workflows/test.yml']
   pull_request:
-    paths: ['**.html', 'assets/**.js', 'tests/**']
+    paths: ['**.html', 'assets/**.js', 'tests/**', '.github/workflows/test.yml']
   workflow_dispatch: {}
 
 jobs:
