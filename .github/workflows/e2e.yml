@@ -52,7 +52,10 @@ name: 前端 E2E（Playwright）
 #     **多觸發 16 次**（約 2 小時 CI），而且沒有任何一條斷言吃它們的內容。
 #   • `assets/*.svg` / `*.png` / `*.gif` / `app.webmanifest`：受測頁面確實會載，
 #     但找不到任何一條斷言依賴它們 ⇒ 不為「想像得到的依賴」放寬。
-#   • `roster.json`：只有 `index.html` 會 fetch 它，而 **e2e 不開 `index.html`**。
+#   • `roster.json`：只有 `index.html` 會 fetch 它，而 e2e 開 `index.html` 的**只有
+#     `lottery-stale.spec.js`，而且只開 `?mode=pass`**——`startApp` 在那個分支的第一行就
+#     `return`，`roster.json` 那支 fetch 根本不會發出去（2026-09-18 `#82` 加那支 spec 時複核）。
+#     ⚠️ 哪天有 spec 開了**不帶 `?mode=pass`** 的 `index.html`，這一格就要補進 `paths:`。
 #
 # 🔴 **下面兩份清單必須逐字相同。** GitHub Actions 不吃 YAML anchor，所以這裡只能
 #    抄兩份——只改一份的下場是「PR 會跑但合併不會跑」或反過來，一樣零錯誤訊息。

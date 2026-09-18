@@ -257,6 +257,9 @@
       <div id="pass-qr" style="text-align:center"></div>
       <p class="hint" id="pass-hint" style="text-align:center">出示給工作人員掃描</p>
       <p style="text-align:center"><a href="#" id="pass-retry" style="font-size:14px;color:#1a56c4">重新整理</a></p>
+      <!-- 刷新失敗的提示掛在這裡＝#pass-lottery **上方的兄弟節點**，不動區塊本身（見 lotteryStale）。
+           role=status：內容是後來才塞進去的，要讓讀螢幕的人也聽得到。 -->
+      <div id="pass-lottery-warn" role="status"></div>
       <div id="pass-lottery" style="display:none"></div>
     </div>
 
@@ -629,9 +632,11 @@
     }
 
     // ─── 我的獎金卡（pass 頁·報到後顯示·尾牙專用）───────────────────────────────
-    // 雙 gate：非尾牙活動(enabled=false)或未報到(checkedIn=false)＝整區不出現；失敗也靜默不報錯
-    // （獎金卡是加值不是主功能）。SWR：sessionStorage 記上次結果先秒顯，小字「重新整理」手動重打
-    // 拿最新（尾牙當晚重複開頁看得到最新中獎狀態）。
+    // 雙 gate：非尾牙活動(enabled=false)或未報到(checkedIn=false)＝整區不出現（獎金卡是加值不是主功能）。
+    // SWR：sessionStorage 記上次結果先秒顯，小字「重新整理」手動重打拿最新（尾牙當晚重複開頁看得到
+    // 最新中獎狀態）。
+    // ⚠️ 2026-09-18（#82）改掉一句：原本寫「失敗也靜默不報錯」——那句話是對的，而那正是缺陷。
+    //    現在是「**畫面上已經有快取卡**時失敗要說話（lotteryStale），沒有卡時才靜默」。
     function renderLotteryInto(res, userId, act, key) {
       var el = document.getElementById('pass-lottery');
       el.innerHTML = renderLotteryCard(res)
@@ -642,12 +647,49 @@
         fetchLottery(userId, act, key);
       });
     }
+    /**
+     * 「畫面上這張獎金卡是快取畫的，而這次刷新失敗了」要說出來（`#82`，2026-09-18）。
+     *
+     * 🔴 **為何存在**：`loadLottery` 是 SWR——先讀 sessionStorage 把上一次的獎金卡畫出來，
+     *    再打 `getMyLottery` 校正。改之前那個「校正」的**兩條失敗分支都不碰畫面**
+     *    （一條 `return`、一條只寫 `?diag=1` 才看得到的飛行紀錄）⇒ 伺服器壞掉時，
+     *    同仁看到的是**上一次的中獎金額**，而畫面一個字都不說。
+     *
+     * ⚠️ **只有畫面上真的有卡的時候才說話。** 獎金卡是加值不是主功能（見上面的雙 gate）：
+     *    沒有卡的時候那一區本來就不出現，憑空冒出一則錯誤是新的噪音、不是可見性。
+     *    這條三分支（成功清掉／失敗有快取就提示／失敗沒快取就安靜）與
+     *    `assets/board-cache.js` 的 `settleRefresh` 是同一個契約。
+     * ⚠️ 提示掛在區塊**上方的兄弟節點**（`#pass-lottery-warn`），**不動 `#pass-lottery` 本身**
+     *    ——刷新失敗不該重繪區塊（memory `feedback_swr_repaint_eats_user_input`，2026-08-20 誤發事故）。
+     *
+     * 🔘 **長相用的是本頁自己的 `.msg-warn`，不是 `board-cache` 的琥珀塊——這一格擁有者還沒拍板。**
+     *    理由：`index.html` 是全 repo 唯一不載入 `assets/board-cache.js` 的頁（那支 37,596 bytes，
+     *    另外 46 個匯出本頁一個都用不到），而本頁在檔頭就宣告過「訊息沿用自己的類名，不改成共用那組」。
+     *    要換成共用那版的話，動的是三處：`<head>` 加一行 `<script src="assets/board-cache.js">`、
+     *    這支換成 `settleRefresh('pass-lottery', res, cached)`、快取裡補 `savedAt`（那版的文案帶時間戳）。
+     */
+    function lotteryStale(on, msg) {
+      var warn = document.getElementById('pass-lottery-warn');
+      var box = document.getElementById('pass-lottery');
+      if (!warn || !box) return;
+      if (!on || box.style.display === 'none') { warn.innerHTML = ''; return; }
+      warn.innerHTML = '<div class="msg msg-warn">⚠️ 目前連不上伺服器，'
+        + '<b>以下獎金卡可能不是最新的</b>'
+        + (msg ? '：' + escHtml(msg) : '。') + '</div>';
+    }
     function fetchLottery(userId, act, key) {
       jsonp('getMyLottery', { userId: userId, act: act }).then(function (res) {
-        if (!res || !res.ok || !res.enabled || !res.checkedIn) return;
+        // 🔴 `ok:true` 但 enabled/checkedIn 為 false ＝**合法的「這區不該出現」**，不是失敗。
+        //    把它算成失敗的話，沒報到的人會看到「資料可能不是最新的」。
+        if (res && res.ok && (!res.enabled || !res.checkedIn)) { lotteryStale(false); return; }
+        if (!res || !res.ok) { lotteryStale(true, (res && (res.msg || res.error)) || ''); return; }
+        lotteryStale(false);
         try { sessionStorage.setItem(key, JSON.stringify(res)); } catch (e) {}
         renderLotteryInto(res, userId, act, key);
-      }).catch(function (err) { lg('⑧ getMyLottery catch: ' + (err && err.message)); });
+      }).catch(function (err) {
+        lg('⑧ getMyLottery catch: ' + (err && err.message));
+        lotteryStale(true, (err && err.message) || '');
+      });
     }
     function loadLottery(userId, act) {
       var key = 'lottery_' + userId + '_' + act;
