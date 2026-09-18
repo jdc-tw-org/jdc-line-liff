@@ -12,7 +12,10 @@ on:
     #    ＝**改了守門的依據卻沒有任何東西重跑守門**，而且完全靜默。
     paths: ['**.html', 'assets/**.js', 'tests/**', '.github/workflows/test.yml']
   pull_request:
-    paths: ['**.html', 'assets/**.js', 'tests/**']
+    # 🔴 這兩份清單必須逐字相同（含 `.github/workflows/test.yml` 自己那一格）。
+    #    少了自己那一格 ⇒ 改壞這支的 PR 不會跑這支，要等合併進 main 才知道，
+    #    而失敗方向是「檢查清單上少了一格」，不是紅燈——零錯誤訊息。
+    paths: ['**.html', 'assets/**.js', 'tests/**', '.github/workflows/test.yml']
   workflow_dispatch: {}
 
 jobs:
