@@ -7,13 +7,64 @@ name: 前端 E2E（Playwright）
 # ⚠️ 這個 repo 在 2026-08-29 之前是零相依的。正式頁面**仍然**不依賴任何 npm 套件
 #    ——package.json 只為了這支測試而存在。
 
+# ══ `paths:` 該列什麼——判準是「這支測試**讀**得到的 repo 內檔案」 ═══════════
+#
+# 不是「這支測試測的頁面」。漏掉的那一格不會有任何錯誤訊息：CI 綠、只是那一格
+# 從來沒有出現過，而「沒跑」與「跑了而且過了」在 PR 的檢查清單上長得一模一樣。
+#
+# 🔴 **2026-09-18 真的發生過**（liff #63）：那個 PR 只動 `tests/fixtures/action-roles.json`
+#    ＋兩支單元測試 ⇒ CI 只有 `test` 一格，**`e2e` 一次都沒跑**。而它改的正是
+#    `dispatchPages`（七列加 `group`、兩列對調），也正是 `tests/e2e/back-to-me.spec.js:132`
+#    `require` 進來、用來決定「要開哪幾頁」的那一段。
+#    ⚠️ 那次沒出事是**內容剛好沒踩到**（頁名集合逐字相同），不是這裡擋住了。
+#
+# ── 這三格是怎麼補進來的（每一格都要講得出「哪一行讀它」）──────────────
+#
+#  ① `tests/fixtures/**`
+#     `tests/e2e/back-to-me.spec.js:132` 直接 `require('../fixtures/action-roles.json')`，
+#     `:35` 還寫著「權威來源＝那份的 `dispatchPages`」。
+#     ⚠️ 寫成整個目錄、不是只列 `action-roles.json` 那一個檔——理由與 `test.yml`
+#        那句「`tests/**` 不寫成 `tests/**.js`」同一個：只列已知的那一個，
+#        **下一份被 e2e 讀到的 fixture 又會漏**，而且一樣不會有錯誤訊息。
+#        兩種寫法的失敗方向不對稱：寫寬了是多跑一次（看得見、7 分半）；
+#        寫窄了是漏跑（看不見、要等出事才知道）。
+#
+#  ② `assets/**.css`
+#     `attend.html` 與 `authz.html` **自己沒有 `:root`**，`--ink3` / `--bg` 只來自
+#     `assets/ui.css`；而 `back-to-me.spec.js` 對這兩頁斷言「實際量到的對比 ≥ 2.0」，
+#     現值 2.73、對設計下限的餘裕只有 0.64。⇒ 只改 `ui.css` 的色票就足以讓那條紅，
+#     而目前那種 PR 不會觸發本 workflow。
+#
+#  ③ `package-lock.json`
+#     底下 `npm ci` 是從它裝的——它決定「跑起來的 Playwright 是哪一版」。
+#     只動 lockfile 的 PR（相依升版）會換掉受測環境本身，卻不重跑。
+#
+# ── 代價（量於 2026-09-18，`origin/main` 最近 120 顆 first-parent 提交）────────
+#   本 workflow 一次跑 **中位數 450 秒（7 分 30 秒）**（20 次成功紀錄，446–484 秒；
+#   對照 `test.yml` 約 82 秒）。
+#   上面三格加起來**只多觸發 8 次**（8/120），而且 8 次全部是 `action-roles.json`
+#   ——`assets/**.css` 與 `package-lock.json` 在這 120 顆裡各多觸發 **0 次**。
+#
+# ── 刻意**沒有**列進來的（列了反而更糟，理由留著才不會有人「好心」補上）────
+#   • `hr-stats-pub.json` / `hr-stats-history.json`：`hr-stats.html` 確實在
+#     `dispatchPages` 裡、e2e 真的會開它並 fetch 這兩個檔，但它們是
+#     `update-hr-stats.yml` 排程自動產出並推 main 的資料檔 ⇒ 同一段歷史裡會
+#     **多觸發 16 次**（約 2 小時 CI），而且沒有任何一條斷言吃它們的內容。
+#   • `assets/*.svg` / `*.png` / `*.gif` / `app.webmanifest`：受測頁面確實會載，
+#     但找不到任何一條斷言依賴它們 ⇒ 不為「想像得到的依賴」放寬。
+#   • `roster.json`：只有 `index.html` 會 fetch 它，而 **e2e 不開 `index.html`**。
+#
+# 🔴 **下面兩份清單必須逐字相同。** GitHub Actions 不吃 YAML anchor，所以這裡只能
+#    抄兩份——只改一份的下場是「PR 會跑但合併不會跑」或反過來，一樣零錯誤訊息。
 on:
   push:
     branches: [main]
-    paths: ['**.html', 'assets/**.js', 'tests/e2e/**', 'package.json',
+    paths: ['**.html', 'assets/**.js', 'assets/**.css', 'tests/e2e/**',
+            'tests/fixtures/**', 'package.json', 'package-lock.json',
             'playwright.config.js', '.github/workflows/e2e.yml']
   pull_request:
-    paths: ['**.html', 'assets/**.js', 'tests/e2e/**', 'package.json',
+    paths: ['**.html', 'assets/**.js', 'assets/**.css', 'tests/e2e/**',
+            'tests/fixtures/**', 'package.json', 'package-lock.json',
             'playwright.config.js', '.github/workflows/e2e.yml']
   workflow_dispatch: {}
 
