@@ -127,24 +127,27 @@ test('🔴 代號打錯一個字母 → 不清快取（fail-safe），而且契�
  *        宣告本身，那幾格補沒補代號都不會動。
  * ══════════════════════════════════════════════════════════════════════ */
 const 退場條件 = [
-  '⏳ 退場條件（gas #140 修正過的量法）：在 jdc-line-gas 的 repo 根目錄跑下面這條，',
-  '   第一個數字回 0 之後，`!reason` 那條退路與本測試一起刪。',
+  '⏳ 退場條件：尺在後端，這裡**只指過去、不抄**。在 jdc-line-gas 的 repo 根目錄跑：',
   '',
-  `NODE_OPTIONS= node -e 'const fs=require("fs"),S=require("./line-platform/tests/helpers/source-scan.js");
-var PERM=/權限|auth|Auth|gate|Gate|allow|Allow|GATE_MSG/, n=0,y=0,all=0;
-["Code.js","roles.js"].forEach(function(f){
-  var s=S.stripComments(fs.readFileSync("line-platform/"+f,"utf8")).replace(/\\s+/g," ");
-  var re=/ok\\s*:\\s*false/g,m;
-  while((m=re.exec(s))){ all++;
-    var tail=s.slice(m.index, s.indexOf("}", m.index)+1);
-    if(!PERM.test(tail))continue;
-    if(/\\breason\\b/.test(tail)) y++; else n++; }});
-console.log("不帶代號="+n+"  帶代號="+y+"  全部拒絕出口="+all)'`,
+  '    node line-platform/tools/deny-reason-ruler.js',
   '',
-  '⬛ 對照組就是它自己印的後兩個數字：尺壞掉時三個一起變 0 ⇒ 「不帶代號=0」只有在',
-  '   後兩個仍是大數字時才算數。2026-09-17 於 gas main 1d5784e 與 cdb66c2 各跑一次：105 / 23 / 433。',
-  '⚠️ 數字跟著 SHA 走，讀到先重跑、不要照抄。完整推導與合成檢體實測在',
-  '   assets/board-cache.js 的 cacheVerdict 檔頭。',
+  '   第一個數字（`不帶代號`）回 0 ＝ 可以拆的**必要**條件。',
+  '⬛ 對照組就是它一起印的另外幾個數字：尺壞掉時全部一起變 0',
+  '   ⇒ 「不帶代號=0」只有在其他幾個仍是大數字時才算數。',
+  '⚠️ 數字跟著 SHA 走，讀到先重跑、不要照抄。',
+  '',
+  '🔴 **為何這裡不再抄一份量法**（2026-09-18，liff #64）：這個字串裡曾經有一把尺的',
+  '   副本，而它量的是**另一個 repo（私有）的原始碼** ⇒ 公開 repo 的一段字串量著',
+  '   私有 repo 的碼，中間沒有任何強制點。⬛ 而它真的爛掉了：後端 #140 收緊述詞之後，',
+  '   照那份舊副本跑會回 8、新尺回 0 ⇒ 退場條件照字面讀會說「還沒到」，',
+  '   而真實答案是「到了」。**它壞在「看起來還沒到」那一邊**——最容易被讀成',
+  '   「那就再等等」然後永遠等下去。',
+  '',
+  '🔴 **第一個數字已經是 0 了（⬛ 2026-09-18 於 gas d4374a5 與 e2ec970：',
+  '   不帶代號=0 具名豁免=3 帶代號=111 不是權限拒絕=319 全部=433），但退路今天不拆。**',
+  '   拆掉會讓後端守門 `allow === null` 那三格從 revoked 變 ok，而擁有者 2026-09-18',
+  '   在知道代價之後拍板保留那個行為。⇒ **要拆之前回去問**（liff #64）。',
+  '   完整推導、實測與對照組在 assets/board-cache.js 的 cacheVerdict 檔頭。',
 ].join('\n');
 
 test('⚠️ 沒有代號的生產者仍然靠那一句話認（Code.js handler 層、不認得的 action）', () => {
