@@ -139,7 +139,33 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 本顆**不動 `me.html`**。分流頁真的把 `group` 畫成小標，是 liff `#61`。
  *      這一顆只讓副本與後端同步，好讓 gas `#193` 按得下去。
  */
-const PIN = 'd57e41d076f7c7f2be4139cf0400f3a38f4e7991d01c0ef2564172180895dc98';
+/**
+ * 🪦 2026-09-18（gas `#210`）：副本**少一個鍵** `gateContract.legacyDenyMsg`。
+ *    diff 恰好一塊、**1 加 2 減**（那 1 是 `]` 變 `],` 的反向）——
+ *    `actions`／`identities`／`batchAllowed`／`dispatchPages`／`gateContract.denials`
+ *    ／`gateContract.reject` **一個位元組都沒動** ⇒ **沒有任何人的權限變了**。
+ *    ⬛ 佐證不是我說的：`tests/auth-inventory.baseline.md` 重產後的 diff **也只有指紋
+ *      那一行**，41 行裡其餘 40 行（含逐頁的認人方式那張表）一個字沒動。
+ *
+ * ⬛ 為何拆得掉：那一格出的是「前端沒有代號時那條退路在認的那一句」，**兩個端點
+ *    今天都不在了**——退路本體在本 repo `#74` 拆除（`assets/board-cache.js` 的
+ *    `cacheVerdict` 不再前綴比對）；最後一個消費者在本 repo `#84` 改成
+ *    「契約表裡每一句拒絕文案，抽掉 `reason` 之後都必須回 `ok`」的**全稱命題**
+ *    （`tests/board-cache.test.js`）⇒ 它不吃這一格，少了也照樣綠。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas `#210` 後合**（`roles-matrix-guard.yml` 檔頭）。
+ *    ⚠️ 本顆合進 `main` 之後、gas 那顆合進去之前，gas 的 `roles-matrix-guard` 會紅在
+ *      「liff 的矩陣副本必須是現行的」——**那個紅是對的，不是誤報**，而且
+ *      **它不會自己消失**：本 repo 換 main 不會在 gas 那邊產生任何事件
+ *      ⇒ 要在 gas 那張 PR 上手動 `gh run rerun <id> --failed`。
+ *
+ * ⬛ 實測（gas `chore/drop-legacy-export-210`，兩邊都是乾淨的 worktree）：
+ *      重產前  `copy-guard.js --liff` rc=3
+ *      重產後  `copy-guard.js --liff` rc=0（「逐字相同，107 支 action」）
+ *    ⚠️ 量的時候**不要指到 `~/Projects/jdc-line-liff` 那棵**——它的 main 落後
+ *      origin 一百多顆，會給出假的 rc=3「副本過期」。
+ */
+const PIN = 'd38a01296e3a95c4f86da22cf9192dce116845d18404a1527c38b461da3b10fd';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

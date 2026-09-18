@@ -10,7 +10,7 @@
 |---|---|
 | 產生器 | `tests/helpers/auth-scan.js` |
 | 詞法掃描 | `tests/helpers/action-scan.js` 的 `tokenize()`（**共用同一支**，不另寫） |
-| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `d57e41d076f7` |
+| 角色表副本 `tests/fixtures/action-roles.json` sha256 | `d38a01296e3a` |
 | 頁面母體 | repo 根目錄的 `*.html` **現掃**（不是手寫清單） |
 | 頁數 | 14 |
 
