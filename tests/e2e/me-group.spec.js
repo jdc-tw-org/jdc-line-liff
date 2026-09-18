@@ -4,7 +4,7 @@
  * ══ 為何需要一支真瀏覽器的 spec ═══════════════════════════════════════
  *
  * `tests/me-dispatch-wiring.test.js` 把 script 丟進 vm 跑，量的是**產生出來的字串**。
- * 它對 CSS 完全瞎：小標的字級／顏色／留白、`.grp:first-child` 那條規則有沒有生效、
+ * 它對 CSS 完全瞎：小標的字級／顏色／留白、變數有沒有解出真的顏色、
  * 小標會不會因為某條選擇器而根本看不見——那一整層是 CSS×JS 的交界，
  * 靜態審查與單元測試都抓不到（`feedback_ui_change_needs_real_page`）。
  *
@@ -170,7 +170,7 @@ test('🔴 #61 真瀏覽器：小標「小小的、不明顯」——比卡片�
       次文字色: getComputedStyle(document.documentElement).getPropertyValue('--ink2').trim(),
       主文字色: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim(),
       框: s.borderStyle, 底: s.backgroundColor,
-      第一個小標的上緣: r.top, 與下一張卡的距離: 第一張.top - r.bottom,
+      與下一張卡的距離: 第一張.top - r.bottom,
       第二組上方留白: (() => {
         const all = Array.from(document.querySelectorAll('#list .grp'));
         if (all.length < 2) return null;
@@ -196,7 +196,8 @@ test('🔴 #61 真瀏覽器：小標「小小的、不明顯」——比卡片�
   expect(['rgba(0, 0, 0, 0)', 'transparent']).toContain(量.底);
   // 上方留白把組隔開、下方緊貼該組第一張卡。
   expect(量.第二組上方留白, '組與組之間沒有拉開 ⇒ 掃過去分不出來').toBeGreaterThan(量.與下一張卡的距離);
-  // 🔴 第一個小標不留上緣：留了的話整份清單會憑空往下掉一截。
+  // 🔴 下方**緊貼**該組第一張卡：小標與卡之間拉開的話，它會讀成一個獨立的段落，
+  //    而不是「底下這幾張是這一組」。
   expect(量.與下一張卡的距離, '小標與該組第一張卡之間有一道縫').toBeLessThan(12);
 
   fs.mkdirSync(SHOT_DIR, { recursive: true });
