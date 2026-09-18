@@ -25,7 +25,9 @@
 const { test, expect } = require('@playwright/test');
 const path = require('node:path');
 
-const SHOTS = process.env.SHOT_DIR || path.join(__dirname, '..', '..', '.shots');
+// ⚠️ 預設落在 `test-results/`——那個目錄 `.gitignore` 已經有了。
+//    這個 repo 是 PUBLIC 而且根目錄就是 Pages 站台，別另開一個沒被忽略的目錄。
+const SHOTS = process.env.SHOT_DIR || path.join(__dirname, '..', '..', 'test-results', 'shots');
 
 const UID = 'U_e2e_lottery_82';
 const ACT = 'yearend2026';
