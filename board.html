@@ -248,9 +248,17 @@ var SENTINEL='（找不到，由人事填寫）';   // 新人「找不到」哨�
  *    丟掉 `t` 的話他就是多按一次 LINE 登入，然後看到一模一樣的頁面。
  *
  * ⚠️ 用 `history.replaceState` 就地改網址、**不 reload**（reload 會多一趟、也會閃）。
- *    這一段必須跑在 `startAuth()` 之前：`liff.login({redirectUri:location.href})`
- *    讀的是當下的網址，晚一步的話那串 token 會被原封不動送進 LINE 的轉址鏈。
- *    ⬛ 釘住「先後順序」的是 tests/board-token-retired.test.js 的「redirectUri 不含 t」那條。
+ *    這一段必須在 `liff.login({redirectUri:location.href})` 之前跑完，否則那串 token
+ *    會被原封不動送進 LINE 的轉址鏈。
+ *    🔴 **撐住這件事的是「同步 vs 非同步」，不是它寫在哪一行**——`liff.login` 在
+ *       `liff.init().then(...)` 裡面，所以任何**同步**的呼叫點都來得及。
+ *       ⬛ 實測（2026-09-18 三顆突變）：把這一行搬到 `var AUTH_READY=startAuth();` **後面**
+ *         ⇒ **17 條全綠**（M3 活下來了，因為它仍然是同步的）；
+ *         換成 `setTimeout(retireTokenPath,0)` ⇒ **紅 2 條**；整支不剝 ⇒ **紅 2 條**。
+ *       ⇒ 所以真正不可以做的是**把它延後到微任務之後**，不是「不可以往下搬一行」。
+ *         寫成後者的話，下一個人會為了一個假的理由不敢動它。
+ *    ⬛ 釘住的是 tests/board-token-retired.test.js 的「網址上的 `t` 被剝掉」
+ *       與「redirectUri 不含 t」兩條。
  *
  * 🔴 全檔讀 `t` 只有下面這一處（`?mt=` 是另一套東西，不在此列）。
  *    ⬛ 自證不要用 `git grep -c`（它數的是行，而這段註解自己就提到了 `urlToken`）
