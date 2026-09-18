@@ -1249,3 +1249,23 @@ test('⬛ 對照組：倒數還沒歸零時，講的是「還有幾秒」（否�
   //    「可以取消」是第二次講同一件事。這條測試當場紅了，所以它是有效的。
   assert.ok(說的.indexOf('關掉頁面不會取消') >= 0, '倒數那一行也要提醒一次：' + 說的);
 });
+
+/* ── #89 單位格子 ─────────────────────────────────────────────────────── */
+
+/** line.html 所有 <style> 的內容，去掉 CSS 註解（註解裡講「不用 :has()」是允許的）。 */
+function cssOf(html) {
+  return (html.match(/<style[^>]*>[\s\S]*?<\/style>/gi) || []).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+const HAS_RE = /:has\(/;
+
+test('🔴 #89 line.html 的樣式不用 :has()（iOS 15.4 以前不支援，選中狀態要靠 JS 加 class）', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'line.html'), 'utf8');
+  const css = cssOf(html);
+  assert.ok(css.indexOf('.tiles') >= 0, '抽不到單位格子的樣式 ⇒ 這條量的不是那份 CSS');
+  assert.ok(!HAS_RE.test(css), 'line.html 的 CSS 出現了 :has(');
+});
+
+test('⬛ 對照：同一把尺抓得到 :has()，而且註解裡的不算', () => {
+  assert.ok(HAS_RE.test(cssOf('<style>.tile:has(input:checked){}</style>')), '尺抓不到 :has(');
+  assert.ok(!HAS_RE.test(cssOf('<style>/* 不用 :has() */ .tile{}</style>')), '註解被當成規則了');
+});
