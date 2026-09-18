@@ -588,7 +588,6 @@ function render() {
     //    不是 class、不是位置——理由整段寫在 `本輪新增` 的宣告上。
     var 可拿掉 = 是本輪新增的(r);
     html += '<div class="row' + (停 ? ' dis' : '') + '" data-n="' + n + '"'
-      + (可拿掉 ? ' data-new="1"' : '')
       + ' data-name="' + esc(r[iName] || '') + '" data-code="' + esc(r[iCode] || '')
       + '" data-role="' + esc(r[iRole] || '') + '" data-stat="' + esc(r[iStat] || '') + '">'
       // 摺起來的那一行
