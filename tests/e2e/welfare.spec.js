@@ -742,29 +742,73 @@ test('🔴 #89 格子：格子數＝單位數、數字＝可發送 / 總人數�
   expect(errors).toEqual([]);
 });
 
-test('🔴 #89 開頁時一個單位都不展開：名單全藏、顯示「點單位選人」、本單位列不出現', async ({ page }) => {
+/** 名單區的可見性與實際佔的高度（#91：沒展開時連外框一起不顯示、不佔高度）。 */
+const listBox = (page) => page.evaluate(() => {
+  const L = document.getElementById('audience-list');
+  const r = L.getBoundingClientRect();
+  return { hidden: L.hidden, h: r.height, display: getComputedStyle(L).display,
+           grps: L.querySelectorAll('details.grp').length,
+           cbs: L.querySelectorAll('input[type=checkbox]').length };
+});
+
+test('🔴 #91 開頁時名單區整塊不顯示（連外框、不佔高度），沒有「點單位選人」；點一格才出現', async ({ page }) => {
   await openU(page);
-  await expect(page.locator('#audience-list details.grp')).toHaveCount(4);   // 全部都 render 了
-  await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(0);
-  await expect(page.locator('#unit-hint')).toBeVisible();
-  await expect(page.locator('#unit-hint')).toHaveText('點單位選人');
+  // 名單區藏著，但所有單位的名單仍然 render 在 DOM 裡
+  await expect(page.locator('#audience-list')).toBeHidden();
+  let b = await listBox(page);
+  expect(b.display, '名單區仍在排版裡').toBe('none');
+  expect(b.h, '名單區仍佔高度（外框還在）').toBe(0);
+  expect(b.grps, '藏著時單位名單不可以被移除').toBe(4);
+  expect(b.cbs, '藏著時 checkbox 不可以被移除').toBe(9);
+  // 提示整個拿掉（DOM 與文字都沒有）
+  await expect(page.locator('#unit-hint')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText('點單位選人');
   await expect(page.locator('#unit-bar')).toBeHidden();
   await expect(page.locator('#unit-tiles .tile.on')).toHaveCount(0);
-  // ⬛ 對照：點一格之後就真的展開那一組、只有那一組（證明上面不是「永遠藏」）
+  // ⬛ 對照：點一格之後名單區出現、只有那一組（證明上面不是「永遠藏」）
   await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list')).toBeVisible();
+  b = await listBox(page);
+  expect(b.h, '點開之後名單區要有高度').toBeGreaterThan(0);
   await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(1);
   await expect(page.locator('#audience-list details.grp[data-unit="乙組"]')).toBeVisible();
   await expect(page.locator('#audience-list details.grp[data-unit="乙組"] .cnt')).toHaveText('1 / 2 可發送');
-  await expect(page.locator('#unit-hint')).toBeHidden();
   await expect(page.locator('#unit-bar')).toBeVisible();
   await expect(tile(page, '乙組')).toHaveClass(/\bon\b/);
   // 不可發送的照舊顯示、disabled、寫原因
   await expect(page.locator('#audience-list details.grp[data-unit="乙組"] input:disabled')).toHaveCount(1);
   await expect(page.locator('#audience-list details.grp[data-unit="乙組"] .why')).toHaveText('尚未綁定 LINE');
-  // 再點一次同一格 ⇒ 收回（同桌位表）
+  // 再點一次同一格 ⇒ 收回，名單區又整塊不顯示
   await tile(page, '乙組').click();
-  await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(0);
-  await expect(page.locator('#unit-hint')).toBeVisible();
+  await expect(page.locator('#audience-list')).toBeHidden();
+  b = await listBox(page);
+  expect(b.h).toBe(0);
+  expect(b.cbs, '收回之後 checkbox 也不可以被移除').toBe(9);
+  await expect(page.locator('#unit-hint')).toHaveCount(0);
+});
+
+test('🔴 #91 對照：名單區藏著的時候按全選／全部取消，仍然作用在所有單位', async ({ page }) => {
+  await openU(page);
+  await expect(page.locator('#audience-list')).toBeHidden();
+  await page.locator('#btn-all').click();
+  await expect(page.locator('#picked-n')).toHaveText('已選 6 人');
+  // 再點開任一單位：可發送的人都勾著、不可發送的沒勾
+  await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list')).toBeVisible();
+  expect(await checkedMap(page)).toBe(
+    'T101:1 T102:1 T103:1 T201:1 T202:0 T301:0 T302:1 T401:1 T402:0');
+  await expect(page.locator('#cb-3')).toBeChecked();
+  await expect(page.locator('#cb-4')).not.toBeChecked();
+  // 收回（名單區又藏起來）之後按全部取消 ⇒ 全部歸 0
+  await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list')).toBeHidden();
+  await page.locator('#btn-none').click();
+  await expect(page.locator('#picked-n')).toHaveText('已選 0 人');
+  await tile(page, '甲組').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:0 T202:0 T301:0 T302:0 T401:0 T402:0');
+  await expect(page.locator('#cb-0')).not.toBeChecked();
+  await expect(page.locator('#unit-tiles .tile .p:visible')).toHaveCount(0);
 });
 
 test('🔴 #89 格子上的「已選 N」與本單位已選，隨勾選即時變', async ({ page }) => {
@@ -1396,9 +1440,10 @@ test('已登入但拿不到 ID token：擋住並講明重試沒用，不可以�
 test('已登入且拿得到憑證：閘讓開，名單照常載出來', async ({ page }) => {
   const r = await open(page, {});                 // 預設就是已登入＋有 token
   await expect(page.locator('#liff-gate')).toBeHidden();
-  // #89：開頁時一個單位都不展開 ⇒ 看得到的是單位格子與提示，不是名單
+  // #89：開頁時一個單位都不展開 ⇒ 看得到的是單位格子；#91：名單區整塊不顯示、沒有提示
   await expect(page.locator('#unit-tiles .tile').first()).toBeVisible();
-  await expect(page.locator('#unit-hint')).toBeVisible();
+  await expect(page.locator('#audience-list')).toBeHidden();
+  await expect(page.locator('#unit-hint')).toHaveCount(0);
   expect(r.calls.getWelfareAudience).toBe(1);
   expect(r.errors).toEqual([]);
 });
