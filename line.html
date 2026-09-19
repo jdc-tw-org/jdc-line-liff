@@ -47,6 +47,8 @@
 
   /* 名單：依部門分組。**哪一組看得到由上面的單位格子決定**（#89，見 renderAudience）；
      看得到的那一組本身是展開的。每組標頭一律顯示「N / M 可發送」。
+     沒有單位展開時，**整個名單區連外框一起藏起來**（#91，擁有者 2026-09-19 在真 iPhone
+     上看過拍板：有外框的提示框看起來像按鈕／輸入框）。藏的是容器，checkbox 仍在 DOM 裡。
 
      🔴 **名單自己捲，不撐長整頁。** 137 人全展開時整頁是 7363px＝7.7 個畫面高
      （2026-08-29 用真實人數量的，6 個人的假資料看不出來）——她要捲七個畫面
@@ -209,7 +211,7 @@
     <button type="button" class="btn btn-sm" id="btn-unit-none">單位取消</button>
     <span class="n" id="unit-picked-n">本單位已選 0 人</span>
   </div>
-  <div id="audience-list"></div>
+  <div id="audience-list" hidden></div>
   <div class="msg" id="audience-note"></div>
 </div>
 
@@ -544,12 +546,6 @@ function renderAudience(r, keep) {
 
   var box = document.getElementById('audience-list');
   box.innerHTML = '';
-  if (order.length) {
-    var hint = document.createElement('div');
-    hint.className = 'hint'; hint.id = 'unit-hint';
-    hint.textContent = '點單位選人';
-    box.appendChild(hint);
-  }
   // 🔴 **所有單位的名單照舊全部 render，只把沒被點到的藏起來**（#89）。
   //    勾選因此仍然活在每一格 checkbox 上：下面「重繪保留勾選」、全選／全部取消、
   //    currentSelection() 都不必知道格子的存在。改成「只 render 點到的那一組」的話，
@@ -622,8 +618,10 @@ function applyOpenUnit() {
   for (var b = 0; b < grps.length; b++) {
     grps[b].hidden = grps[b].getAttribute('data-unit') !== OPEN_UNIT;
   }
-  var hint = document.getElementById('unit-hint');
-  if (hint) hint.hidden = !!OPEN_UNIT;
+  // 🔴 #91：沒有單位展開 ⇒ 整個名單區（連外框）藏起來。**用 hidden，不移除節點**——
+  //    所有單位的 checkbox 必須留在 DOM 裡，全選／全部取消、重繪保留勾選、
+  //    currentSelection() 都靠它們；移除的話，藏著時按的全選就沒有東西可以勾。
+  document.getElementById('audience-list').hidden = !OPEN_UNIT;
   document.getElementById('unit-bar').hidden = !OPEN_UNIT;
 }
 
