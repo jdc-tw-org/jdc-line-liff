@@ -85,7 +85,9 @@
           padding: 8px 6px; text-align: center; cursor: pointer; font-family: inherit;
           color: var(--ink); line-height: 1.4; }
   .tile.on { border-color: var(--b); }
-  .tile .u { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+  /* break-word 不用 anywhere：iOS 15.4 以前不支援 anywhere（擁有者 2026-09-19 拍板）。
+     沒有空白的長單位名不撐破格子，靠的是這一行加上 .tiles 的 minmax(0, 1fr)。 */
+  .tile .u { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: break-word; }
   .tile .k { display: block; font-size: 12.5px; color: var(--ink3); }
   /* 該單位有任何人不可發送（三種原因都算）⇒ 紅字粗體 */
   .tile .k.bad { color: var(--bad); font-weight: 600; }
@@ -203,8 +205,8 @@
   </div>
   <div class="tiles" id="unit-tiles"></div>
   <div class="selbar" id="unit-bar" hidden>
-    <button type="button" class="btn btn-sm" id="btn-unit-all">本單位全選</button>
-    <button type="button" class="btn btn-sm" id="btn-unit-none">本單位取消</button>
+    <button type="button" class="btn btn-sm" id="btn-unit-all">單位全選</button>
+    <button type="button" class="btn btn-sm" id="btn-unit-none">單位取消</button>
     <span class="n" id="unit-picked-n">本單位已選 0 人</span>
   </div>
   <div id="audience-list"></div>
@@ -645,7 +647,7 @@ function unitPickedN(u) {
 
 /**
  * 已選人數。她要隨時看得到自己勾了幾個。
- * 🔴 勾選變動的每一條路（change 事件、全選／全部取消、本單位全選／取消、重繪）
+ * 🔴 勾選變動的每一條路（change 事件、全選／全部取消、單位全選／單位取消、重繪）
  *    最後都呼叫這一支 ⇒ 格子上的「已選 N」與「本單位已選」只在這裡算，才不會有一條路漏更新。
  */
 function renderPickedCount() {
@@ -687,7 +689,7 @@ function setAllChecked(on) {
 }
 
 /**
- * 本單位全選／取消（#89）。只動展開中的那個單位；其他單位的勾選不碰。
+ * 單位全選／單位取消（#89，按鈕字 2026-09-19 擁有者拍板）。只動展開中的那個單位；其他單位的勾選不碰。
  * 🔴 bumpUiGen 同 setAllChecked：程式化改勾選不會觸發 change，不自己作廢的話舊碼還算數。
  */
 function setUnitChecked(on) {

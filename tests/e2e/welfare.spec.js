@@ -819,7 +819,7 @@ test('🔴 #89 全選／全部取消作用在所有單位（含沒展開的）�
   await expect(page.locator('#unit-tiles .tile .p:visible')).toHaveCount(0);
 });
 
-test('🔴 #89 本單位全選／取消只動展開中的那一組', async ({ page }) => {
+test('🔴 #89 單位全選／單位取消只動展開中的那一組', async ({ page }) => {
   await openU(page);
   await tile(page, '丁組').click();
   await page.locator('#cb-7').check();                      // 丁組先勾一個
@@ -836,7 +836,57 @@ test('🔴 #89 本單位全選／取消只動展開中的那一組', async ({ pa
   await expect(tile(page, '丁組').locator('.p')).toHaveText('已選 1');
 });
 
-test('🔴 #89 取碼後按「本單位取消」⇒ 送出鈕失效（程式化改勾選也要作廢舊碼）', async ({ page }) => {
+test('🔴 #89 單位全選不可以勾到不能發送的人（夾具用含不可發送者的單位）', async ({ page }) => {
+  await openU(page);
+  // 乙組：T201 可發送、T202 未綁定。只用全員可發送的甲組測，會測不出「不可發送的被拉進來」
+  // （驗證軌 V4 突變就是這樣活下來的）。
+  await tile(page, '乙組').click();
+  await page.locator('#btn-unit-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:1 T202:0 T301:0 T302:0 T401:0 T402:0');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 1 人');
+  await expect(tile(page, '乙組').locator('.p')).toHaveText('已選 1');
+  // 另外兩種原因也各點一次：沒信箱（丙組）、資料重複（丁組）
+  await tile(page, '丙組').click();
+  await page.locator('#btn-unit-all').click();
+  await tile(page, '丁組').click();
+  await page.locator('#btn-unit-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:1 T202:0 T301:0 T302:1 T401:1 T402:0');
+  await expect(page.locator('#picked-n')).toHaveText('已選 3 人');
+});
+
+test('#89 按鈕字：展開那一排是「單位全選／單位取消」，上排與已選人數不動', async ({ page }) => {
+  await openU(page);
+  await tile(page, '甲組').click();
+  await expect(page.locator('#btn-unit-all')).toHaveText('單位全選');
+  await expect(page.locator('#btn-unit-none')).toHaveText('單位取消');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 0 人');
+  await expect(page.locator('#btn-all')).toHaveText('全選');
+  await expect(page.locator('#btn-none')).toHaveText('全部取消');
+});
+
+test('🔴 #89 沒有空白的長單位名：390px 下不撐破（scrollWidth === innerWidth），格子本身也不溢出', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const LONG = 'ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const rows = U_ROWS.concat([{ empNo: 'T601', name: '測試長一', unit: LONG,
+    email: 'f1@x.tw', userId: 'U601', status: 'ok' }]);
+  await open(page, { responses: { getWelfareAudience: Object.assign({}, U_AUD,
+    { rows, counts: { ok: 7, unbound: 1, no_email: 1, ambiguous: 1 } }) } });
+  const m = await page.evaluate((u) => {
+    const t = document.querySelector('#unit-tiles .tile[data-unit="' + u + '"]');
+    const n = t.querySelector('.u');
+    return { sw: document.documentElement.scrollWidth, iw: window.innerWidth,
+             tsw: t.scrollWidth, tcw: t.clientWidth, nsw: n.scrollWidth, ncw: n.clientWidth,
+             wrap: getComputedStyle(n).overflowWrap };
+  }, LONG);
+  expect(m.wrap, '斷行寫法').toBe('break-word');
+  expect(m.sw, '整頁橫向溢出').toBe(m.iw);
+  expect(m.tsw, '格子內容比格子寬').toBeLessThanOrEqual(m.tcw);
+  expect(m.nsw, '單位名比它那一行寬').toBeLessThanOrEqual(m.ncw);
+});
+
+test('🔴 #89 取碼後按「單位取消」⇒ 送出鈕失效（程式化改勾選也要作廢舊碼）', async ({ page }) => {
   const ctx = await open(page);
   await armed(page, null);                                  // 勾了工務部兩人並取碼
   await page.locator('#btn-unit-none').click();
