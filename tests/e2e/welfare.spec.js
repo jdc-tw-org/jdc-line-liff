@@ -849,8 +849,14 @@ for (const vp of [{ name: '390px', width: 390, height: 844, cols: 3 },
                   { name: '桌機', width: 1280, height: 900, cols: 4 }]) {
   test(`#89 ${vp.name}：格子 ${vp.cols} 欄、沒有橫向溢出`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
-    await openU(page);
-    await tile(page, '甲組').click();
+    // 夾具要有鑑別力：四個兩字單位名撐不寬任何東西 ⇒ 加一個長的、不含空白的單位名
+    // （2026-09-19 突變實測：拿掉 minmax(0, 1fr) 時短名字的夾具照樣綠）。
+    const LONG = '庚組第一工務所暨第二工務所聯合辦公室ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const rows = U_ROWS.concat([{ empNo: 'T501', name: '測試庚一', unit: LONG,
+      email: 'e1@x.tw', userId: 'U501', status: 'ok' }]);
+    await open(page, { responses: { getWelfareAudience: Object.assign({}, U_AUD,
+      { rows, counts: { ok: 7, unbound: 1, no_email: 1, ambiguous: 1 } }) } });
+    await tile(page, LONG).click();
     const m = await page.evaluate(() => ({
       sw: document.documentElement.scrollWidth, iw: window.innerWidth,
       cols: getComputedStyle(document.getElementById('unit-tiles')).gridTemplateColumns.split(' ').length,
