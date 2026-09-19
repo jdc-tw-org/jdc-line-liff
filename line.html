@@ -45,8 +45,8 @@
   .num.green { color: var(--g); } .num.red { color: var(--r); } .num.grey { color: var(--ink3); }
   .cap { font-size: 12px; color: var(--ink3); }
 
-  /* 名單：依部門分組，**預設展開**（理由見 renderAudience）。
-     每組標頭一律顯示「N / M 可發送」，她自己收起來之後也還看得到規模。
+  /* 名單：依部門分組。**哪一組看得到由上面的單位格子決定**（#89，見 renderAudience）；
+     看得到的那一組本身是展開的。每組標頭一律顯示「N / M 可發送」。
 
      🔴 **名單自己捲，不撐長整頁。** 137 人全展開時整頁是 7363px＝7.7 個畫面高
      （2026-08-29 用真實人數量的，6 個人的假資料看不出來）——她要捲七個畫面
@@ -73,6 +73,25 @@
   .pr .why { display: block; font-size: 12px; color: var(--bad); }
   .selbar { display: flex; gap: 8px; align-items: center; margin: 0 0 10px; flex-wrap: wrap; }
   .selbar .n { margin-left: auto; font-size: 13.5px; color: var(--ink2); font-weight: 600; }
+  /* display:flex 會蓋掉 [hidden] 的 display:none（同 .otp-box[hidden] 的理由） */
+  .selbar[hidden] { display: none; }
+
+  /* 單位格子（#89，2026-09-19 擁有者拍板）。**版面**比照桌位表「依單位」，
+     **外觀**沿用本頁 .grp（白底、--ln 框、圓角 3px）——不搬桌位表的灰底綠框。
+     🔴 選中／已選一律由 JS 加 class，**不用 :has()**（iOS 15.4 以前不支援）。 */
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 10px; }
+  @media (max-width: 480px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .tile { display: block; width: 100%; background: #fff; border: 1px solid var(--ln); border-radius: 3px;
+          padding: 8px 6px; text-align: center; cursor: pointer; font-family: inherit;
+          color: var(--ink); line-height: 1.4; }
+  .tile.on { border-color: var(--b); }
+  /* break-word 不用 anywhere：iOS 15.4 以前不支援 anywhere（擁有者 2026-09-19 拍板）。
+     沒有空白的長單位名不撐破格子，靠的是這一行加上 .tiles 的 minmax(0, 1fr)。 */
+  .tile .u { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: break-word; }
+  .tile .k { display: block; font-size: 12.5px; color: var(--ink3); }
+  /* 該單位有任何人不可發送（三種原因都算）⇒ 紅字粗體 */
+  .tile .k.bad { color: var(--bad); font-weight: 600; }
+  .tile .p { display: block; font-size: 12px; color: var(--b); font-weight: 600; }
 
   /* 每一顆按鈕都明寫 color：不寫＝iOS 給系統藍 */
   .btn { display: inline-block; padding: 9px 16px; font-size: 14.5px; font-weight: 600; border: none;
@@ -183,6 +202,12 @@
     <button type="button" class="btn btn-sm" id="btn-all">全選</button>
     <button type="button" class="btn btn-sm" id="btn-none">全部取消</button>
     <span class="n" id="picked-n">已選 0 人</span>
+  </div>
+  <div class="tiles" id="unit-tiles"></div>
+  <div class="selbar" id="unit-bar" hidden>
+    <button type="button" class="btn btn-sm" id="btn-unit-all">單位全選</button>
+    <button type="button" class="btn btn-sm" id="btn-unit-none">單位取消</button>
+    <span class="n" id="unit-picked-n">本單位已選 0 人</span>
   </div>
   <div id="audience-list"></div>
   <div class="msg" id="audience-note"></div>
@@ -364,6 +389,14 @@ var TPL_ORDER = [];         // 範本 id 的顯示順序
 var CURRENT_TPL = '';
 var AUDIENCE_REV = '';
 
+/**
+ * 單位格子（#89）。**只管「看得到哪一組」，不管勾選**——勾選仍然只活在每一格 checkbox 上。
+ * OPEN_UNIT：目前展開的單位名稱，空字串＝一個都不展開（開頁預設，擁有者 2026-09-19 拍板）。
+ * UNIT_IDX：單位 → 這個單位在 ROWS 裡的索引。renderAudience 每次重建。
+ */
+var OPEN_UNIT = '';
+var UNIT_IDX = {};
+
 /** 目前這一則**已儲存**的內文。isTplDirty() 拿它跟編輯器現值比。 */
 var SAVED_TPL_TEXT = '';
 
@@ -474,21 +507,61 @@ function renderAudience(r, keep) {
   document.getElementById('c-ambiguous').textContent = c.ambiguous;
 
   var byUnit = {}, order = [];
+  UNIT_IDX = {};
   ROWS.forEach(function (row, i) {
     var u = row.unit || '（未填單位）';
-    if (!byUnit[u]) { byUnit[u] = []; order.push(u); }
+    if (!byUnit[u]) { byUnit[u] = []; order.push(u); UNIT_IDX[u] = []; }
     byUnit[u].push({ row: row, i: i });
+    UNIT_IDX[u].push(i);
+  });
+  // 重繪後那個單位不在了（名單換過）⇒ 回到「一個都不展開」，不要猜一個給她
+  if (OPEN_UNIT && !byUnit[OPEN_UNIT]) OPEN_UNIT = '';
+
+  // ── 單位格子（#89）：單位名、可發送 / 總人數、已選 N（後者由 renderPickedCount 填）
+  var tiles = document.getElementById('unit-tiles');
+  tiles.innerHTML = '';
+  order.forEach(function (u) {
+    var items = byUnit[u];
+    var okN = items.filter(function (it) { return it.row.status === 'ok'; }).length;
+    var t = document.createElement('button');
+    t.type = 'button';
+    t.className = 'tile';
+    t.setAttribute('data-unit', u);
+    var un = document.createElement('span');
+    un.className = 'u'; un.textContent = u;           // textContent：單位名來自名冊
+    t.appendChild(un);
+    var k = document.createElement('span');
+    // 只有數字（擁有者拍板：不寫「可發送」「未綁」任何字眼）。
+    // 紅字條件＝有任何一個人不能發送，三種原因都算（擁有者 2026-09-19 拍板）。
+    k.className = 'k' + (okN < items.length ? ' bad' : '');
+    k.textContent = okN + ' / ' + items.length;
+    t.appendChild(k);
+    var p = document.createElement('span');
+    p.className = 'p'; p.hidden = true;
+    t.appendChild(p);
+    tiles.appendChild(t);
   });
 
   var box = document.getElementById('audience-list');
   box.innerHTML = '';
+  if (order.length) {
+    var hint = document.createElement('div');
+    hint.className = 'hint'; hint.id = 'unit-hint';
+    hint.textContent = '點單位選人';
+    box.appendChild(hint);
+  }
+  // 🔴 **所有單位的名單照舊全部 render，只把沒被點到的藏起來**（#89）。
+  //    勾選因此仍然活在每一格 checkbox 上：下面「重繪保留勾選」、全選／全部取消、
+  //    currentSelection() 都不必知道格子的存在。改成「只 render 點到的那一組」的話，
+  //    沒展開的單位的勾選會在重繪時消失——那就是 8/20 誤發的同一個形狀。
   order.forEach(function (u) {
     var items = byUnit[u];
     var okN = items.filter(function (it) { return it.row.status === 'ok'; }).length;
     var d = document.createElement('details');
     d.className = 'grp';
-    // 預設展開：她來這一頁就是要選人，收著等於多一道手續；而且「哪幾個人收不到、
-    // 為什麼」正是她需要看到的東西，收起來就看不到。要精簡畫面可以自己收。
+    d.setAttribute('data-unit', u);
+    // 看得到的那一組是展開的：她點了格子就是要選那個單位的人，再收一層等於多一道手續。
+    // 看不看得到由 applyOpenUnit() 決定（hidden），不是這裡的 open。
     d.open = true;
     var s = document.createElement('summary');
     s.appendChild(document.createTextNode(u));
@@ -529,10 +602,54 @@ function renderAudience(r, keep) {
     d.appendChild(body);
     box.appendChild(d);
   });
+  applyOpenUnit();
   renderPickedCount();
 }
 
-/** 已選人數。她要隨時看得到自己勾了幾個。 */
+/**
+ * 依 OPEN_UNIT 決定看得到哪一組、哪一格是選中的。**只動顯示，不動勾選**。
+ * 🔴 對應一律用 data-unit 比名字，**不用位置**——格子與名單是兩串節點，
+ *    靠「第 k 個對第 k 個」只要其中一串少一個就靜默錯位。
+ */
+function applyOpenUnit() {
+  var tiles = document.getElementById('unit-tiles').querySelectorAll('.tile');
+  for (var a = 0; a < tiles.length; a++) {
+    var on = tiles[a].getAttribute('data-unit') === OPEN_UNIT;
+    tiles[a].className = 'tile' + (on ? ' on' : '');
+    tiles[a].setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  var grps = document.getElementById('audience-list').querySelectorAll('details.grp');
+  for (var b = 0; b < grps.length; b++) {
+    grps[b].hidden = grps[b].getAttribute('data-unit') !== OPEN_UNIT;
+  }
+  var hint = document.getElementById('unit-hint');
+  if (hint) hint.hidden = !!OPEN_UNIT;
+  document.getElementById('unit-bar').hidden = !OPEN_UNIT;
+}
+
+/** 點一格：展開那個單位；再點一次選中的那格就收回（同桌位表的格子）。 */
+function openUnit(u) {
+  OPEN_UNIT = (OPEN_UNIT === u) ? '' : (u || '');
+  applyOpenUnit();
+  document.getElementById('audience-list').scrollTop = 0;   // 換單位從頭看，不停在上一組捲到的位置
+  renderPickedCount();
+}
+
+/** 這個單位勾了幾個。 */
+function unitPickedN(u) {
+  var n = 0;
+  (UNIT_IDX[u] || []).forEach(function (i) {
+    var cb = document.getElementById('cb-' + i);
+    if (cb && cb.checked) n++;
+  });
+  return n;
+}
+
+/**
+ * 已選人數。她要隨時看得到自己勾了幾個。
+ * 🔴 勾選變動的每一條路（change 事件、全選／全部取消、單位全選／單位取消、重繪）
+ *    最後都呼叫這一支 ⇒ 格子上的「已選 N」與「本單位已選」只在這裡算，才不會有一條路漏更新。
+ */
 function renderPickedCount() {
   var n = 0;
   ROWS.forEach(function (row, i) {
@@ -540,6 +657,16 @@ function renderPickedCount() {
     if (cb && cb.checked) n++;
   });
   document.getElementById('picked-n').textContent = '已選 ' + n + ' 人';
+
+  var tiles = document.getElementById('unit-tiles').querySelectorAll('.tile');
+  for (var a = 0; a < tiles.length; a++) {
+    var un = unitPickedN(tiles[a].getAttribute('data-unit'));
+    var p = tiles[a].querySelector('.p');
+    p.textContent = un ? '已選 ' + un : '';
+    p.hidden = !un;
+  }
+  document.getElementById('unit-picked-n').textContent =
+    '本單位已選 ' + (OPEN_UNIT ? unitPickedN(OPEN_UNIT) : 0) + ' 人';
 }
 
 /** 勾選 → bitmap。**rows 的順序就是後端的 canonical order，不可重排。** */
@@ -558,6 +685,19 @@ function setAllChecked(on) {
     if (cb && !cb.disabled) cb.checked = on;
   });
   bumpUiGen();                 // ← 程式化的改動不會觸發 change 事件，要自己作廢舊碼
+  renderPickedCount();
+}
+
+/**
+ * 單位全選／單位取消（#89，按鈕字 2026-09-19 擁有者拍板）。只動展開中的那個單位；其他單位的勾選不碰。
+ * 🔴 bumpUiGen 同 setAllChecked：程式化改勾選不會觸發 change，不自己作廢的話舊碼還算數。
+ */
+function setUnitChecked(on) {
+  (UNIT_IDX[OPEN_UNIT] || []).forEach(function (i) {
+    var cb = document.getElementById('cb-' + i);
+    if (cb && !cb.disabled) cb.checked = on;
+  });
+  bumpUiGen();
   renderPickedCount();
 }
 
@@ -1319,6 +1459,13 @@ function wireButtons() {
   document.getElementById('btn-cancel-send').addEventListener('click', onCancelSend);
   document.getElementById('btn-all').addEventListener('click', function () { setAllChecked(true); });
   document.getElementById('btn-none').addEventListener('click', function () { setAllChecked(false); });
+  document.getElementById('btn-unit-all').addEventListener('click', function () { setUnitChecked(true); });
+  document.getElementById('btn-unit-none').addEventListener('click', function () { setUnitChecked(false); });
+  // 格子每次重繪都是新節點 ⇒ 委派在不會被換掉的容器上（同 tpl-disabled-list 的理由）
+  document.getElementById('unit-tiles').addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('.tile') : null;
+    if (t) openUnit(t.getAttribute('data-unit'));
+  });
 }
 
 /**

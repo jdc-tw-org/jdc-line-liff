@@ -121,12 +121,26 @@ async function open(page, opts) {
   await page.goto('/line.html?t=TESTTOKEN');
   const liffLogins = () => page.evaluate(() => window.__liffLogins || []);
   if (opts.stopAtGate) return { calls, seen, errors, liffLogins };
-  await page.waitForSelector('#audience-list details.grp');
+  // ⚠️ #89 之後開頁時**一個單位都不展開**，名單的 details.grp 全部是 hidden
+  //    ⇒ 等的是單位格子，不是名單（等名單的話永遠等不到 visible、整批逾時）。
+  await page.waitForSelector('#unit-tiles .tile');
   return { calls, seen, errors, liffLogins };
 }
 
-/** 勾第 i 個人（用真實的滑鼠點擊，走真實的事件路徑）。 */
+/**
+ * 讓第 i 個人所在的單位展開（點那個單位的格子；已經展開就不點——再點一次會收回）。
+ * 單位由 checkbox 所在的 details 的 data-unit 取，**不用位置推**。
+ */
+async function showUnitOf(page, i) {
+  const u = await page.evaluate((i) =>
+    document.getElementById('cb-' + i).closest('details.grp').getAttribute('data-unit'), i);
+  const tile = page.locator(`#unit-tiles .tile[data-unit="${u}"]`);
+  if ((await tile.getAttribute('aria-pressed')) !== 'true') await tile.click();
+}
+
+/** 勾第 i 個人（先點開他的單位，再用真實的滑鼠點擊，走真實的事件路徑）。 */
 async function pick(page, i) {
+  await showUnitOf(page, i);
   await page.locator('#cb-' + i).check();
 }
 
@@ -437,8 +451,9 @@ test('quota warning 要出現在確認框裡', async ({ page }) => {
 test('🔴 取碼後改勾選（同人數的另一組）→ 送出鈕失效，強制點也不得產生請求', async ({ page }) => {
   const ctx = await open(page);
   await armed(page, null);
+  await showUnitOf(page, 0);
   await page.locator('#cb-0').uncheck();
-  await page.locator('#cb-3').check();                    // 同樣 2 人，不同人
+  await pick(page, 3);                                    // 同樣 2 人，不同人（另一個單位）
   await expect(page.locator('#btn-send')).toBeDisabled();
   await expect(page.locator('#otp-box'), '輸碼區該收起來').toBeHidden();
   // 🔴 **一定要 accept 確認框。** 不接的話 Playwright 預設 dismiss，送出會被
@@ -667,6 +682,239 @@ test('全選／全部取消真的有反應，而且不可發送的不會被拉�
   await page.locator('#btn-none').click();
   await expect(page.locator('#picked-n')).toHaveText('已選 0 人');
 });
+
+/* ══════════════ 單位格子（#89） ══════════════ */
+
+/**
+ * #89 的夾具。四個單位，**紅字的三種原因各放一個**，外加一個全員可發送的單位當對照
+ * （它**不可以**紅——只驗「有紅」的話，把條件改成「永遠紅」也會過）。
+ * 🔴 PUBLIC repo：姓名、員編、單位全是假的。
+ */
+const U_ROWS = [
+  { empNo: 'T101', name: '測試甲一', unit: '甲組', email: 'a1@x.tw', userId: 'U101', status: 'ok' },
+  { empNo: 'T102', name: '測試甲二', unit: '甲組', email: 'a2@x.tw', userId: 'U102', status: 'ok' },
+  { empNo: 'T103', name: '測試甲三', unit: '甲組', email: 'a3@x.tw', userId: 'U103', status: 'ok' },
+  { empNo: 'T201', name: '測試乙一', unit: '乙組', email: 'b1@x.tw', userId: 'U201', status: 'ok' },
+  { empNo: 'T202', name: '測試乙二', unit: '乙組', email: 'b2@x.tw', userId: '',     status: 'unbound' },
+  { empNo: 'T301', name: '測試丙一', unit: '丙組', email: '',        userId: 'U301', status: 'no_email' },
+  { empNo: 'T302', name: '測試丙二', unit: '丙組', email: 'c2@x.tw', userId: 'U302', status: 'ok' },
+  { empNo: 'T401', name: '測試丁一', unit: '丁組', email: 'd1@x.tw', userId: 'U401', status: 'ok' },
+  { empNo: 'T402', name: '測試丁二', unit: '丁組', email: 'd2@x.tw', userId: 'U402', status: 'ambiguous' },
+];
+const U_AUD = { ok: true, rows: U_ROWS, audienceRev: 'REV-U',
+  counts: { ok: 6, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: '', msgLogWhy: '' };
+const openU = (page) => open(page, { responses: { getWelfareAudience: U_AUD } });
+const tile = (page, u) => page.locator(`#unit-tiles .tile[data-unit="${u}"]`);
+/** 所有 checkbox 的勾選狀態（含藏起來的單位）。 */
+const checkedMap = (page) => page.evaluate(() =>
+  ROWS.map((r, i) => r.empNo + ':' + (document.getElementById('cb-' + i).checked ? 1 : 0)).join(' '));
+
+test('🔴 #89 格子：格子數＝單位數、數字＝可發送 / 總人數、紅字只在有人不能發送的單位', async ({ page }) => {
+  const { errors } = await openU(page);
+  await expect(page.locator('#unit-tiles .tile')).toHaveCount(4);
+  await expect(page.locator('#unit-tiles .tile .u')).toHaveText(['甲組', '乙組', '丙組', '丁組']);
+  await expect(page.locator('#unit-tiles .tile .k')).toHaveText(['3 / 3', '1 / 2', '1 / 2', '1 / 2']);
+  // 格子上只有數字，不寫任何字眼（擁有者拍板）
+  for (const w of ['可發送', '未綁', '可發']) {
+    await expect(page.locator('#unit-tiles')).not.toContainText(w);
+  }
+  const bad = await page.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('#unit-tiles .tile').forEach((t) => {
+      const k = t.querySelector('.k');
+      const cs = getComputedStyle(k);
+      out[t.getAttribute('data-unit')] = { bad: k.classList.contains('bad'), color: cs.color, weight: cs.fontWeight };
+    });
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--bad)'; document.body.appendChild(probe);
+    out.__badColor = getComputedStyle(probe).color; probe.remove();
+    return out;
+  });
+  // 三種原因各一格：未綁定（乙）、沒信箱（丙）、資料重複（丁）
+  for (const u of ['乙組', '丙組', '丁組']) {
+    expect(bad[u].bad, u + ' 該紅').toBe(true);
+    expect(bad[u].color, u + ' 的顏色要是 --bad').toBe(bad.__badColor);
+    expect(Number(bad[u].weight), u + ' 要粗體').toBeGreaterThanOrEqual(600);
+  }
+  // ⬛ 對照：全員可發送的甲組不可以紅
+  expect(bad['甲組'].bad, '全員可發送的單位不可以紅').toBe(false);
+  expect(bad['甲組'].color).not.toBe(bad.__badColor);
+  expect(errors).toEqual([]);
+});
+
+test('🔴 #89 開頁時一個單位都不展開：名單全藏、顯示「點單位選人」、本單位列不出現', async ({ page }) => {
+  await openU(page);
+  await expect(page.locator('#audience-list details.grp')).toHaveCount(4);   // 全部都 render 了
+  await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(0);
+  await expect(page.locator('#unit-hint')).toBeVisible();
+  await expect(page.locator('#unit-hint')).toHaveText('點單位選人');
+  await expect(page.locator('#unit-bar')).toBeHidden();
+  await expect(page.locator('#unit-tiles .tile.on')).toHaveCount(0);
+  // ⬛ 對照：點一格之後就真的展開那一組、只有那一組（證明上面不是「永遠藏」）
+  await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(1);
+  await expect(page.locator('#audience-list details.grp[data-unit="乙組"]')).toBeVisible();
+  await expect(page.locator('#audience-list details.grp[data-unit="乙組"] .cnt')).toHaveText('1 / 2 可發送');
+  await expect(page.locator('#unit-hint')).toBeHidden();
+  await expect(page.locator('#unit-bar')).toBeVisible();
+  await expect(tile(page, '乙組')).toHaveClass(/\bon\b/);
+  // 不可發送的照舊顯示、disabled、寫原因
+  await expect(page.locator('#audience-list details.grp[data-unit="乙組"] input:disabled')).toHaveCount(1);
+  await expect(page.locator('#audience-list details.grp[data-unit="乙組"] .why')).toHaveText('尚未綁定 LINE');
+  // 再點一次同一格 ⇒ 收回（同桌位表）
+  await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list details.grp:visible')).toHaveCount(0);
+  await expect(page.locator('#unit-hint')).toBeVisible();
+});
+
+test('🔴 #89 格子上的「已選 N」與本單位已選，隨勾選即時變', async ({ page }) => {
+  await openU(page);
+  await expect(page.locator('#unit-tiles .tile .p:visible')).toHaveCount(0);
+  await tile(page, '甲組').click();
+  await page.locator('#cb-0').check();
+  await page.locator('#cb-1').check();
+  await expect(tile(page, '甲組').locator('.p')).toHaveText('已選 2');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 2 人');
+  await expect(page.locator('#picked-n')).toHaveText('已選 2 人');
+  await page.locator('#cb-1').uncheck();
+  await expect(tile(page, '甲組').locator('.p')).toHaveText('已選 1');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 1 人');
+  await page.locator('#cb-0').uncheck();
+  await expect(tile(page, '甲組').locator('.p')).toBeHidden();
+  // ⬛ 對照：別的單位的格子不跟著動
+  await expect(tile(page, '乙組').locator('.p')).toBeHidden();
+});
+
+test('🔴 #89 對照：勾 A 兩人 → 切到 B → 重繪 → 回到 A，那兩人仍然勾著', async ({ page }) => {
+  await openU(page);
+  await tile(page, '甲組').click();
+  await page.locator('#cb-0').check();
+  await page.locator('#cb-2').check();
+  await tile(page, '乙組').click();
+  await expect(page.locator('#audience-list details.grp[data-unit="甲組"]')).toBeHidden();
+  // 第二次繪製（SWR 快取先畫、網路回來再畫的那一次）
+  await page.evaluate((r) => onAudienceLoaded(r), U_AUD);
+  // 重繪不改變展開的是哪一組
+  await expect(tile(page, '乙組')).toHaveClass(/\bon\b/);
+  await tile(page, '甲組').click();
+  await expect(page.locator('#cb-0')).toBeChecked();
+  await expect(page.locator('#cb-2')).toBeChecked();
+  await expect(page.locator('#cb-1')).not.toBeChecked();      // 沒勾的仍然沒勾
+  await expect(tile(page, '甲組').locator('.p')).toHaveText('已選 2');
+  await expect(page.locator('#picked-n')).toHaveText('已選 2 人');
+});
+
+test('🔴 #89 全選／全部取消作用在所有單位（含沒展開的），不是眼前那一組', async ({ page }) => {
+  await openU(page);
+  await tile(page, '乙組').click();                          // 眼前只有乙組
+  await page.locator('#btn-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:1 T102:1 T103:1 T201:1 T202:0 T301:0 T302:1 T401:1 T402:0');   // 不可發送的不拉進來
+  await expect(page.locator('#picked-n')).toHaveText('已選 6 人');
+  await expect(page.locator('#unit-tiles .tile .p')).toHaveText(['已選 3', '已選 1', '已選 1', '已選 1']);
+  await page.locator('#btn-none').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:0 T202:0 T301:0 T302:0 T401:0 T402:0');
+  await expect(page.locator('#picked-n')).toHaveText('已選 0 人');
+  await expect(page.locator('#unit-tiles .tile .p:visible')).toHaveCount(0);
+});
+
+test('🔴 #89 單位全選／單位取消只動展開中的那一組', async ({ page }) => {
+  await openU(page);
+  await tile(page, '丁組').click();
+  await page.locator('#cb-7').check();                      // 丁組先勾一個
+  await tile(page, '甲組').click();
+  await page.locator('#btn-unit-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:1 T102:1 T103:1 T201:0 T202:0 T301:0 T302:0 T401:1 T402:0');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 3 人');
+  await expect(page.locator('#picked-n')).toHaveText('已選 4 人');
+  await page.locator('#btn-unit-none').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:0 T202:0 T301:0 T302:0 T401:1 T402:0');   // 丁組那一個還在
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 0 人');
+  await expect(tile(page, '丁組').locator('.p')).toHaveText('已選 1');
+});
+
+test('🔴 #89 單位全選不可以勾到不能發送的人（夾具用含不可發送者的單位）', async ({ page }) => {
+  await openU(page);
+  // 乙組：T201 可發送、T202 未綁定。只用全員可發送的甲組測，會測不出「不可發送的被拉進來」
+  // （驗證軌 V4 突變就是這樣活下來的）。
+  await tile(page, '乙組').click();
+  await page.locator('#btn-unit-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:1 T202:0 T301:0 T302:0 T401:0 T402:0');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 1 人');
+  await expect(tile(page, '乙組').locator('.p')).toHaveText('已選 1');
+  // 另外兩種原因也各點一次：沒信箱（丙組）、資料重複（丁組）
+  await tile(page, '丙組').click();
+  await page.locator('#btn-unit-all').click();
+  await tile(page, '丁組').click();
+  await page.locator('#btn-unit-all').click();
+  expect(await checkedMap(page)).toBe(
+    'T101:0 T102:0 T103:0 T201:1 T202:0 T301:0 T302:1 T401:1 T402:0');
+  await expect(page.locator('#picked-n')).toHaveText('已選 3 人');
+});
+
+test('#89 按鈕字：展開那一排是「單位全選／單位取消」，上排與已選人數不動', async ({ page }) => {
+  await openU(page);
+  await tile(page, '甲組').click();
+  await expect(page.locator('#btn-unit-all')).toHaveText('單位全選');
+  await expect(page.locator('#btn-unit-none')).toHaveText('單位取消');
+  await expect(page.locator('#unit-picked-n')).toHaveText('本單位已選 0 人');
+  await expect(page.locator('#btn-all')).toHaveText('全選');
+  await expect(page.locator('#btn-none')).toHaveText('全部取消');
+});
+
+test('🔴 #89 沒有空白的長單位名：390px 下不撐破（scrollWidth === innerWidth），格子本身也不溢出', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const LONG = 'ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const rows = U_ROWS.concat([{ empNo: 'T601', name: '測試長一', unit: LONG,
+    email: 'f1@x.tw', userId: 'U601', status: 'ok' }]);
+  await open(page, { responses: { getWelfareAudience: Object.assign({}, U_AUD,
+    { rows, counts: { ok: 7, unbound: 1, no_email: 1, ambiguous: 1 } }) } });
+  const m = await page.evaluate((u) => {
+    const t = document.querySelector('#unit-tiles .tile[data-unit="' + u + '"]');
+    const n = t.querySelector('.u');
+    return { sw: document.documentElement.scrollWidth, iw: window.innerWidth,
+             tsw: t.scrollWidth, tcw: t.clientWidth, nsw: n.scrollWidth, ncw: n.clientWidth,
+             wrap: getComputedStyle(n).overflowWrap };
+  }, LONG);
+  expect(m.wrap, '斷行寫法').toBe('break-word');
+  expect(m.sw, '整頁橫向溢出').toBe(m.iw);
+  expect(m.tsw, '格子內容比格子寬').toBeLessThanOrEqual(m.tcw);
+  expect(m.nsw, '單位名比它那一行寬').toBeLessThanOrEqual(m.ncw);
+});
+
+test('🔴 #89 取碼後按「單位取消」⇒ 送出鈕失效（程式化改勾選也要作廢舊碼）', async ({ page }) => {
+  const ctx = await open(page);
+  await armed(page, null);                                  // 勾了工務部兩人並取碼
+  await page.locator('#btn-unit-none').click();
+  await expect(page.locator('#btn-send')).toBeDisabled();
+  await expect(page.locator('#otp-box')).toBeHidden();
+  expect(ctx.calls.sendWelfareBroadcast).toBe(0);
+});
+
+for (const vp of [{ name: '390px', width: 390, height: 844, cols: 3 },
+                  { name: '桌機', width: 1280, height: 900, cols: 4 }]) {
+  test(`#89 ${vp.name}：格子 ${vp.cols} 欄、沒有橫向溢出`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    // 夾具要有鑑別力：四個兩字單位名撐不寬任何東西 ⇒ 加一個長的、不含空白的單位名
+    // （2026-09-19 突變實測：拿掉 minmax(0, 1fr) 時短名字的夾具照樣綠）。
+    const LONG = '庚組第一工務所暨第二工務所聯合辦公室ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const rows = U_ROWS.concat([{ empNo: 'T501', name: '測試庚一', unit: LONG,
+      email: 'e1@x.tw', userId: 'U501', status: 'ok' }]);
+    await open(page, { responses: { getWelfareAudience: Object.assign({}, U_AUD,
+      { rows, counts: { ok: 7, unbound: 1, no_email: 1, ambiguous: 1 } }) } });
+    await tile(page, LONG).click();
+    const m = await page.evaluate(() => ({
+      sw: document.documentElement.scrollWidth, iw: window.innerWidth,
+      cols: getComputedStyle(document.getElementById('unit-tiles')).gridTemplateColumns.split(' ').length,
+    }));
+    expect(m.sw, '橫向溢出').toBe(m.iw);
+    expect(m.cols).toBe(vp.cols);
+  });
+}
 
 /* ══════════════ 既有看板不得受影響 ══════════════ */
 
@@ -1148,7 +1396,9 @@ test('已登入但拿不到 ID token：擋住並講明重試沒用，不可以�
 test('已登入且拿得到憑證：閘讓開，名單照常載出來', async ({ page }) => {
   const r = await open(page, {});                 // 預設就是已登入＋有 token
   await expect(page.locator('#liff-gate')).toBeHidden();
-  await expect(page.locator('#audience-list details.grp').first()).toBeVisible();
+  // #89：開頁時一個單位都不展開 ⇒ 看得到的是單位格子與提示，不是名單
+  await expect(page.locator('#unit-tiles .tile').first()).toBeVisible();
+  await expect(page.locator('#unit-hint')).toBeVisible();
   expect(r.calls.getWelfareAudience).toBe(1);
   expect(r.errors).toEqual([]);
 });
