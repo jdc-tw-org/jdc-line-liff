@@ -380,7 +380,8 @@
     },
     "getCompareLists": {
       "roles": [
-        "admin"
+        "admin",
+        "compare"
       ],
       "who": [
         "admin"

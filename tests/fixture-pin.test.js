@@ -165,7 +165,35 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *    ⚠️ 量的時候**不要指到 `~/Projects/jdc-line-liff` 那棵**——它的 main 落後
  *      origin 一百多顆，會給出假的 rc=3「副本過期」。
  */
-const PIN = '2784f446c70d6e733e8ee76643dfb9a5823f70066e9169f1dcae5b7c28985a3d';
+/**
+ * 🔴 2026-09-22（gas `#225`）：後端給 `getCompareLists` 多收一個角色 `compare`
+ *    ——一個**不可指派給人**的受限角色（後端 `rules/authz.js` 的 `NOT_ASSIGNABLE_ROLES`，
+ *    同 `staff`／`screen`）。**為何、以及它是發給誰的，寫在 gas `#225`，本 repo 不抄一份**
+ *    ——那邊是私有的，而抄過來的那一份不會有任何東西要求它跟著更新。
+ *    副本重產，**diff 恰好一塊、2 加 1 減，全在 `getCompareLists` 底下**：
+ *      `roles`  `["admin"]` → `["admin","compare"]`
+ *      `who`    `["admin"]` → **一個字都沒動**
+ *    ⇒ `identities`／`batchAllowed`／`dispatchPages`／`gateContract`
+ *      與其餘 106 支 action **一個位元組都沒動** ⇒ **沒有任何人的權限變了**。
+ *    ⬛ `who` 不動是預期的：`compare` 不在那 10 種身分裡（後端的矩陣基準 107×10 格
+ *      身分欄也是一格沒動），而且它是**不可指派給人**的角色
+ *      （後端 `rules/authz.js` 的 `NOT_ASSIGNABLE_ROLES`）。
+ *    ⬛ 佐證不是我說的：`tests/auth-inventory.baseline.md` 重產後的 diff **也只有
+ *      那一行副本指紋**，其餘（含逐頁的認人方式那張表）一個字沒動。
+ *
+ *    ⬛ 實測（gas `feat/225-compare-role` @ `b5cb82a`，兩邊都是乾淨的 worktree）：
+ *        重產前  `copy-guard.js --liff` rc=3（差 1 支：getCompareLists）
+ *        重產後  `copy-guard.js --liff` rc=0（「逐字相同，107 支 action」）
+ *      ⬛ 反向對照組：拿 gas **`origin/main`**（不含本改動）比**同一份新副本** ⇒ rc=3，
+ *        差的也恰好是那一支 ⇒ 那個 rc=0 不是「這把尺恆 0」。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas `#225` 後合**（`roles-matrix-guard.yml` 檔頭）。
+ *    ⚠️ 本顆合進 `main` 之後、gas 那顆合進去之前，gas 的 `roles-matrix-guard` 會紅在
+ *      「liff 的矩陣副本必須是現行的」——**那個紅是對的，不是誤報**，而且
+ *      **它不會自己消失**：本 repo 換 main 不會在 gas 那邊產生任何事件
+ *      ⇒ 要在 gas 那張 PR 上手動 `gh run rerun <id> --failed`。
+ */
+const PIN = '910b1fd2cc9dffd8e62ee95315826aec53ba2a65ba3163a75417990a6b454a88';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
