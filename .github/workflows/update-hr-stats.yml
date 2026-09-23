@@ -41,7 +41,7 @@ jobs:
 
       # ⚠️ 這一步依賴 WIF binding（線 A 那一格）。binding 沒做好時這裡會失敗，
       #    而失敗是對的——不要讓它在沒有身分的情況下往下走。
-      # ⚠️ 變數名以 repo 上**已經設好的那三個**為準（`gh variable list -R jdc-tw/jdc-line-liff`）。
+      # ⚠️ 變數名以 repo 上**已經設好的那三個**為準（`gh variable list -R jdc-tw-org/jdc-line-liff`）。
       #    2026-09-10 這裡曾經寫成 GCP_WIF_PROVIDER／GCP_WIF_SERVICE_ACCOUNT／IDENTITY_BASE，
       #    三個全部對不上——兩邊各自命名同一組東西，而沒有任何東西要求它們相等。
       #    失敗方向：`vars.X` 讀到**空字串**，auth 那步失敗，而那個紅讀起來像「WIF 設錯了」，
