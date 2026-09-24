@@ -39,7 +39,7 @@ const ROOT = path.join(__dirname, '..');
 const ASSET = 'assets/back-to-me.js';
 
 /**
- * 🔴 **`admin.html` 是這條規則唯一的例外**（2026-09-18，`jdc-tw/jdc-line-gas#99`）。
+ * 🔴 **`admin.html` 是這條規則唯一的例外**（2026-09-18，`jdc-tw-org/jdc-line-gas#99`）。
  *
  * 規則本身是「**功能內頁**裡一份都沒有」——改文案或改目標時只有一個地方要動。
  * `admin.html` 2026-09-18 起**不再是功能內頁**：它整頁只剩一句「這個入口搬到

@@ -92,7 +92,7 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *      ⇒ **沒有任何人的權限變了**。diff 是 163 加 1 減（那 1 是 `]` 變 `],`）。
  *    為何而生：`board-cache.test.js` 那幾條是**手寫中文字串**、不讀後端任何東西
  *      ⇒ 後端改文案永遠不會紅。2026-09-16 線上真的對不上了
- *      （權限收回後 LINE 那條路不清快取），**而它全綠**。細節在私有票 `jdc-tw/jdc-line-gas#113`。
+ *      （權限收回後 LINE 那條路不清快取），**而它全綠**。細節在私有票 `jdc-tw-org/jdc-line-gas#113`。
  *    ⚠️ 同一輪補了 `gateContract.legacyDenyMsg`：前端「沒有代號時」那條退路在認的那一句。
  *      它**不在任何一列信封的判定裡**（那幾列都帶 `reason`）⇒ 改它時逐列比對一格都不會動，
  *      所以它必須單獨出一格，否則那條退路壞掉沒有任何東西看得見。

@@ -1,7 +1,7 @@
 /**
  * 守的是**守門本身**：`tests/manual/wall-guard.js` 會不會在「牆是空的」時真的紅。
  *
- * 為何要有這一檔（jdc-tw/jdc-line-gas#149，2026-09-17）：
+ * 為何要有這一檔（jdc-tw-org/jdc-line-gas#149，2026-09-17）：
  * 被它保護的 `tests/manual/wall-build-testpage.js` 是**手動**工具，`npm test` 的單層 `*`
  * 跨不進 `tests/manual/`、`syntax-check.yml` 只看 `*.html` 與 `assets/*.js`
  * ⇒ 那一格**零自動覆蓋**。守門要是被人改鬆（`>= 2` 改成 `>= 1`、`throw` 改成 `console.warn`），

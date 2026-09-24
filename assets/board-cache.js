@@ -61,7 +61,7 @@ var REVOKE_REASONS = { role_unresolved: true, token_invalid: true };
  * 🔴 **而權限被收回時，LINE 登入那條路吐的不是那一句**
  *    （它落在「系統目前讀不到您的權限設定。…」）⇒ 判 `ok` ⇒ **不清快取、不蓋覆蓋層**。
  *    ⚠️ 舊的 `?t=` 連結那條路沒有這個問題 ⇒ **同一個判斷、兩條路、結果相反。**
- *    （細節在私有票 `jdc-tw/jdc-line-gas#113`——本檔是公開 repo，不在這裡展開。）
+ *    （細節在私有票 `jdc-tw-org/jdc-line-gas#113`——本檔是公開 repo，不在這裡展開。）
  *
  * ⇒ 現在吃 `reason`。後端兩條路對撤權事件都送 `role_unresolved`，兩條路因此相等，
  *   而且 `tests/board-cache.test.js` 拿後端產出的信封表逐列釘住這件事。

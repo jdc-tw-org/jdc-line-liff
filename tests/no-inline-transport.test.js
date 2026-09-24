@@ -19,7 +19,7 @@ const ROOT = path.join(__dirname, '..');
 const RE = /function\s+(jsonp\w*|gasCall\w*)\s*\(/g;
 
 // ⚠️ 只准刪、不准加。加一行之前先想清楚為什麼不能用 assets/gas-call.js。
-// 🪦 `admin.html` 2026-09-18 從這張清單上**刪掉**（`jdc-tw/jdc-line-gas#99`）：
+// 🪦 `admin.html` 2026-09-18 從這張清單上**刪掉**（`jdc-tw-org/jdc-line-gas#99`）：
 //    那一頁退場成墓碑，整頁不再打任何後端 ⇒ 它那支 inline `jsonp` 跟著消失。
 //    這正是這張清單設計時期待的方向——**因為那一頁不再需要它而變短**，
 //    不是因為有人為了讓測試變綠而改數字。

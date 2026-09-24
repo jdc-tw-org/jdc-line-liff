@@ -5,7 +5,7 @@
  *   · board.html 管理者的「⇄ 活動紀錄看板」→ ②連 `stats.html`（E1a 時②整個不顯示）
  *   · stats.html 桌次分頁的「進場人數」     → ②開 `wall.html?act=`（S2 時②只講說明、不開）
  *
- * 🪦 **2026-09-18 起 `board.html` 只剩②一條路**（`jdc-tw/jdc-line-gas#99`）：
+ * 🪦 **2026-09-18 起 `board.html` 只剩②一條路**（`jdc-tw-org/jdc-line-gas#99`）：
  *    它鑄造的連結**兩種入場方式都是不帶 token 的那一條**。下面那一組的第二列
  *    因此改了期望值（改寫不刪，理由寫在那一組上面）。
  *    ⚠️ `stats.html` 不在那一顆的範圍裡，它的 `?t=` 仍然活著、仍然鑄造帶 token 的網址。
@@ -100,7 +100,7 @@ function noLeak({ sent, external }) {
 
 /* 🪦 **下面這兩列 2026-09-18 之前是「兩種入場方式鑄造兩種網址」**，舊連結那一列
  *    期望的是 `stats.html?t=STUBTOKEN`。`board.html` 的 `?t=` 整條退場之後
- *    （`jdc-tw/jdc-line-gas#99`），本頁**不再持有 token，也不該再鑄造任何帶 token 的網址**
+ *    （`jdc-tw-org/jdc-line-gas#99`），本頁**不再持有 token，也不該再鑄造任何帶 token 的網址**
  *    ——鑄造一條出去等於把那條舊路又散播一次。
  * 🔴 **兩列刻意留著、只改期望值**（改寫不刪）：這一組的鑑別力就在
  *    「**帶 `?t=` 進來也一樣**」。刪掉舊連結那一列的話，哪天有人把

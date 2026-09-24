@@ -422,7 +422,7 @@ test('🔴 line.html 的訊息紀錄入口：連到 line-messages.html?from=welf
  * ⚠️ 不可以偷懶寫成「每一頁都含 `line-messages.html`」——那個零點會自己變成假陽性。
  *    ⬛ 我第一版就是這樣寫的，被這一格當場擋下來。
  *
- * 🪦 **`admin.html` 2026-09-18 從這張表上整列拿掉**（`jdc-tw/jdc-line-gas#99`）：
+ * 🪦 **`admin.html` 2026-09-18 從這張表上整列拿掉**（`jdc-tw-org/jdc-line-gas#99`）：
  *    那一頁退場成墓碑，`showMsgLog`／`msg-note`／`getMsgLogToken` 連同整個入口一起消失
  *    ⇒ 它**不再是一台鑄造機**，留在表上只會讓零點探針永遠找不到 `showMsgLog`。
  * ⚠️ **那不代表這條規則對它變寬了。** 下面另有一條專門釘「`admin.html` 的程式碼裡
@@ -542,7 +542,7 @@ test('🪦 墓碑把畫面收乾淨：清單清空、滑桿收起、起始日警
   } finally { cleanup(); }
 });
 
-/* ══ 🔴 撤銷遮蔽（Ｃ，2026-09-17，私有票 `jdc-tw/jdc-line-gas#113`）═══════════
+/* ══ 🔴 撤銷遮蔽（Ｃ，2026-09-17，私有票 `jdc-tw-org/jdc-line-gas#113`）═══════════
  *
  * 這一頁 `ece4a40` 時 `handleVerdict` 命中 **0** 處（board/stats/hr-stats 各 1、attend 2；
  * ⬛ 對照組 checkin 也是 0，那一頁已知刻意不用加密快取 ⇒ 尺分得出「沒接」與「接了」）。
