@@ -71,7 +71,7 @@ test('⬛ 零點：`staff.html`（解析 API）與 `board.html`（共用函式�
 
 test('⬛ 對照：`stats.html`＝活的、`line-messages.html`＝墓碑——兩者都命中形狀但結論相反', () => {
   // 🪦 **這一條的「活的」那一半 2026-09-18 從 `admin.html` 換成 `stats.html`**
-  //    （`jdc-tw/jdc-line-gas#99`）。原因不是挑一個會過的：`admin.html` 那一頁
+  //    （`jdc-tw-org/jdc-line-gas#99`）。原因不是挑一個會過的：`admin.html` 那一頁
   //    整個退場成墓碑，**它連 token 都不再讀** ⇒ 它一個形狀都不命中，
   //    而這一條需要的正是「兩頁都命中形狀、結論卻相反」。
   //    ⚠️ `stats.html` 這一輪刻意維持雙軌（副總走 `VIEW_TOKENS`，`view` 在

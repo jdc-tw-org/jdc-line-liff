@@ -268,7 +268,7 @@ function jsonp(action,params){
     .then(function(t){var a=t.indexOf('('),b=t.lastIndexOf(')');if(a===-1||b===-1)throw new Error('bad');return reloginOnDeadCredential(denyNoRole(JSON.parse(t.slice(a+1,b))));})])
     .then(function(v){clearTimeout(timer);return v;})
     .catch(function(e){clearTimeout(timer);return {ok:false,msg:(e&&e.name==='AbortError')?'連線逾時，請重新整理。':'連線失敗'};});}
-/* 🪦 **`?t=` 那條路在這一頁已經停用**（`jdc-tw/jdc-line-gas#99`，2026-09-18）。
+/* 🪦 **`?t=` 那條路在這一頁已經停用**（`jdc-tw-org/jdc-line-gas#99`，2026-09-18）。
  *    做法逐條照抄 board.html 那一顆（PR #87），**刻意不發明第二種拆法**。
  *
  * 原本這裡是 `var TOKEN=q('t');`，`startAuth()` 第一行寫著

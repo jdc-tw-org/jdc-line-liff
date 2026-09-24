@@ -1,5 +1,5 @@
 /**
- * 🪦 `board.html` 的 `?t=` 舊路已經停用（`jdc-tw/jdc-line-gas#99`，2026-09-18）。
+ * 🪦 `board.html` 的 `?t=` 舊路已經停用（`jdc-tw-org/jdc-line-gas#99`，2026-09-18）。
  *
  * 🔴 **為何非在真瀏覽器看不可**：單元測試（tests/board-token-retired.test.js）量得到
  *    「送出去的網址沒有 token」，但量不到這三件事，而它們正是使用者唯一看得到的部分：

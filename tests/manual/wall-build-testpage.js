@@ -61,7 +61,7 @@ const UNITS = BIG
 const 姓 = '陳林黃張李王吳劉蔡楊許鄭謝洪郭邱曾廖賴徐周葉蘇莊呂江何蕭羅高'.split('');
 const 名 = ['幼善', '幼義', '小義', '幼武', '幼和', '幼雅', '幼勇', '小傑', '幼婷', '幼忠',
   '幼文', '幼真', '幼豪', '幼德', '小豪', '幼信', '幼孝', '幼傑', '幼英', '幼志'];
-/* 🔴 鑰匙欄位叫 `internalId`，不是 `empNo`（jdc-tw/jdc-line-gas#149）。
+/* 🔴 鑰匙欄位叫 `internalId`，不是 `empNo`（jdc-tw-org/jdc-line-gas#149）。
    後端 `buildArrivalWall` 2026-09-02 起（gas `108bee0`）把鑰匙從員編換成內部碼，
    第一行就是 `filter(p => p && p.internalId)` ⇒ 欄位名不對的參加者會被**整筆丟掉、不報錯**。
    這支測試頁從 8/17 寫到現在一直寫 `empNo`，於是六輪全是 0/0——一面空牆，而它照樣跑完。
@@ -115,7 +115,7 @@ const SEQ = STEPS.map(function (arrived, i) {
   return w;
 });
 
-/* 🔴 空牆、死牆一律紅（jdc-tw/jdc-line-gas#149）。判準只有一條、為何只有一條，見 `wall-guard.js`。
+/* 🔴 空牆、死牆一律紅（jdc-tw-org/jdc-line-gas#149）。判準只有一條、為何只有一條，見 `wall-guard.js`。
    插在這裡（SEQ 一算完、分模式之前）是刻意的：一般模式與 `--artifact` 都要經過它，
    而 `--artifact` 那一格沒有任何自動覆蓋（`npm test` 的單層 `*` 跨不進 tests/manual/）。 */
 try {
@@ -181,7 +181,7 @@ if (process.argv.indexOf('--artifact') > -1) {
      🔴 **刻意用掃的，不列舉檔名**：這一段原本只換 logo 一處，而底下那句斷言要求
      「一處都不准剩」——**替換範圍與斷言範圍各自長大**。`wall.html` 後來又接了兩支
      腳本（url-token／liff-relogin），這個模式就在 main 上一直是紅的而沒有人發現
-     （jdc-tw/jdc-line-gas#135）。改成同一條樣式去掃，兩邊就不可能再分岔。
+     （jdc-tw-org/jdc-line-gas#135）。改成同一條樣式去掃，兩邊就不可能再分岔。
 
      兩支都是 **真的會被叫到**，不是可有可無的附屬品：
        · `url-token.js` → 頁面第一行就是 `var TOKEN=q('t')`，`q` 包的是 `urlParam`
