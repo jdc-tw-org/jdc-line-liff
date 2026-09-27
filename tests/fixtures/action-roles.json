@@ -699,7 +699,8 @@
     "ingestHrNotice": {
       "roles": [
         "admin",
-        "hr"
+        "hr",
+        "hibox"
       ],
       "who": [
         "admin",
@@ -905,7 +906,8 @@
     "reportBounce": {
       "roles": [
         "admin",
-        "hr"
+        "hr",
+        "hibox"
       ],
       "who": [
         "admin",

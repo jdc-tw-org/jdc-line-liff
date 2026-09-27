@@ -193,7 +193,30 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *      **它不會自己消失**：本 repo 換 main 不會在 gas 那邊產生任何事件
  *      ⇒ 要在 gas 那張 PR 上手動 `gh run rerun <id> --failed`。
  */
-const PIN = '910b1fd2cc9dffd8e62ee95315826aec53ba2a65ba3163a75417990a6b454a88';
+/**
+ * 🔴 2026-09-27（gas `#248`）：後端給 `ingestHrNotice`、`reportBounce` 兩支各多收一個角色
+ *    `hibox`——一個**不可指派給人**的受限角色（後端 `rules/authz.js` 的 `NOT_ASSIGNABLE_ROLES`，
+ *    同 `screen`／`compare`）。**為何、以及它是發給誰的，寫在 gas `#248`，本 repo 不抄一份**
+ *    ——理由同上面 `#225` 那條。
+ *    副本重產，**diff 恰好兩塊、4 加 2 減**，各在那兩支底下：
+ *      `roles`  `["admin","hr"]` → `["admin","hr","hibox"]`
+ *      `who`    **一個字都沒動**
+ *    ⇒ `identities`／`batchAllowed`／`dispatchPages`／`gateContract`
+ *      與其餘 105 支 action **一個位元組都沒動** ⇒ **沒有任何人的權限變了**。
+ *    ⬛ `who` 不動是預期的：`hibox` 不在那 10 種身分裡，而且它是不可指派給人的角色。
+ *    ⬛ 佐證不是我說的：`tests/auth-inventory.baseline.md` 重產後的 diff **也只有
+ *      那一行副本指紋**，其餘一個字沒動。
+ *
+ *    ⬛ 實測（gas `feat/248-hibox-role` @ `42fd90d`、rules @ `406c555`，兩邊都是乾淨的 worktree）：
+ *        重產前  `copy-guard.js --liff` rc=3（差 2 支：ingestHrNotice、reportBounce）
+ *        重產後  `copy-guard.js --liff` rc=0（「逐字相同，107 支 action」）
+ *      ⬛ 反向對照組：拿 gas **`origin/main`**（`172f88e`，不含本改動）比**同一份新副本** ⇒ rc=3，
+ *        差的也恰好是那兩支 ⇒ 那個 rc=0 不是「這把尺恆 0」。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas `#249` 後合**（同上，合併後要在 gas 那張 PR
+ *    手動 `gh run rerun <id> --failed`）。
+ */
+const PIN = '8b0fdbc0ddac687c945b5360043498f443074187de57cead1bd76e50fffab309';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
