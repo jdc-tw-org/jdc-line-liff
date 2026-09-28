@@ -121,10 +121,26 @@ jobs:
       # ⚠️ 這一則擋不住的那一半：**workflow 整支沒跑**（排程停掉、repo 長期沒動被 GitHub
       #    自動停用排程）時它不會響。那一半由前端的「資料為 X 月 X 日」接——
       #    兩者合起來才蓋得住，任一個單獨都有洞。
+      # 🔴 Slack 鑰匙從 Secret Manager 取，不再是 repo secret（jdc-tw-org/jdc-tw-migration#30）：
+      #    repo secret 任何分支的 workflow 都讀得到；Secret Manager 那把只有 `hrstats-reader@` 讀得到，
+      #    而它的 WIF 綁定只認 main ⇒ 分支換不到身分、也就取不到鑰匙。
+      # ⚠️ 代價寫在這裡：**上面 auth 那步本身失敗時，這一步也會失敗 ⇒ 那一種故障發不出通知。**
+      #    那一半由前端的「資料為 X 月 X 日」接（見上一段）。
+      # ⚠️ 專案 ID 取自 auth 的輸出（由 `vars.IDENTITY_SA` 的網域推出），不寫死在這個 PUBLIC repo 裡。
+      # ⚠️ 版本釘 `1`：換鑰匙＝在 Secret Manager 加新版＋改這一行，不會被人在後台靜默換掉。
+      #    這個 action 會對取到的值自動遮罩（setSecret），log 裡不會出現 token。
+      - name: 失敗時取 Slack 鑰匙（Secret Manager）
+        id: slack
+        if: failure()
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            token:${{ steps.auth.outputs.project_id }}/liff-slack-bot-token/1
+
       - name: 失敗時通知
         if: failure()
         env:
-          SLACK_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-          SLACK_CHANNEL: C0BBWQTTXLY   # ⚠️ 測試期間固定發 #測試平台。正式頻道等使用者定。
+          SLACK_TOKEN: ${{ steps.slack.outputs.token }}
+          SLACK_CHANNEL: C0C0CAKRWJY   # 正式頻道＝#系統通知中心（2026-09-28 擁有者拍板，jdc-tw-migration#30；取代測試期的 #測試平台）
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node tools/slack-notify.js
