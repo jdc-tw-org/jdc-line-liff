@@ -116,6 +116,40 @@ test('🔴 各講各的處置：叫人重登的、叫人找人的、叫人換連
     fail({ reason: 'line_bad_token' }).banner);
 });
 
+/* ══ 🔴 line_needs_sheet：照後端原樣講，不自帶文案（jdc-tw-migration #87）══════
+ * 原本本頁自帶一句「請改用原本帶連結參數的舊網址」，依 reason 蓋掉後端的 msg；
+ * 那條舊路已拆（gas#99），後端 gas #66 也把這一格改成與 GATE_MSG_ROLE_UNRESOLVED
+ * 同一句（YU 2026-09-29 拍板 C）⇒ 前端那一份就是漂掉的副本。
+ * 期望值**不手寫**：吃矩陣副本的 `gateContract`（與後端逐字相同由 gas copy-guard 守）。 */
+const 契約 = require('./fixtures/action-roles.json').gateContract;
+const 需要名冊 = (契約.denials || []).find((x) => x.key === 'line_needs_sheet');
+
+test('🔴 line_needs_sheet：橫幅就是後端送來的那一句（期望值取自矩陣副本）', () => {
+  assert.ok(需要名冊 && 需要名冊.envelope && 需要名冊.envelope.msg,
+    '矩陣副本裡找不到 line_needs_sheet 的信封 ⇒ 下面什麼都沒比到');
+  const env = 需要名冊.envelope;
+  assert.equal(env.reason, 'line_needs_sheet');
+  const v = fail(env);
+  assert.equal(v.banner, env.msg);
+  assert.notEqual(v.lock, '需權限，載入中…');
+  // ⬛ 對照組：這把尺會回不同答案——換一句 msg，橫幅跟著換（不是恰好寫死同一句）
+  assert.equal(fail({ ok: false, reason: 'line_needs_sheet', msg: '另一句' }).banner, '另一句');
+});
+
+test('🔴 line_needs_sheet 沒有 msg：落到預設分支、把代號印出來，不回頭抄一句備用', () => {
+  const v = fail({ ok: false, reason: 'line_needs_sheet' });
+  assert.match(v.banner, /line_needs_sheet/);
+  assert.notEqual(v.lock, '需權限，載入中…');
+});
+
+test('🔴 原始碼裡不可以再有「改用舊網址／原本的連結」那句（那條路已拆）', () => {
+  const src = stripComments(scriptText('hr-stats.html'));
+  assert.equal(src.indexOf('帶連結參數的舊網址'), -1, 'hr-stats.html 又自帶了舊句');
+  assert.equal(src.indexOf('LINE 登入目前暫停使用'), -1, 'hr-stats.html 又自帶了舊句');
+  // ⬛ 對照組：同一把尺讀得到本頁真的有的字
+  assert.notEqual(src.indexOf('連結失效'), -1, '掃描器沒讀到 hr-stats.html 的程式碼');
+});
+
 /* ══ 🔴 沒列到的也要說 ════════════════════════════════════════════════════ */
 
 test('🔴 未知代號：照樣說話，而且把代號原樣印出來', () => {
