@@ -141,6 +141,6 @@ jobs:
         if: failure()
         env:
           SLACK_TOKEN: ${{ steps.slack.outputs.token }}
-          SLACK_CHANNEL: C0BBWQTTXLY   # ⚠️ 測試期間固定發 #測試平台。正式頻道等使用者定。
+          SLACK_CHANNEL: C0C0CAKRWJY   # 正式頻道＝#系統通知中心（2026-09-28 擁有者拍板，jdc-tw-migration#30；取代測試期的 #測試平台）
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: node tools/slack-notify.js
