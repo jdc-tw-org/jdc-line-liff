@@ -360,7 +360,11 @@ function jsonp(action,params){
  *    留著舊路就等於留著一個繞過在職檢查的入口（`gas#138`）。
  *    後端那一側的退路也跟著換了形狀——`ROLE_SOURCE` 切回 `token` 之後
  *    **這一頁不會因此變得可用**（沒有人再帶 token 進來），
- *    救火走的是 gas 那把救火鍵（`firekey.js`，`#99` ④／甲案）。
+ *    🪦 原本寫「救火走 gas 那把救火鍵（`firekey.js`，`#99` ④／甲案）」——
+ *    那把鍵已於 2026-09-28 拆除（jdc-tw-migration#57，`gas#264`），正式環境從未設定過。
+ *    名單壞掉時的退路改為三條（jdc-tw-migration#56 查證）：
+ *    ① 直接改授權名單試算表；② gas 設定頁補 admin `?t=`＋把 `ROLE_SOURCE` 切 `token`；
+ *    ③ 在 Apps Script 編輯器直接執行函式。
  *    ⚠️ 讀到後端 `LINE_NEEDS_SHEET` 那句「請改用原本的連結」時請注意：
  *       **那句話對這一頁已經不成立**，gas 那一顆要跟著改（`gas#99` 拆表那一顆）。
  *
