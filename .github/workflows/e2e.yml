@@ -93,6 +93,11 @@ jobs:
       #    裝 chromium 的話 CI 會在啟動時報「找不到 chrome」。
       - run: npx playwright install --with-deps chrome
       - run: npx playwright test
+      # 條件 `failure() || cancelled()`（jdc-tw-migration#101）：撞到 `timeout-minutes` 被砍時走取消路徑，
+      # 只寫 `failure()` 的話「卡住」那一次正好拿不到報告，而那是最需要看報告的一次。
+      # ⚠️ 這一步是上傳報告、**不是發通知**：PR 被新推送取代而取消時也會上傳一份，
+      #    代價只是一份沒人看、7 天後自動刪的 artifact，不會吵到任何人 ⇒ 不為 PR 另開例外。
+      #    沒產生報告就被砍時，upload-artifact 預設 `if-no-files-found: warn`，只警告不變紅。
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: failure() || cancelled()
         with: { name: playwright-report, path: playwright-report/, retention-days: 7 }
