@@ -345,8 +345,10 @@ if(LEGACY_T)retireTokenPath();
  *
  * 🔴 **所以這一頁現在沒有「不必部署的退路」了。** 這不是漏掉，是知情的取捨：
  *    留著舊路就等於留著一個繞過在職檢查的入口（`gas#138`）。
- *    ⚠️ 讀到後端 `LINE_NEEDS_SHEET` 那句「請改用原本的連結」時請注意：
- *       **那句話對這一頁已經不成立**。
+ *    ⚠️ 後端 `line_needs_sheet` 那句原本是「請改用原本的連結」——對這一頁不成立。
+ *       gas `#66`（YU 2026-09-29 拍板 C）已改成與 `GATE_MSG_ROLE_UNRESOLVED` 同一句
+ *       「系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。」，
+ *       本頁 `gateFailText` 對這個代號直接顯示後端 msg，不再自帶一份（jdc-tw-migration #87）。
  *
  * ⚠️ **本頁是唯讀的**（只有 `getHrStats` 一支 action，不寫任何資料、不發任何訊息），
  *    所以走不通時最壞的後果是「看不到數字」，不是「資料被改壞」。
@@ -1170,13 +1172,23 @@ function gateFailText(r) {
       + '重新登入沒有用，請聯絡系統維護者。', '綁定重複'],
     line_upstream: ['系統目前無法確認您的身分（不是您的問題）。請稍後再重新整理一次；'
       + '若一直這樣，請聯絡系統維護者。', '暫時無法確認'],
-    line_needs_sheet: ['這一頁的 LINE 登入目前暫停使用，請改用原本帶連結參數的舊網址。', '登入暫停'],
     token_invalid: ['這條連結的憑證驗不過（打錯、過期或被停用）。請改用有效的看板連結。', '連結失效'],
     token_ambiguous: ['這條連結同時登記在多份名單上，是設定問題。'
       + '換連結沒有用，請聯絡系統維護者。', '設定異常'],
   };
   if (Object.prototype.hasOwnProperty.call(M, reason)) {
     return { banner: M[reason][0], lock: M[reason][1] };
+  }
+  // 🔴 `line_needs_sheet` **不自帶文案，直接顯示後端的 msg**（jdc-tw-migration #87，2026-09-29）。
+  //    原本這裡抄了一句「請改用原本帶連結參數的舊網址」——那條舊路 `gas#99` 已拆，
+  //    照做走不通；而後端 gas `#66`（YU 拍板 C）已把這一格改成與 `GATE_MSG_ROLE_UNRESOLVED`
+  //    同一句。前端再抄一份＝同一句話散在兩個 repo、沒有東西逼它們相等（這次就是漂掉的那一份）。
+  //    ⇒ 改成照後端原樣講；釘住它的是 `tests/hr-stats-gate-fail.test.js` 讀矩陣副本
+  //      `gateContract` 那一條（副本與後端逐字相同由 gas 的 copy-guard 守）。
+  //    ⚠️ 只有這一個代號這樣做：其餘代號的句子是本頁自己的說法（帶「姓名沒有載入」的脈絡），
+  //       不是後端文案的副本。msg 是空的就落到下面的預設分支（把代號印出來），不再抄一句備用。
+  if (reason === 'line_needs_sheet' && msg) {
+    return { banner: msg, lock: '讀不到權限' };
   }
   // 這兩句是本頁 `jsonp()` 自己 catch 出來的字，不是後端文案 ⇒ 比對它們沒有跨 repo 耦合。
   // （`assets/board-cache.js` 的 `cacheVerdict` 認的是同樣這兩個前綴。）

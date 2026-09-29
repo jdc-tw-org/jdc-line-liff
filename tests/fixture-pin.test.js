@@ -216,7 +216,30 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  * 🔴 **合併順序：本 repo 這顆先合、gas `#249` 後合**（同上，合併後要在 gas 那張 PR
  *    手動 `gh run rerun <id> --failed`）。
  */
-const PIN = '8b0fdbc0ddac687c945b5360043498f443074187de57cead1bd76e50fffab309';
+/**
+ * 🔴 2026-09-29（gas `#66`，本 repo 對應 jdc-tw-migration `#87`）：後端把 `line_needs_sheet`
+ *    的拒絕文案改成與 `GATE_MSG_ROLE_UNRESOLVED` 同一句（YU 2026-09-29 拍板 C；
+ *    **為何寫在 gas `#66`，本 repo 不抄一份**——理由同上面 `#225` 那條）。
+ *    副本重產，**diff 恰好 1 加 1 減**，只在 `gateContract.denials` 的 `line_needs_sheet`：
+ *      `envelope.msg`  「這一頁的 LINE 登入目前暫停使用，請改用原本的連結。」
+ *                    → 「系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。」
+ *    ⇒ `reason`（仍是 `line_needs_sheet`）、`verdict`（仍是 `ok`）、`actions`／`identities`／
+ *      `batchAllowed`／`dispatchPages`／`gateContract.reject` **一個位元組都沒動** ⇒ 沒有任何人的權限變了。
+ *    ⬛ gas 的 copy-guard 印的「msg 改字要先確認撤銷遮蔽」三步警告**不適用**，兩層理由：
+ *      ① 它講的是「無權限或連結已失效」前綴那一句，這次改的不是那一句；
+ *      ② 本 repo 的 `cacheVerdict` 自 liff `#74`（2026-09-18）起**完全不看 msg**：有 `reason`
+ *         就查 `REVOKE_REASONS`，沒有就 `ok`（該警告的前提已過期，住在 gas 那邊）。
+ *      ⚠️ 新句與 `role_unresolved`（判 `revoked`）**逐字相同**，但兩者靠 `reason` 分得開：
+ *         實跑 `cacheVerdict({msg:新句, reason:'line_needs_sheet'})` ＝ `ok`；
+ *         對照 `reason:'token_invalid'` ＝ `revoked`（這把尺會回不同答案）。
+ *    ⬛ 實測（gas `fix/66-line-needs-sheet-wording` @ `786fcae`、rules @ `406c555`，乾淨 worktree）：
+ *        重產前  `copy-guard.js --liff` rc=3（差 1 列：line_needs_sheet 的 msg）
+ *        重產後  `copy-guard.js --liff` rc=0
+ *      ⬛ 反向對照組：拿 gas `origin/main`（`d851421`，不含 #66）比同一份新副本 ⇒ rc=3。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas `#66` 那張後合**（同上）。
+ */
+const PIN = 'f040d11e243a1f475f88ec6069e7925391203898da20db1a5a4b175a19b472e1';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
