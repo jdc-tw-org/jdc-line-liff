@@ -227,14 +227,6 @@
         "activity"
       ]
     },
-    "diagnoseToken": {
-      "roles": [
-        "admin"
-      ],
-      "who": [
-        "admin"
-      ]
-    },
     "getActivityReplies": {
       "roles": [
         "admin",
@@ -490,18 +482,6 @@
       "who": [
         "admin",
         "activity"
-      ]
-    },
-    "getMsgLogToken": {
-      "roles": [
-        "admin",
-        "any"
-      ],
-      "who": [
-        "admin",
-        "activity",
-        "hr",
-        "hrstats"
       ]
     },
     "getMyLottery": {
