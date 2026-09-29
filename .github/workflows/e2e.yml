@@ -71,9 +71,19 @@ on:
             'playwright.config.js', '.github/workflows/e2e.yml']
   workflow_dispatch: {}
 
+# ══ concurrency（jdc-tw-org 全組織 workflow 規範 ②，jdc-tw-migration#101）══
+#   PR：以 PR 為單位，同一個 PR 再推一次就取消前一次（舊 commit 的結果沒人要看）。
+#   push main／手動：group 用 ref，cancel 算式對非 PR 事件為 false ⇒ 排隊、不取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    # timeout（規範 ①）：最近 100 次完成的 run 最長 464 秒（2026-09-22，run 35736060619）。×3＝1392 秒 ⇒ 取整 24 分。
+    #   量法：`gh run list -w e2e.yml -L 100`＋`gh api .../runs/<id>/jobs` 的 started_at→completed_at。
+    timeout-minutes: 24
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
