@@ -239,7 +239,23 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  *
  * 🔴 **合併順序：本 repo 這顆先合、gas `#66` 那張後合**（同上）。
  */
-const PIN = 'f040d11e243a1f475f88ec6069e7925391203898da20db1a5a4b175a19b472e1';
+/**
+ * 🔴 2026-09-29（gas `chore/70-remove-token-handlers`，本 repo 對應 jdc-tw-migration `#70`）：
+ *    後端刪掉 `diagnoseToken` 與 `getMsgLogToken` 兩支 action（`#62` 查證 token 沒有地方收、
+ *    診斷已由別的工具接手；YU 2026-09-28 拍板刪除）。
+ *    副本重產，**diff 恰好 20 減 0 加**，只在 `actions` 底下、恰好這兩支整塊消失（107 → 105 支）；
+ *    `identities`／`batchAllowed`／`dispatchPages`／`gateContract` 與其餘 105 支 **一個位元組都沒動**。
+ *    ⬛ 本 repo 的正式頁面**沒有任何一頁**打這兩支（`git grep` 只命中註解、這份副本、
+ *      `admin-retired` 的「不得出現」清單與 e2e 的快取鍵字面值）⇒ 頁面行為零變化。
+ *    ⬛ 實測（gas 分支 `92213b8` 合併 gas main `21e4a71` 的結果、rules @ `406c555`，乾淨 worktree）：
+ *        重產前  `copy-guard.js --liff` rc=3（差 2 支：diagnoseToken、getMsgLogToken）
+ *        重產後  `copy-guard.js --liff` rc=0（「逐字相同，105 支 action」）
+ *      ⬛ 反向對照組：拿 gas `origin/main`（`21e4a71`，不含本改動）比同一份新副本 ⇒ rc=3，差的也恰好是那兩支。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas 那張後合**（同上，合併後要在 gas 那張 PR
+ *    手動 `gh run rerun <id> --failed`）。
+ */
+const PIN = '13a92eac0c3dacc40ce2936763f6596e441762bda6463de31aa79367066b556c';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');
