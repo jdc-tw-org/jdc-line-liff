@@ -412,3 +412,68 @@ test('🔴 送出回 transport（狀態不明）⇒ 面板與回來的提示講�
   await expect(page.locator('#restore-note')).toContainText('可能已經送出');
   await expect(page.locator('#restore-note')).not.toContainText('重新寄一次');
 });
+
+/* ══ 送出之後緊接著過期（#114 第三方重驗 🔴；W5／W5b／W6 取自驗證軌）════════════ */
+
+test('🔴 W5 面板沒開、送出成功後緊接的狀態查詢回死憑證 ⇒ 自動重登回來，提示與狀態列照講「已送出」', async ({ page }) => {
+  let sent = false;
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => { if (!p.cancel) sent = true; return DEFAULTS.sendWelfareBroadcast; },
+    // 死憑證只回一次；回來後狀態查詢回 unsent（模擬 hub 紀錄還沒寫完）
+    getWelfareStatus: () => (sent ? (sent = false, 死憑證) : DEFAULTS.getWelfareStatus),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect.poll(async () => (await 副作用(page)).login, '⬛ 零點：走的是 (b) 自動導走').toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('這一批已送出，不要重寄');
+  await page.waitForTimeout(800);                    // 等回來後的狀態查詢（unsent）落地
+  await expect(page.locator('#status-line')).not.toHaveText('沒有發送紀錄');
+  await expect(page.locator('#status-line')).toContainText('已發送');
+  expect(await 勾了誰(page), '⬛ 還原回來的就是剛送出的那一批').toEqual(['A001', 'B001']);
+});
+
+test('🔴 W5b 同 W5，但這個分頁已經自動重登過（出面板）⇒ 面板與回來都講「已送出」', async ({ page }) => {
+  let sent = false;
+  await open(page, { 試過了: true, 回應: {
+    sendWelfareBroadcast: (p) => { if (!p.cancel) sent = true; return DEFAULTS.sendWelfareBroadcast; },
+    getWelfareStatus: () => (sent ? (sent = false, 死憑證) : DEFAULTS.getWelfareStatus),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#relogin-box')).toBeVisible();
+  await expect(page.locator('#relogin-msg')).toContainText('這一批已送出，不要重寄');
+  await expect(page.locator('#relogin-msg')).not.toContainText('寄驗證碼');
+  await page.locator('#btn-relogin').click();
+  await expect.poll(async () => (await 副作用(page)).login).toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('這一批已送出，不要重寄');
+  await page.waitForTimeout(800);
+  await expect(page.locator('#status-line')).toContainText('已發送');
+});
+
+test('⬛ W6 對照：送出回 transport 後她切了範本（UI_GEN 變了）再過期 ⇒ 那是另一則，不帶「可能已送出」', async ({ page }) => {
+  // 裁定 A（#114）：送出結果只綁「同一批同一則」。切範本＝bumpUiGen ⇒ 回來的是 t2，
+  // 發 t2 不是重發同一則，t2 的「沒有發送紀錄」也是真的。已知限制：t1 那一次的「可能已送出」不會跟回來。
+  let after = false;
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => { if (!p.cancel) after = true; return { __transport: true }; },
+    getWelfareStatus: () => (after ? (after = false, 死憑證) : DEFAULTS.getWelfareStatus),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#send-note'), '⬛ 零點：真的走到 transport').toContainText('不確定對方有沒有收到', { timeout: 8000 });
+  await page.selectOption('#wf-tpl-list', 't2');
+  await expect.poll(async () => (await 副作用(page)).login, '⬛ 零點：切範本那一發過期 ⇒ (b) 導走').toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('已還原重新登入前的勾選 2 人');
+  await expect(page.locator('#wf-tpl-list')).toHaveValue('t2');
+  await expect(page.locator('#restore-note')).not.toContainText('已送出');
+  await expect(page.locator('#restore-note')).not.toContainText('可能已經送出');
+});

@@ -1186,6 +1186,8 @@ function onSend() {
   // 🔴 **在這裡抓下來。** 回應抵達時 CURRENT_TPL 可能已經被她切走了，
   //    用那個記結果就是把 A 的送出寫到 B 頭上。
   var sentTpl = CURRENT_TPL;
+  // 同理抓下「這一批」的世代：回來時若她已改過勾選／範本，這個結果就不屬於畫面上那一批（#114）。
+  var sentGen = UI_GEN;
   SEND_IN_FLIGHT = true;
   syncSendButton();                                       // ← 不直接寫 disabled
   syncSaveButton();                                       // 送出中也鎖住儲存
@@ -1218,7 +1220,7 @@ function onSend() {
       disarmCancel();                      // 回來了就沒得取消了（不管成功失敗）
       if (r && r.ok) {                     // 送出成功＝這組碼用掉了
         disarmOtp(); showState(r, sentTpl);
-        markReloginSent();                 // 重登面板開著的話：改講「已送出，不要重寄」（#114 🟡2）
+        markReloginSent('sent', sentGen);  // 記下「這一批已送出」——之後過期導走也帶得回來（#114）
         return;
       }
       if (r && r.transport) {
@@ -1226,10 +1228,10 @@ function onSend() {
         //    ⚠️ 這裡**也要 disarm**：碼可能已經被後端消耗掉了（used=true），
         //    留著輸碼狀態只會讓她再按一次、然後收到「已用過」。
         disarmOtp();
-        markReloginSent('unknown');        // 重登面板開著的話：不可以叫她重寄碼（#114）
         showState({ ok: true, state: 'unknown', msg:
           '⚠️ 送不出去，而且不確定對方有沒有收到。請不要重按——'
           + '請先到訊息紀錄確認，或聯絡工務管理組。' }, sentTpl);
+        markReloginSent('unknown', sentGen);   // 可能已送出：之後過期導走也不可以叫她重寄（#114）
         return;
       }
       showServerReject(r);                                // 明確拒絕（OTP 錯／過期／名單變動）
@@ -1685,10 +1687,14 @@ var DRAFT_MARK_KEY = 'JDC_LINE_DRAFT_MARK';
 var RELOGIN_PANEL = false;
 var RELOGIN_SAVED = false;
 var RELOGIN_HAD_OTP = false;
-/** 面板開著期間，送出那一發**成功**回來了 ⇒ 這一批已送出，回來後不可以叫她重寄（🟡2）。 */
-var RELOGIN_SENT = false;
-/** 同上，但送出那一發回的是 transport（狀態不明）⇒ 可能已送出，同樣不可以叫她重寄。 */
-var RELOGIN_UNKNOWN = false;
+/**
+ * 最近一次送出的結果：`{kind:'sent'|'unknown', gen, status}`。**面板開沒開都記**（#114 重驗 🔴）。
+ * `gen` 是按下送出那一刻的 `UI_GEN`，`status` 是 showState 寫下的 LAST_STATUS 副本。
+ * 只有 `gen === UI_GEN`（還是同一批、同一則）時才算數，見 `sendOutcomeNow`。
+ * 為何不能只在面板開著時記：送出成功後緊接的狀態查詢若回死憑證 ⇒ (b) 自動導走，
+ * 回來同一批人重新勾好、狀態列卻寫「沒有發送紀錄」（記憶體裡的 LAST_STATUS 隨導走消失）。
+ */
+var SEND_OUTCOME = null;
 /** 狀態不明時面板與還原提示共用的那一句（與 `onSend` transport 分支的 showState 同方向）。 */
 var RELOGIN_UNKNOWN_MSG = '⚠️ 送出狀態不明，可能已經送出——先看「最近一次狀態」，不要重寄。';
 /** 寄碼請求還在路上時被別的一發判成 (c) ⇒ 信可能已經寄出（🟡5）。 */
@@ -1728,6 +1734,7 @@ function reloginPhase(action) {
 
 /** 要存的那一份。**驗證碼、nonce、OTP_STATE 一律不存**——回來之後碼一律重寄。 */
 function snapshotDraft(phase, hadOtp) {
+  var so = sendOutcomeNow();
   return {
     v: 1, at: Date.now(), phase: phase,
     picked: pickedList(),
@@ -1736,7 +1743,8 @@ function snapshotDraft(phase, hadOtp) {
     dirty: isTplDirty(), baseText: SAVED_TPL_TEXT,
     openUnit: OPEN_UNIT, newTitle: newTitleValue(),
     otpArmed: !!(OTP_STATE.armed || hadOtp),
-    sent: RELOGIN_SENT, unknown: RELOGIN_UNKNOWN
+    sent: !!(so && so.kind === 'sent'), unknown: !!(so && so.kind === 'unknown'),
+    sentStatus: so ? so.status : null
   };
 }
 
@@ -1820,19 +1828,24 @@ function showReloginPanel(saved, hadOtp, otpMaybe) {
 }
 
 /**
- * 送出那一發回來了（`onSend` 呼叫）。面板開著時：
- *   · 無參數＝**成功**（`r.ok`）⇒ 這一批已送出（🟡2）
+ * 送出那一發回來了（`onSend` 呼叫，**面板開沒開都呼叫**）：
+ *   · `'sent'`＝**成功**（`r.ok`）⇒ 這一批已送出（🟡2）
  *   · `'unknown'`＝**transport**（狀態不明）⇒ 可能已送出（#114 指揮台 2026-09-30 裁定）
- * 兩種都清掉「手上有驗證碼」，面板與回來後的提示改講「不要重寄」——
+ * 兩種都清掉「手上有驗證碼」；面板開著就立刻改講「不要重寄」——
  * 叫她重寄碼＝引導重發一批可能已經收到的訊息（8/20 誤發的形狀）。
- * 面板沒開就什麼都不做——之後才過期的話，那是另一批，不可以帶著「已送出」。
+ * @param {string} outcome 'sent'|'unknown'
+ * @param {number} gen 按下送出那一刻的 UI_GEN
  */
-function markReloginSent(outcome) {
-  if (!RELOGIN_PANEL) return;
-  if (outcome === 'unknown') RELOGIN_UNKNOWN = true;
-  else RELOGIN_SENT = true;
+function markReloginSent(outcome, gen) {
+  SEND_OUTCOME = { kind: outcome === 'unknown' ? 'unknown' : 'sent', gen: gen,
+                   status: LAST_STATUS ? JSON.parse(JSON.stringify(LAST_STATUS)) : null };
   RELOGIN_HAD_OTP = false;
-  refreshReloginPanel();
+  refreshReloginPanel();                           // 面板沒開時是 no-op
+}
+
+/** 送出結果還屬不屬於畫面上這一批：勾選／範本／內容沒變過（`UI_GEN` 相同）才算。 */
+function sendOutcomeNow() {
+  return (SEND_OUTCOME && SEND_OUTCOME.gen === UI_GEN) ? SEND_OUTCOME : null;
 }
 
 /** 面板開著時，勾選或內容變了 ⇒ 重存一次，讓「已保存 N 人」一直是真的。 */
@@ -1850,9 +1863,10 @@ function renderReloginPanel() {
       + '按下面的鈕重新登入，回來後會自動還原。'
     : '⚠️ LINE 登入已過期。這個瀏覽器不讓這一頁暫存資料，重新登入後勾選與內容不會還原'
       + '——範本文字要留的話請先自己複製。';
-  if (RELOGIN_SENT) {
+  var so = sendOutcomeNow();
+  if (so && so.kind === 'sent') {
     t += '\n這一批已送出，不要重寄。';
-  } else if (RELOGIN_UNKNOWN) {
+  } else if (so) {
     t += '\n' + RELOGIN_UNKNOWN_MSG;
   } else if (RELOGIN_HAD_OTP) {
     t += '\n⚠️ 手上這組驗證碼回來之後不能再用（這一頁不會記住它），請重新按「寄驗證碼」。';
@@ -1981,6 +1995,15 @@ function applyDraft(d) {
   }
   bumpUiGen();                                     // 驗證碼一律不還原
   renderPickedCount();
+  // 導走前這一批已送出／可能已送出 ⇒ 狀態列也照講（#114 重驗 🔴）。記憶體裡的 LAST_STATUS
+  // 隨導走消失，hub 紀錄若還沒寫完會回「沒有發送紀錄」——放回來之後由 loadStatus 的
+  // 「不可降級」擋住那一份 unsent。
+  var ss = d.sentStatus;
+  if ((d.sent || d.unknown) && ss && ss.templateId && ss.templateId === CURRENT_TPL) {
+    LAST_STATUS = { templateId: ss.templateId, state: ss.state,
+                    stateLabel: String(ss.stateLabel || ''), lastSentAt: ss.lastSentAt };
+    renderStatus();
+  }
 
   var got = picked.length - missing.length;
   var head;
