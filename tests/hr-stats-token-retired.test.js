@@ -243,9 +243,13 @@ test('⬛ 對照組：帶 ?t= 進來也一樣會發車，而且帶的是 idToken
  * 🔴 **所以這一頁現在沒有「不必部署的退路」了。** 這不是漏掉，是知情的取捨——
  *    留著舊路就等於留著一個繞過在職檢查的入口（gas `#138`）。
  *    救火不走「把舊連結給他」。原本寫的 gas 救火鍵（`firekey.js`）也已於 2026-09-28 拆除
- *    （jdc-tw-migration#57，`gas#264`）；退路改為三條（jdc-tw-migration#56 查證）：
- *    ① 直接改授權名單試算表；② gas 設定頁補 admin `?t=`＋把 `ROLE_SOURCE` 切 `token`；
- *    ③ 在 Apps Script 編輯器直接執行函式。
+ *    （jdc-tw-migration#57，`gas#264`）；退路今天是兩條：
+ *    ① 直接改授權名單試算表（治本）；③ 在 Apps Script 編輯器直接執行函式。
+ *    🪦 原本還有 ②（jdc-tw-migration#56 查證時列的第二條，gas 設定頁在 `BOARD_TOKENS` 補人手
+ *       admin 鑰匙＋把 `ROLE_SOURCE` 切 `token`）。**退路 ② 已退場**（jdc-tw-migration#104 查證、
+ *       YU 2026-09-30 拍板丙）：前端沒有任何管理頁會送出那把鑰匙（hr-stats 帶 `?t=` 也一樣走 LINE），
+ *       切 `token` 也不會讓 LINE 路重新可用；它能做的事由 ① 直接改授權名單試算表、
+ *       ③ Apps Script 編輯器取代。查證：https://github.com/jdc-tw-org/jdc-tw-migration/issues/104#issuecomment-5902360847
  */
 
 /* ══ 取值方式：不可以長出第二種寫法 ════════════════════════════════ */

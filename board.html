@@ -362,9 +362,13 @@ function jsonp(action,params){
  *    **這一頁不會因此變得可用**（沒有人再帶 token 進來），
  *    🪦 原本寫「救火走 gas 那把救火鍵（`firekey.js`，`#99` ④／甲案）」——
  *    那把鍵已於 2026-09-28 拆除（jdc-tw-migration#57，`gas#264`），正式環境從未設定過。
- *    名單壞掉時的退路改為三條（jdc-tw-migration#56 查證）：
- *    ① 直接改授權名單試算表；② gas 設定頁補 admin `?t=`＋把 `ROLE_SOURCE` 切 `token`；
- *    ③ 在 Apps Script 編輯器直接執行函式。
+ *    名單壞掉時的退路今天是兩條：
+ *    ① 直接改授權名單試算表（治本）；③ 在 Apps Script 編輯器直接執行函式。
+ *    🪦 原本還有 ②（jdc-tw-migration#56 查證時列的第二條，gas 設定頁在 `BOARD_TOKENS` 補人手
+ *       admin 鑰匙＋把 `ROLE_SOURCE` 切 `token`）。**退路 ② 已退場**（jdc-tw-migration#104 查證、
+ *       YU 2026-09-30 拍板丙）：前端沒有任何管理頁會送出那把鑰匙（本頁帶 `?t=` 也一樣走 LINE），
+ *       切 `token` 也不會讓 LINE 路重新可用；它能做的事由 ① 直接改授權名單試算表、
+ *       ③ Apps Script 編輯器取代。查證：https://github.com/jdc-tw-org/jdc-tw-migration/issues/104#issuecomment-5902360847
  *    ⚠️ 後端 `line_needs_sheet` 那句原本是「請改用原本的連結」——對這一頁不成立。
  *       gas `#66`（YU 2026-09-29 拍板 C）已改成與 `GATE_MSG_ROLE_UNRESOLVED` 同一句
  *       「系統目前讀不到您的權限設定。換一條連結不會有幫助，請聯絡系統維護者。」
