@@ -138,14 +138,12 @@ var LIFF_ID = '2010451233-a781rqsm';
  *    文案在後端、而且會為了人而改（`deny-no-role.js` 那次實測：拿文案當判準，
  *    11 種措辭有 9 種會讓處置靜默消失）。這一頁只決定「要不要多一顆鈕」。
  *
- * ⚠️ **跨 repo 的手動對齊**（形式沿用 `assets/deny-no-role.js` 的既有慣例）：
- *    這三個字面值來自 `jdc-line-gas` 的 `line-platform/roles.js` `GATE_REJECT`。
- *    兩邊各有測試釘住自己那半，**沒有任何機械的東西逼兩邊相等**。
- *    只改一邊的話兩邊都綠，而這顆鈕靜靜地不再出現（或出現在沒用的地方）。
+ * 🔴 **代號清單不在這一頁**：一律問 `assets/liff-relogin.js` 的 `reloginUseful`（#115 收斂）。
+ *    跨 repo 對齊 `jdc-line-gas` `roles.js` `GATE_REJECT` 的弱點記在那支檔頭，只剩那一處。
+ *    🪦 沿革：這裡原本有一份自己的 `重登有用的`（前端第三份副本），#115 刪掉。
  * ⚠️ 漏掉一個代號的後果是**少一顆鈕**（看得見、他會來問），不是誤導——
  *    所以這裡刻意用白名單，而不是「除了這幾種以外都給鈕」。
  */
-var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
 
 /**
  * 後端沒說這一列屬於哪一組時，小標寫什麼（`#61`）。
@@ -205,7 +203,7 @@ function setName(who) {
 /** 把整頁換成一段話。**永遠說得出「接下來該做什麼」**，不留純粹的「失敗」。 */
 function showMsg(msg, reason) {
   var html = '<div class="msg msg-err">' + esc(msg) + '</div>';
-  if (reason && Object.prototype.hasOwnProperty.call(重登有用的, reason)) {
+  if (reason && reloginUseful(reason)) {
     // 🔴 `btn-pri`：共用的 `.btn` 是次要灰鈕（inline-block）。這一顆是整頁唯一的動作，
     //    要滿版主色——改動前它就是滿版的，只掛 `.btn` 會靜靜縮成一顆小灰鈕。
     html += '<button class="btn btn-pri" id="relogin">重新登入</button>';
@@ -341,6 +339,8 @@ function load() {
     // 🔴 **第二道**（第一道是 `start()` 的 `idTokenExpired()`）。接在解析出口、
     //    照 `line-messages.html` 那條鏈的形狀，不另創一份判斷——「哪些 reason 重登
     //    有用」的白名單只有 `assets/liff-relogin.js` 那一份，這裡不重寫。
+    //    （🪦 #115 之前這句不成立：本頁上方另有一份 `重登有用的` 給 `showMsg` 用，已改讀 `reloginUseful`。）
+    //    成功的回應也經過它 ⇒ 重登回來這一發成功就清掉防迴圈旗標（#115）。
     //    ⚠️ 它**原樣交還** `r`，所以底下的失敗畫面一句都不會少（重登時它自己蓋一層
     //    覆蓋層在上面）。為什麼兩道都要：前置檢查問的是「我這顆過期了嗎」，
     //    答不出來時它放行；這一道問的是「後端接不接受」，那是唯一的權威。
@@ -385,7 +385,8 @@ function start() {
     //      他看到的是一次閃跳然後回到分流頁，不是一段要他去找人的紅字。
     if (idTokenExpired()) {
       // ⚠️ 防迴圈的旗標與底下的 `reloginOnDeadCredential` **共用同一格**
-      //    （`liff-relogin.js` 的 sessionStorage 旗標）⇒ 一次造訪最多自動重登一次。
+      //    （`liff-relogin.js` 的 sessionStorage 旗標）⇒ 重登之後、在任何一發成功之前，
+      //    最多自動重登一次（#115 起，成功的回應會清掉旗標；改前是「一個分頁一輩子一次」）。
       //    刻意不自己另開一個旗標：兩個旗標＝兩次導頁，而第二次沒有人擋。
       // 🔴 `reloginMarkTried()` 寫不進去（無痕視窗、封鎖 cookie）時**不登出**——
       //    沒有防線時「看得見的失敗」比「看不見的迴圈」好（同該檔檔頭）。

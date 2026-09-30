@@ -137,6 +137,9 @@ function boot(opts) {
     setInterval(fn, ms) { const id = nextId++; intervals.push({ id, fn, ms }); return id; },
     clearInterval(id) { for (let i = 0; i < intervals.length; i++) if (intervals[i].id === id) intervals.splice(i, 1); },
   };
+  // #115：liff-relogin.js 的 `reloginSettle` 在**成功**的回應上也會讀 `window.__reloginActing`
+  //    （改前只有死憑證那條路碰 window）⇒ 替身要像瀏覽器一樣有 `window`（＝全域本身）。
+  ctx.window = ctx;
   vm.createContext(ctx);
   // 頁面的 <script> 順序：（LIFF SDK 外部，不跑）→ url-token.js → liff-relogin.js → checkin-board.js → …
   // 兩支都只宣告函式／常數、沒有頂層副作用 ⇒ 下面「零點」那條的計數不受影響。

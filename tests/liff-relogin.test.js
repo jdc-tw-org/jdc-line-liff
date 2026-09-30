@@ -25,14 +25,15 @@ const SRC = fs.readFileSync(path.join(ROOT, 'assets', 'liff-relogin.js'), 'utf8'
  * 跑一次（或多次）`reloginOnDeadCredential`，回報所有副作用。
  *
  * @param {object} opt
- *   `store`      'ok'｜'throwWrite'｜'throwRead'｜'seeded'（旗標已存在＝上次已試過）
+ *   `store`      'ok'｜'throwWrite'｜'throwRead'｜'throwRemove'｜'seeded'（旗標已存在＝上次已試過）
+ *   `mem`        共用的 Map（模擬「導走再回來」＝新頁面、同一份 sessionStorage；#115）
  *   `liff`       'ok'｜'missing'｜'noLogout'
  *   `responses`  依序餵進去的回應
  */
 function run(opt) {
   opt = opt || {};
   const calls = { logout: 0, login: [], appended: [] };
-  const mem = new Map();
+  const mem = opt.mem || new Map();
   if (opt.store === 'seeded') mem.set('JDC_RELOGIN_TRIED', '1');
   const sessionStorage = {
     getItem(k) {
@@ -42,6 +43,10 @@ function run(opt) {
     setItem(k, v) {
       if (opt.store === 'throwWrite') throw new Error('QuotaExceededError');
       mem.set(k, v);
+    },
+    removeItem(k) {
+      if (opt.store === 'throwRemove') throw new Error('SecurityError');
+      mem.delete(k);
     },
   };
   const liff = opt.liff === 'missing' ? undefined
@@ -250,3 +255,88 @@ for (const page of ['board.html', 'hr-stats.html']) {
       '沒接在解析出口 ⇒ 只有某幾個呼叫點會被涵蓋，而漏掉的那些是靜默的');
   });
 }
+
+/* ══ ⑩ 旗標什麼時候清（#115）═══════════════════════════════════════════════
+ *
+ * 改前旗標**從來不清** ⇒ 同一個分頁重登過一次之後，第二次過期直接死路。
+ * 規則：重登之後第一次成功（`ok === true`）就清；迴圈防護（重登回來第一發就死）不變。
+ * 每一頁用 `run({ mem })` 模擬：同一份 sessionStorage、新的 window（導走再回來＝新頁面）。
+ */
+const OK = { ok: true, data: 1 };
+
+test('🔴 K1 過期 → 重登 → 成功 → 再過期 ⇒ 第二次仍自動重登（改前：死路）', () => {
+  const mem = new Map();
+  const p1 = run({ mem, responses: [BAD] });            // 第一次過期
+  assert.equal(p1.calls.logout, 1);
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1');
+  const p2 = run({ mem, responses: [OK, OK, BAD] });    // 導回來：成功、成功、一小時後又過期
+  assert.equal(p2.calls.logout, 1, '成功之後旗標沒清 ⇒ 第二次過期直接給死路（#115 要修的那一格）');
+  assert.equal(p2.calls.login.length, 1);
+  assert.match(p2.calls.appended[0], /正在自動重新登入/);
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1', '第二次重登也要重新寫下旗標（防線要回來）');
+  const p3 = run({ mem, responses: [OK, OK, BAD] });    // 第三輪也一樣
+  assert.equal(p3.calls.logout, 1);
+});
+
+test('🔴 K2 重登回來第一發就死 ⇒ 不清、不再登出（不迴圈）', () => {
+  const mem = new Map();
+  run({ mem, responses: [BAD] });
+  const p2 = run({ mem, responses: [BAD, OK] });        // 回來第一發就死；之後就算有 ok 也晚了
+  assert.equal(p2.calls.logout, 0, '重登沒用還再登出 ⇒ 登入登出一直來回');
+  assert.match(p2.calls.appended[0], /請聯絡資訊人員/);
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1',
+    '放棄之後晚到的 ok 把旗標清掉 ⇒ 下一次重新整理又會自動重登一輪');
+});
+
+test('🔴 死憑證的回應不可以清旗標（「每次都清」＝迴圈）', () => {
+  const mem = new Map([['JDC_RELOGIN_TRIED', '1']]);
+  run({ mem, responses: [BAD] });
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1');
+  const p = run({ mem, responses: [BAD] });
+  assert.equal(p.calls.logout, 0);
+});
+
+test('🔴 同一頁先決定導走、晚到的 ok 不可以清掉剛寫的旗標（過期邊界的競態）', () => {
+  const mem = new Map();
+  const p = run({ mem, responses: [BAD, OK] });
+  assert.equal(p.calls.logout, 1);
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1',
+    '晚到的 ok 洗掉旗標 ⇒ 導回來後新憑證若仍被拒，會再導一輪（防線被自己拆掉）');
+  // ⬛ 對照：沒有先決定導走時，同一個 ok 會清（證明上面不是「ok 從來不清」）
+  const mem2 = new Map([['JDC_RELOGIN_TRIED', '1']]);
+  run({ mem: mem2, responses: [OK] });
+  assert.equal(mem2.has('JDC_RELOGIN_TRIED'), false);
+});
+
+for (const [name, r] of [
+  ['role_mismatch（憑證過了但角色不符）', { ok: false, reason: 'role_mismatch' }],
+  ['transport（沒拿到答案）', { ok: false, transport: true }],
+  ['ok:false 沒有 reason', { ok: false }],
+  ['ok 是字串 "true"', { ok: 'true' }],
+  ['undefined', undefined],
+]) {
+  test(`只認 ok === true：${name} 不清旗標`, () => {
+    const mem = new Map([['JDC_RELOGIN_TRIED', '1']]);
+    run({ mem, responses: [r] });
+    assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1');
+  });
+}
+
+test('🔴 清不掉（removeItem 拋）⇒ 不拋錯、回應原樣交還、旗標留著（寧可少一次重登）', () => {
+  const mem = new Map([['JDC_RELOGIN_TRIED', '1']]);
+  const p = run({ mem, store: 'throwRemove', responses: [OK] });
+  assert.strictEqual(p.returned[0], OK);
+  assert.equal(mem.get('JDC_RELOGIN_TRIED'), '1');
+});
+
+test('成功的回應原樣交還（reloginSettle 只加動作）', () => {
+  const p = run({ store: 'seeded', responses: [OK] });
+  assert.strictEqual(p.returned[0], OK);
+});
+
+test('🔴 reloginUseful 是 reloginVerdict 的判準本體，值域恰好是 RELOGIN_REASONS', () => {
+  for (const c of MOD.RELOGIN_REASONS) assert.equal(MOD.reloginUseful(c), true, c);
+  for (const c of ['line_unbound', 'line_ambiguous', 'line_upstream', 'role_mismatch', '', null, undefined]) {
+    assert.equal(MOD.reloginUseful(c), false, String(c));
+  }
+});

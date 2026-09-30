@@ -566,3 +566,42 @@ test('🔴 wfCall 的解析出口接了 onDeadCredential（所有 action 都經�
   assert.ok(wf.indexOf('return onDeadCredential(r, action, params);') >= 0,
     'wfCall 的解析出口沒接 onDeadCredential ⇒ 死憑證又回到那句死路紅字');
 });
+
+/* ══ 旗標在成功之後清掉（jdc-tw-migration#115）════════════════════════════════
+ *
+ * 本頁的成功回應不經過 `reloginOnDeadCredential`（`onDeadCredential` 遇到非死憑證就交還），
+ * 所以要自己交給 `reloginSettle`。清的只有防迴圈旗標——**送出後關門（SEND_FIRED）不受影響**。
+ */
+const 成功 = { ok: true, rows: [] };
+
+test('🔴 #115 重登回來後一發成功 ⇒ 清旗標 ⇒ 之後 (b) 過期再自動存＋重登（改前：給鈕）', () => {
+  const t = ctxWith({ tried: true });
+  畫名單(t, 名單(), ['E001']);
+  assert.strictEqual(t.ctx.onDeadCredential(成功, 'getWelfareAudience', {}), 成功, '成功的回應要原樣交還');
+  assert.equal(t.store.getItem(t.ctx.RELOGIN_FLAG_KEY), null, '本頁的成功回應沒交給 reloginSettle ⇒ 旗標永遠不清');
+  t.ctx.onDeadCredential(死憑證, 'saveWelfareTemplate', {});
+  assert.equal(t.calls.logout, 1, '第二次過期的 (b) 應該再自動重登');
+  assert.ok(t.store.getItem(t.ctx.DRAFT_KEY), '自動重登前要先存暫存');
+  assert.equal(t.store.getItem(t.ctx.RELOGIN_FLAG_KEY), '1', '再重登一次要重新寫下旗標');
+});
+
+test('⬛ #115 對照：重登回來、還沒有任何一發成功 ⇒ (b) 照舊給鈕（旗標仍守著剛導回的那一段）', () => {
+  const t = ctxWith({ tried: true });
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.onDeadCredential({ ok: false, reason: 'role_mismatch' }, 'getWelfareStatus', {});   // 不是成功
+  t.ctx.onDeadCredential(死憑證, 'saveWelfareTemplate', {});
+  assert.equal(t.calls.logout, 0);
+  assert.equal(t.el('relogin-box').hidden, false);
+});
+
+test('🔴 #115 送出後的成功回應清了旗標，也不可以打開送出後的關門（SEND_FIRED 優先）', () => {
+  const t = 已送出({ tried: true });
+  t.ctx.onDeadCredential({ ok: true, sent: 2 }, 'sendWelfareBroadcast', {});   // 送出那一發 ok
+  t.ctx.onDeadCredential(成功, 'getWelfareStatus', {});
+  assert.equal(t.store.getItem(t.ctx.RELOGIN_FLAG_KEY), null, '⬛ 旗標確實清了（否則下面的 0 可能是旗標擋的）');
+  assert.equal(t.ctx.SEND_FIRED, 1, '清旗標時連 SEND_FIRED 一起放掉 ⇒ 送出後會被導走');
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 0, '🔴 送出後過期被導走 ⇒ 回來忘了剛送過（#114 W5 那一型）');
+  assert.equal(t.el('btn-relogin').hidden, true);
+  assert.match(t.el('relogin-msg').textContent, /重新整理/);
+});

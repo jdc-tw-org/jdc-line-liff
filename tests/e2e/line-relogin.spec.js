@@ -484,3 +484,62 @@ test('🔴 W10 送出回「紀錄沒記到」後改內容儲存、那一發過�
   expect(await 狀態列(page)).toContain('訊息紀錄沒有記到這一批');
   await expect(page.locator('#send-note')).toContainText('訊息紀錄沒有寫進去');
 });
+
+/* ══ 防迴圈旗標在成功之後清掉（jdc-tw-migration#115）══════════════════════════
+ * 改前旗標從不清 ⇒ 同一個分頁重登過一次之後，第二次過期的 (b) 只給鈕、(a) 直接死路。
+ * 這裡量的是**同一個分頁的真實順序**（不預先種旗標）：第一次過期 → 真的導走 → 回來成功 → 第二次過期。
+ */
+const 旗標 = (page) => page.evaluate(() => sessionStorage.getItem('JDC_RELOGIN_TRIED'));
+
+test('#115 K1-line 🔴 第一次過期重登、回來成功之後，第二次 (b) 過期仍自動存＋重登＋還原（改前：只給鈕）', async ({ page }) => {
+  await open(page, { 回應: {
+    getWelfareAudience: (p, k) => (k === 1 ? 死憑證 : 名單()),
+    saveWelfareTemplate: 死憑證,
+  } });
+  await 等名單(page);                                 // 第一次重登回來
+  expect((await 副作用(page)).login, '⬛ 零點：第一次過期真的導走過').toBe(1);
+  await expect.poll(() => 旗標(page), '回來後名單載成功，旗標應該清掉').toBe(null);
+  await 勾人換範本改文字(page);
+  await page.locator('#btn-save').click();
+  await expect.poll(async () => (await 副作用(page)).login, '🔴 第二次過期沒有自動重登（旗標沒清）').toBe(2);
+  await 等名單(page);
+  const s = await 副作用(page);
+  expect(s.logout).toBe(2);
+  expect(s.覆蓋層).toBe('');
+  await expect(page.locator('#restore-note')).toContainText('已還原重新登入前的勾選 3 人');
+  expect(await 勾了誰(page)).toEqual(['A001', 'A002', 'B001']);
+  await expect(page.locator('#wf-tpl')).toHaveValue('{姓名}中秋編到一半');
+});
+
+test('#115 K2-line 🔴 重登回來第一發就又死 ⇒ 不迴圈（login 恰好 1、講實話）', async ({ page }) => {
+  await open(page, { 回應: { getWelfareAudience: 死憑證 } });
+  await expect.poll(async () => (await 副作用(page)).覆蓋層).toContain('已經自動幫您重新登入過一次');
+  await page.waitForTimeout(2000);                    // 給「如果要再導一輪」足夠的時間
+  const s = await 副作用(page);
+  expect(s.logout, '🔴 重登沒用還再導 ⇒ 迴圈').toBe(1);
+  expect(s.login).toBe(1);
+  expect(await 旗標(page)).toBe('1');
+});
+
+test('#115 🔴 第一次過期重登成功 → 送出 → 第二次過期 ⇒ 仍然不導走（#114 送出後關門優先於清旗標）', async ({ page }) => {
+  let sent = false;
+  await open(page, { 回應: {
+    getWelfareAudience: (p, k) => (k === 1 ? 死憑證 : 名單()),
+    sendWelfareBroadcast: (p) => { if (!p.cancel) sent = true; return DEFAULTS.sendWelfareBroadcast; },
+    getWelfareStatus: () => (sent ? (sent = false, 死憑證) : DEFAULTS.getWelfareStatus),
+  } });
+  await 等名單(page);
+  expect((await 副作用(page)).login, '⬛ 零點：第一次過期真的導走過').toBe(1);
+  await expect.poll(() => 旗標(page), '⬛ 旗標確實清了（否則下面的「沒導走」可能是旗標擋的）').toBe(null);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#relogin-box'), '⬛ 零點：送出後那一發真的回了死憑證').toBeVisible();
+  await page.waitForTimeout(2500);
+  const s = await 副作用(page);
+  expect(s.logout, '🔴 送出後被導走 ⇒ 回來忘了剛送過（清旗標把 #114 的關門打開了）').toBe(1);
+  expect(s.login).toBe(1);
+  await expect(page.locator('#btn-relogin')).toBeHidden();
+  await expect(page.locator('#relogin-msg')).toContainText('重新整理');
+  await expect(page.locator('#send-note')).toContainText('已送出 3 則');
+});
