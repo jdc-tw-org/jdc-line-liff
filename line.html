@@ -1803,9 +1803,14 @@ function takeDraftMark() {
  * (b) 在「存不進去」或「這個分頁已經自動重登過一次」時不自動導走，改給 (c) 的鈕：
  * 存不起來就導走＝洗掉她的東西；而第二次的覆蓋層會把她勾好的畫面整個遮住。
  * 由人按的重登不會形成迴圈。
+ * ⚠️ #115 之後「已經自動重登過」只指**導回來、還沒有任何一發成功**的那一段：開頁的名單／範本
+ *    一載成功旗標就清掉，之後再過期的 (b) 會再自動存＋導走＋還原（YU 2026-09-30 裁定接受）。
+ *    給鈕那條只剩「導回來後開頁載入沒成功、她又勾了人」會走到。
  */
 function onDeadCredential(r, action, params) {
-  if (reloginVerdict(r, false) === 'none') return r;
+  // 成功的回應清掉防迴圈旗標（#115）：本頁的成功回應不經過 reloginOnDeadCredential，要自己交。
+  // ⚠️ 只動那一格旗標，**不碰 SEND_FIRED**——送出後關門由下面的 reloginAllowed() 決定，與旗標無關。
+  if (reloginVerdict(r, false) === 'none') return reloginSettle(r);
   // 送出那一發**自己**回死憑證＝守門擋下＝這一批沒有送出 ⇒ 解除「已送出」（見 SEND_FIRED）。
   if (action === 'sendWelfareBroadcast' && !(params && params.cancel) && SEND_FIRED > 0) SEND_FIRED--;
   if (!reloginAllowed()) return showSentExpired(r, action, params);

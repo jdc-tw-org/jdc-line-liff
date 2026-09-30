@@ -52,6 +52,18 @@
  *   ⚠️ 旗標鍵刻意**不用 `LIFF_STORE:` 開頭**：`liff.logout()` 會把
  *      `LIFF_STORE:<liffId>:<se 裡的鍵>` 全部刪掉，撞上前綴＝自己把防線洗掉。
  *
+ * 🔴 **旗標什麼時候清（#115）：重登之後第一次成功的回應（`r.ok === true`）。**
+ *    改前從來沒清過 ⇒ 同一個分頁自動重登過一次之後，再開一小時第二次過期
+ *    就直接蓋上「請聯絡資訊人員」（現場整天開著的 checkin／wall 最容易撞到）。
+ *    · 成功＝新憑證被後端接受過 ⇒ 之後再過期是「又過了一小時」，不是迴圈，可以再重登一次。
+ *    · 迴圈防護不變：重登回來**第一發就死**，中間沒有任何成功 ⇒ 旗標還在 ⇒ 講實話。
+ *    · 只認 `ok === true`：`role_*` 也代表憑證過了守門，但刻意不算（判準越窄越不會誤清；
+ *      最壞＝第二次過期給死路，不會迴圈）。batch 的外層 ok 算數（gas 的 batch 分派在守門之後）。
+ *    · 🔴 這一頁已經決定導走或放棄（`window.__reloginActing`）之後的成功**不清**：
+ *      過期邊界上 A 回死憑證、寫下旗標開始導走，B 的 ok 晚一點才回來 ⇒ 沒有這一道，
+ *      B 會把剛寫的旗標洗掉，回來之後防線就沒了。
+ *    · 清不掉（storage 拋例外）就留著：寧可少一次自動重登，不要迴圈。
+ *
  * 🔴 **讀不到／寫不進 storage 時一律當成「已經試過」**（無痕視窗、封鎖 cookie）。
  *    方向是刻意的：寫不進去就沒有防線，此時**寧可不自動登出**——
  *    「叫他找資訊人員」是看得見的失敗，「一直自動重登」是看不見的那一種。
@@ -66,18 +78,15 @@
  *   `LINE_BAD_TOKEN`／`LINE_NO_TOKEN`。兩邊各有測試釘住自己那半，
  *   **沒有任何機械的東西逼兩邊相等**；改代號要同一次動兩個 repo。
  *
- * 🔴 **「哪些 reason 代表重登會有用」現在是三份副本，不是兩份**（2026-09-13 發現）：
- *     ① `jdc-line-gas` `roles.js` 的 `GATE_REJECT`   ＝**權威**
- *     ② 本檔的 `RELOGIN_REASONS`                     ＝有測試，但那條測試斷言的是
- *        **寫死的期望值**（`['line_bad_token','line_no_token']`），**不是去讀 ①**
- *        ⇒ ① 改了而這裡沒改，②的測試照樣綠
- *     ③ `me.html` 的 `重登有用的`（該頁第 98 行附近）＝**沒有任何東西釘著它**
- *   ⚠️ ③ 是本次開工之後才進 main 的新頁（`104149d`），**它今天的值是對的**
- *      （`line_no_token`／`line_bad_token`，與①②相同），而且它做的事與本檔同型
- *      （先 logout 再 login，只是由使用者按一顆鈕、不是自動）。
- *      **刻意不在這一次動它**：它的值沒有錯，改它只會讓這次的 diff 多含一件事。
- *   ⇒ 三份要收成一份的話，收斂點是①（讓前端去讀後端送的東西，而不是各抄一份），
- *     那是另一件事、另一個決定。**寫在這裡是因為下一個改代號的人必須知道有三處。**
+ * 🔴 **「哪些 reason 代表重登會有用」：前端只剩一份（本檔），加上後端的權威**（#115 收斂）
+ *     ① `jdc-line-gas` `roles.js` 的 `GATE_REJECT`   ＝**權威**（跨 repo，手動對齊）
+ *     ② 本檔的 `RELOGIN_REASONS`，經 `reloginUseful()` 對外 ＝前端唯一一份。
+ *        它的測試斷言的是**寫死的期望值**，不是去讀 ① ⇒ ① 改了而這裡沒改，照樣綠。
+ *   各頁（authz、me、line）**只准呼叫 `reloginUseful`／`reloginVerdict`**，不另抄代號；
+ *   `tests/relogin-reasons-single-source.test.js` 掃原始碼守著（hr-stats 的文案表是明寫的例外，
+ *   理由寫在那支測試裡）。
+ *   🪦 沿革：2026-09-13 寫這段時記的是「三份」（本檔、me.html、gas），實際上 authz.html 還有
+ *      第四份（#114 設計時發現）。兩份頁面副本已於 #115 刪掉、改讀本檔。
  *   ⚠️ 只取這兩個是刻意的——`GATE_REJECT` 的檔頭把拒絕分成三類，
  *      「重新登入會有用」那一類**就只有這兩個**。其餘（`line_unbound`、
  *      `line_ambiguous`、`line_upstream`、`role_*`）重登都沒有用，
@@ -107,13 +116,20 @@ var RELOGIN_GOING_MSG = '您的 LINE 登入憑證已失效，正在自動重新�
  */
 function reloginVerdict(r, alreadyTried) {
   if (!r || r.ok === true) return 'none';
-  var reason = String(r.reason == null ? '' : r.reason);
-  var hit = false;
-  for (var i = 0; i < RELOGIN_REASONS.length; i++) {
-    if (RELOGIN_REASONS[i] === reason) hit = true;
-  }
-  if (!hit) return 'none';
+  if (!reloginUseful(r.reason)) return 'none';
   return alreadyTried ? 'exhausted' : 'relogin';
+}
+
+/**
+ * 這個代號重新登入有沒有用。**前端唯一的判準**（#115）：各頁要決定「給不給重登鈕」
+ * 都問這一支，不另抄一份代號（見檔頭）。
+ */
+function reloginUseful(reason) {
+  var s = String(reason == null ? '' : reason);
+  for (var i = 0; i < RELOGIN_REASONS.length; i++) {
+    if (RELOGIN_REASONS[i] === s) return true;
+  }
+  return false;
 }
 
 /** 旗標讀。**拿不到 store 一律回 true（＝當成試過了）**，見檔頭。 */
@@ -133,6 +149,18 @@ function reloginMarkTried() {
   } catch (e) {
     return false;
   }
+}
+
+/**
+ * 成功的回應 ⇒ 清掉防迴圈旗標（#115，規則見檔頭「旗標什麼時候清」）。
+ * 回應原樣交還。`reloginOnDeadCredential` 對每一個非死憑證的回應都會先叫它；
+ * 自己不把成功回應交給 `reloginOnDeadCredential` 的頁（line.html）要自己叫。
+ */
+function reloginSettle(r) {
+  if (!r || r.ok !== true) return r;
+  if (window.__reloginActing) return r;
+  try { sessionStorage.removeItem(RELOGIN_FLAG_KEY); } catch (e) {}
+  return r;
 }
 
 /**
@@ -168,7 +196,7 @@ function reloginOverlay(text, isErr) {
  */
 function reloginOnDeadCredential(r) {
   var v = reloginVerdict(r, reloginTried());
-  if (v === 'none') return r;
+  if (v === 'none') return reloginSettle(r);
   if (window.__reloginActing) return r;
 
   if (v === 'exhausted') {
@@ -198,7 +226,7 @@ function reloginOnDeadCredential(r) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    reloginVerdict, reloginOnDeadCredential, reloginTried, reloginMarkTried,
+    reloginVerdict, reloginUseful, reloginSettle, reloginOnDeadCredential, reloginTried, reloginMarkTried,
     RELOGIN_REASONS, RELOGIN_FLAG_KEY, RELOGIN_EXHAUSTED_MSG, RELOGIN_GOING_MSG,
   };
 }

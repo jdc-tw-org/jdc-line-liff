@@ -234,13 +234,11 @@ var GAS_URL = 'https://script.google.com/macros/s/AKfycbxaDoA_7aOW325p8165VegSqd
 /** 與 index.html／me.html／board.html／line.html 同一條 LIFF，不多開。 */
 var LIFF_ID = '2010451233-a781rqsm';
 
-/**
- * 後端 `roles.js` `GATE_REJECT` 的代號 → 要不要給「重新登入」這顆鈕。
- * ⚠️ 跨 repo 的手動對齊，形式沿用 `me.html` 與 `assets/deny-no-role.js` 的既有慣例：
- *    兩邊各有測試釘住自己那半，沒有任何機械的東西逼兩邊相等。
- *    漏掉一個代號的後果是**少一顆鈕**（看得見、他會來問），不是誤導。
+/*
+ * 「哪些代號重新登入有用」**不在這一頁**：一律問 `assets/liff-relogin.js` 的 `reloginUseful`
+ * （#115 收斂；本頁已在 gas-call.js 之前載入它，見檔頭 <script>）。
+ * 🪦 沿革：這裡原本有一份自己的 `重登有用的` 白名單（前端第四份副本），#115 刪掉。
  */
-var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
 
 /* ══════════════════════════════════════════════════════════════════════
  * 🔴 憑證死掉時，這一頁**分兩條路**：首載自動重登，有草稿的時候交給他決定
@@ -278,9 +276,9 @@ var 重登有用的 = { line_no_token: 1, line_bad_token: 1 };
  */
 var 草稿會不見警告 = '按下去會離開這一頁重新登入，這份草稿會不見。要留的話請先自己複製起來。';
 
-/** 這個代號重新登入有沒有用。**判準只有這一份**（見上面 `重登有用的`）。 */
+/** 這個代號重新登入有沒有用。**判準只有 `liff-relogin.js` 那一份**（#115），這裡只轉手。 */
 function 重登有效(reason) {
-  return !!(reason && Object.prototype.hasOwnProperty.call(重登有用的, reason));
+  return !!reason && reloginUseful(reason);
 }
 
 /**
