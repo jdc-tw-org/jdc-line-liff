@@ -255,7 +255,24 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  * 🔴 **合併順序：本 repo 這顆先合、gas 那張後合**（同上，合併後要在 gas 那張 PR
  *    手動 `gh run rerun <id> --failed`）。
  */
-const PIN = '13a92eac0c3dacc40ce2936763f6596e441762bda6463de31aa79367066b556c';
+/**
+ * 🔴 2026-09-29（本 repo 對應 jdc-tw-migration `#98`）：後端把 `line_needs_sheet` 的
+ *    **說明欄（`why`）** 依擁有者 09-28 拍板改寫成現況——`ROLE_SOURCE` 切回 token
+ *    **不會**關掉 LINE 路（入口層帶了角色的請求不讀它），這一格只剩「入口層違約、沒帶角色」
+ *    的形狀走得到。**為何寫在後端的票，本 repo 不抄一份**——理由同上面 `#225` 那條。
+ *    副本重產，**diff 恰好 1 加 1 減**，只在 `gateContract.denials` 的 `line_needs_sheet` 的 `why`：
+ *    ⇒ `envelope`（`msg`／`reason`）、`verdict`（仍是 `ok`）、`actions`／`identities`／
+ *      `batchAllowed`／`dispatchPages` **一個位元組都沒動** ⇒ 沒有任何人的權限、任何頁面的畫面文字變了
+ *      （`why` 只是說明，沒有任何頁面讀它）。
+ *    ⬛ 實測（gas `docs/98-line-needs-sheet-why` @ `4db95de`、rules @ `406c555`，乾淨 worktree）：
+ *        重產前  `copy-guard.js --liff` rc=3（「line_needs_sheet：why 的說明改了」）
+ *        重產後  `copy-guard.js --liff` rc=0（「逐字相同，105 支 action」）
+ *      ⬛ 反向對照組：拿 gas `origin/main`（`c89d1b0`，不含本改動）比同一份新副本 ⇒ rc=3，差的也恰好是那一格。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas 那張後合**（同上，合併後要在 gas 那張 PR
+ *    手動 `gh run rerun <id> --failed`）。
+ */
+const PIN = '0e7723a6ee3d44cacc0e809499ded6c2c5fcff31d6372c11a3f2e39f5fd81336';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

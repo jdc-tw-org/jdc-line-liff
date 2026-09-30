@@ -1100,7 +1100,12 @@ function renderHr(r){
  *    （姓名在後端就被剝掉，只留等長空字串），帶身分的 `getHrStats` 回來後才整個重畫、
  *    填上真名。**而 gated 那一發失敗時，改動前的程式一個字都不會說**：
  *      · `denyNoRole` 只對 `reason === 'role_mismatch'` 蓋覆蓋層
- *      · `cacheVerdict` 只對 msg 前綴「無權限或連結已失效」判 revoked
+ *      · `cacheVerdict` 當時（2026-09-12）只認一句 msg 文字前綴判 revoked
+ *        〔⚠️ 2026-09-29 註記：**這是寫這段時的狀態，不是現況。** 09-17 起改吃 `reason`、
+ *          09-18 那條 msg 文字退路已拆（liff `#74`）⇒ 今天只看 `reason` 是否在
+ *          `assets/board-cache.js` 的 `REVOKE_REASONS`，沒帶 `reason` 一律 `ok`。
+ *          `line_needs_sheet` 在兩種寫法下都判 `ok`，所以本段講它「什麼都不做」的結論不受影響；
+ *          但下一行清單裡的 `role_unresolved` 今天會判 revoked，不再屬於「其餘」。〕
  *      · 其餘全部（`line_bad_token`／`line_unbound`／`role_unresolved`／
  *        `line_upstream`／`line_needs_sheet`／任何未來新增的代號）落進
  *        `else if (!painted) renderHr(r)`，而公開檔已經畫好 ⇒ `painted` 為真 ⇒ **什麼都不做**。

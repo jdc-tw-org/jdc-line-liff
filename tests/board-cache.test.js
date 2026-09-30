@@ -540,7 +540,10 @@ test('handleVerdict：離線 → 保留快取，不標撤銷', async () => {
 
 /* ⬛ 對照組②：**沒有被撤權**的人，行為一格都不能變。
  *    角色不符是 2026-07-30 線上事故（看到權限訊息就蓋整頁）的迴歸測試；
- *    上游故障與回退鈕那兩格更貴——判成撤銷就是清光全體的離線資料。 */
+ *    上游故障與「算不出角色」（`line_needs_sheet`）那兩格更貴——判成撤銷就是清光全體的離線資料。
+ *    〔2026-09-29 更正（jdc-tw-migration `#98`）：原句把 `line_needs_sheet` 叫「回退鈕那一格」。**寫的當下（09-17）
+ *      就不成立**：後端自 09-13 起，入口層帶了角色的 LINE 請求不讀角色來源，按回退鈕不會讓常態請求落進這一格；
+ *      它只在入口層違約（沒帶角色）時出現。理由見 `assets/board-cache.js` 的 `REVOKE_REASONS` 檔頭。〕 */
 ['role_mismatch_token', 'role_mismatch_line', 'line_upstream', 'line_needs_sheet',
  'line_unbound', 'line_bad_token']
   .forEach((key) => {
