@@ -1216,7 +1216,11 @@ function onSend() {
           SEND_TIMEOUT_MS)
     .then(function (r) {
       disarmCancel();                      // 回來了就沒得取消了（不管成功失敗）
-      if (r && r.ok) { disarmOtp(); showState(r, sentTpl); return; }   // 送出成功＝這組碼用掉了
+      if (r && r.ok) {                     // 送出成功＝這組碼用掉了
+        disarmOtp(); showState(r, sentTpl);
+        markReloginSent();                 // 重登面板開著的話：改講「已送出，不要重寄」（#114 🟡2）
+        return;
+      }
       if (r && r.transport) {
         // 🔴 傳輸失敗 ＝ unknown，**不是失敗**。
         //    ⚠️ 這裡**也要 disarm**：碼可能已經被後端消耗掉了（used=true），
@@ -1662,11 +1666,28 @@ function wfCall(action, params, timeoutMs) {
 var DRAFT_KEY = 'JDC_LINE_DRAFT';
 /** 暫存多久內算數。登入往返是秒到分鐘級；超過就丟掉，但**一定講出來**。 */
 var DRAFT_TTL_MS = 30 * 60 * 1000;
+/**
+ * 「導走時手上有一份暫存」的記號（#114 🟡3）。**只有時間戳，不含任何勾選、內容、驗證碼。**
+ *
+ * 為何需要：導回來之後 sessionStorage 若沒活下來（iOS LINE 的 WKWebView 未量過），
+ * 「沒有暫存」與「暫存不見了」長得一模一樣 ⇒ 整批靜默消失。記號讓後者講得出一句話。
+ * 為何放 localStorage、不放 redirectUri：LINE 的 Callback 白名單只認站台根，子路徑會在
+ * authorize 端被改寫、經 `liff.state` 送回（yu-agent work-schedule 2026-09-12 線 L 實測），
+ * 網址上的記號會不會跟著回來**在 e2e 以外證明不了**；而且 (b) 的導走在共用模組
+ * `liff-relogin.js` 裡（#115 的範圍）。localStorage 不經網址，實測活過整頁導向（見該檔檔頭）。
+ * ⚠️ 已知代價：localStorage 是同網域各分頁共用 ⇒ 她在 A 分頁重登的那幾十秒內另開 B 分頁，
+ *    B 會說「沒能保留」（誤報一次，讀了就刪）。寧可誤報一句，不要靜默全丟。
+ */
+var DRAFT_MARK_KEY = 'JDC_LINE_DRAFT_MARK';
 
 /** (c) 的面板開著沒有、存成功沒有、當時手上有沒有驗證碼。 */
 var RELOGIN_PANEL = false;
 var RELOGIN_SAVED = false;
 var RELOGIN_HAD_OTP = false;
+/** 面板開著期間，送出那一發**成功**回來了 ⇒ 這一批已送出，回來後不可以叫她重寄（🟡2）。 */
+var RELOGIN_SENT = false;
+/** 寄碼請求還在路上時被別的一發判成 (c) ⇒ 信可能已經寄出（🟡5）。 */
+var RELOGIN_OTP_MAYBE = false;
 
 /** 勾了誰（員編＋姓名）。**用員編認人**——還原時名單可能換過順序。 */
 function pickedList() {
@@ -1709,7 +1730,8 @@ function snapshotDraft(phase, hadOtp) {
     text: String(document.getElementById('wf-tpl').value || ''),
     dirty: isTplDirty(), baseText: SAVED_TPL_TEXT,
     openUnit: OPEN_UNIT, newTitle: newTitleValue(),
-    otpArmed: !!(OTP_STATE.armed || hadOtp)
+    otpArmed: !!(OTP_STATE.armed || hadOtp),
+    sent: RELOGIN_SENT
   };
 }
 
@@ -1741,6 +1763,21 @@ function dropDraft() {
   try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) {}
 }
 
+/** 要導走、而且手上有存好的暫存時才寫。寫不進去就算了（只是少一句提示，不擋導走）。 */
+function markDraftLeaving() {
+  try { localStorage.setItem(DRAFT_MARK_KEY, String(Date.now())); } catch (e) {}
+}
+
+/** 讀記號並**立刻刪掉**（只用一次）。回 true ＝30 分鐘內導走過、手上有過一份暫存。 */
+function takeDraftMark() {
+  var at;
+  try {
+    at = Number(localStorage.getItem(DRAFT_MARK_KEY));
+    localStorage.removeItem(DRAFT_MARK_KEY);
+  } catch (e) { return false; }
+  return at > 0 && Date.now() - at <= DRAFT_TTL_MS;
+}
+
 /**
  * `wfCall` 的解析出口。死憑證以外的回應**原樣交還**。
  * (b) 在「存不進去」或「這個分頁已經自動重登過一次」時不自動導走，改給 (c) 的鈕：
@@ -1749,11 +1786,17 @@ function dropDraft() {
  */
 function onDeadCredential(r, action, params) {
   if (reloginVerdict(r, false) === 'none') return r;
+  // 寄碼那一發自己回死憑證＝守門擋下＝信沒寄出 ⇒ 撤掉「可能已寄出」（見檔頭）。
+  if (action === 'requestWelfareOtp') RELOGIN_OTP_MAYBE = false;
+  var otpMaybe = OTP_IN_FLIGHT && action !== 'requestWelfareOtp';
   var phase = reloginPhase(action);
   if (phase === 'a') return reloginOnDeadCredential(r);
   var saved = saveDraft(phase, false);
-  if (phase === 'b' && saved && !reloginTried()) return reloginOnDeadCredential(r);
-  showReloginPanel(saved, !!OTP_STATE.armed);
+  if (phase === 'b' && saved && !reloginTried()) {
+    markDraftLeaving();
+    return reloginOnDeadCredential(r);
+  }
+  showReloginPanel(saved, !!OTP_STATE.armed, otpMaybe);
   // 後端這個代號的原文叫她「聯絡資訊人員」——面板就在旁邊時那句是假的，換成實話。
   var out = {};
   Object.keys(r).forEach(function (k) { out[k] = r[k]; });
@@ -1763,11 +1806,24 @@ function onDeadCredential(r, action, params) {
   return out;
 }
 
-function showReloginPanel(saved, hadOtp) {
+function showReloginPanel(saved, hadOtp, otpMaybe) {
   RELOGIN_PANEL = true;
   RELOGIN_SAVED = saved;
   RELOGIN_HAD_OTP = RELOGIN_HAD_OTP || hadOtp;
+  RELOGIN_OTP_MAYBE = RELOGIN_OTP_MAYBE || !!otpMaybe;
   renderReloginPanel();
+}
+
+/**
+ * 送出那一發**成功**回來（`onSend` 的 `r.ok` 分支呼叫）。面板開著時
+ * ⇒ 這一批已送出：清掉「手上有驗證碼」，面板與回來後的提示改講「不要重寄」（🟡2）。
+ * 面板沒開就什麼都不做——之後才過期的話，那是另一批，不可以帶著「已送出」。
+ */
+function markReloginSent() {
+  if (!RELOGIN_PANEL) return;
+  RELOGIN_SENT = true;
+  RELOGIN_HAD_OTP = false;
+  refreshReloginPanel();
 }
 
 /** 面板開著時，勾選或內容變了 ⇒ 重存一次，讓「已保存 N 人」一直是真的。 */
@@ -1785,8 +1841,12 @@ function renderReloginPanel() {
       + '按下面的鈕重新登入，回來後會自動還原。'
     : '⚠️ LINE 登入已過期。這個瀏覽器不讓這一頁暫存資料，重新登入後勾選與內容不會還原'
       + '——範本文字要留的話請先自己複製。';
-  if (RELOGIN_HAD_OTP) {
+  if (RELOGIN_SENT) {
+    t += '\n這一批已送出，不要重寄。';
+  } else if (RELOGIN_HAD_OTP) {
     t += '\n⚠️ 手上這組驗證碼回來之後不能再用（這一頁不會記住它），請重新按「寄驗證碼」。';
+  } else if (RELOGIN_OTP_MAYBE) {
+    t += '\n⚠️ 驗證碼可能已寄出（寄碼的請求還沒回來）。那組碼回來之後不能再用，請重新按「寄驗證碼」。';
   }
   setNote('relogin-msg', t, 'err');
   syncReloginButton();
@@ -1804,11 +1864,12 @@ function syncReloginButton() {
 /** 她按了重新登入。**先再存一次**（面板出現後她可能又改過），再走唯一有效的 logout＋login。 */
 function onReloginClick() {
   if (!RELOGIN_PANEL || SEND_IN_FLIGHT) return;
-  saveDraft('c', RELOGIN_HAD_OTP);
+  var saved = saveDraft('c', RELOGIN_HAD_OTP);
   if (!(window.liff && typeof liff.logout === 'function' && typeof liff.login === 'function')) {
     setNote('relogin-msg', 'LINE 的元件不在，沒辦法重新登入。請重新整理這一頁；一直這樣的話請找資訊人員。', 'err');
     return;
   }
+  if (saved) markDraftLeaving();
   liff.logout();                                   // 唯一會移除 ID token 的地方（見 liff-relogin.js）
   liff.login({ redirectUri: location.href });
 }
@@ -1831,7 +1892,15 @@ function afterInitialLoad(ok) {
 
 function restoreDraft() {
   var got = readDraft();
-  if (got.status === 'none') return;
+  var marked = takeDraftMark();                    // 讀了就刪，不論有沒有暫存
+  if (got.status === 'none') {
+    // 導走時有一份、回來卻沒了（sessionStorage 沒活過導向）⇒ **明說**，不可以靜默全丟（🟡3）
+    if (marked) {
+      setNote('restore-note', '⚠️ 剛才的勾選與內容沒能保留，請重新勾選'
+        + '（重新登入的過程中，這個瀏覽器沒有把暫存留下來）。', 'err');
+    }
+    return;
+  }
   dropDraft();                                     // 只用一次
   if (got.status === 'bad') {
     setNote('restore-note', '⚠️ 找到一份重新登入前保存的勾選與內容，但讀不出來，'
@@ -1913,7 +1982,8 @@ function applyDraft(d) {
       + (tplOk ? '、範本「' + tplTitle(d.templateId) + '」' + (d.dirty ? '與編到一半的內容' : '') : '')
       + '。';
   }
-  if (d.otpArmed) extra.push('驗證碼要重新寄一次：請按「寄驗證碼到我的信箱」。');
+  if (d.sent) extra.push('這一批已送出，不要重寄——上面還原的是已經送出的那一批人。');
+  else if (d.otpArmed) extra.push('驗證碼要重新寄一次：請按「寄驗證碼到我的信箱」。');
   setNote('restore-note', [head].concat(extra).join('\n'), bad ? 'err' : 'ok');
 }
 

@@ -53,6 +53,7 @@ const 重登沒用的 = { ok: false, reason: 'role_mismatch', msg: '您沒有這
  * 掛好攔截再開頁。**儀器一律早於被測事件**。
  * @param {object} [o.回應] action → 物件｜函式(params, 第幾次)。`{__delayMs, body}` 延遲。
  * @param {boolean} [o.試過了] 先種好防迴圈旗標
+ * @param {boolean} [o.導回清空] 登入替身導走前把本頁的 sessionStorage 鍵清掉（🟡3）
  */
 async function open(page, o) {
   o = o || {};
@@ -70,7 +71,7 @@ async function open(page, o) {
     await route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8',
       body: 'cb(' + JSON.stringify(v) + ')' });
   });
-  await page.addInitScript((試過了) => {
+  await page.addInitScript(({ 試過了, 導回清空 }) => {
     const bump = (k) => {
       try { sessionStorage.setItem(k, String(Number(sessionStorage.getItem(k) || 0) + 1)); } catch (e) {}
     };
@@ -84,21 +85,36 @@ async function open(page, o) {
         bump('T114_login');
         const u = (a && a.redirectUri) || location.href;
         try { sessionStorage.setItem('T114_redirect', u); } catch (e) {}
+        // 模擬「導回來 sessionStorage 沒活下來」（iOS LINE 的 WKWebView 未量過的那一種）：
+        // 頁面自己的鍵全丟，只留替身的計數器（否則量不到導了幾次）。localStorage 不動。
+        if (導回清空) {
+          try { sessionStorage.removeItem('JDC_LINE_DRAFT'); sessionStorage.removeItem('JDC_RELOGIN_TRIED'); } catch (e) {}
+        }
         location.assign(u);                 // **真的**導走
       },
     };
-  }, !!o.試過了);
+  }, { 試過了: !!o.試過了, 導回清空: !!o.導回清空 });
   await page.goto(o.網址 || '/line.html');
   return { n };
 }
 
+/**
+ * 讀計數器。🔴 **evaluate 撞上整頁導向會拋 `Execution context was destroyed`**，
+ * 而 `expect.poll` 不重試拋出的例外 ⇒ 這一條曾經約 3% 機率紅（#114 第三方驗證 🟡1）。
+ * 拋了就回一組「一定不等於任何期望值」的值（-1、非空字串），讓 poll 下一輪再讀；
+ * 不在 poll 裡的呼叫拿到它也只會紅、不會誤綠（`覆蓋層` 刻意不是空字串）。
+ */
 async function 副作用(page) {
-  return page.evaluate(() => ({
-    logout: Number(sessionStorage.getItem('T114_logout') || 0),
-    login: Number(sessionStorage.getItem('T114_login') || 0),
-    redirect: sessionStorage.getItem('T114_redirect') || '',
-    覆蓋層: (document.getElementById('relogin-overlay') || {}).textContent || '',
-  }));
+  try {
+    return await page.evaluate(() => ({
+      logout: Number(sessionStorage.getItem('T114_logout') || 0),
+      login: Number(sessionStorage.getItem('T114_login') || 0),
+      redirect: sessionStorage.getItem('T114_redirect') || '',
+      覆蓋層: (document.getElementById('relogin-overlay') || {}).textContent || '',
+    }));
+  } catch (e) {
+    return { logout: -1, login: -1, redirect: '', 覆蓋層: '（讀取時頁面正在導向：' + e.message + '）' };
+  }
 }
 
 async function 等名單(page) {
@@ -277,4 +293,94 @@ test('K3 🔴 反悔窗口內取消時過期 ⇒ 講「會照常送出」、送�
   await expect(page.locator('#send-note')).toContainText('已送出 3 則', { timeout: 6000 });
   await expect(page.locator('#btn-relogin'), '送出回來了鈕還是不能按').toBeEnabled();
   expect((await 副作用(page)).logout).toBe(0);
+});
+
+/* ══ 第三方驗證的補修（jdc-tw-migration#114 🟡2／🟡3／🟡4）══════════════════ */
+
+/** 本分頁 sessionStorage 與同網域 localStorage 的全部內容（原始字串）。 */
+const 全部存值 = (page) => page.evaluate(() => {
+  const o = {};
+  for (const [名, st] of [['s', sessionStorage], ['l', localStorage]]) {
+    for (let i = 0; i < st.length; i++) { const k = st.key(i); o[名 + ':' + k] = st.getItem(k); }
+  }
+  return o;
+});
+
+test('🟡4 V1 暫存與記號都不含驗證碼與 nonce；重登回來整個 storage 也沒有', async ({ page }) => {
+  let sentNonce = '';
+  await open(page, { 回應: { sendWelfareBroadcast: (p) => { sentNonce = p.nonce || ''; return 死憑證; } } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#relogin-box')).toBeVisible();
+  const raw = (await 全部存值(page))['s:JDC_LINE_DRAFT'];
+  expect(sentNonce.length, '⬛ 零點：沒抓到 nonce ⇒ 下面的「不含 nonce」恆真').toBeGreaterThan(0);
+  expect(raw, '⬛ 對照：同一份字串裡找得到已知會在的東西').toContain('A001');
+  expect(raw).not.toContain('123456');
+  expect(raw).not.toContain(sentNonce);
+  await page.locator('#btn-relogin').click();
+  await expect.poll(async () => (await 副作用(page)).login).toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('已還原');
+  const all = JSON.stringify(await 全部存值(page));
+  expect(all).not.toContain('123456');
+  expect(all).not.toContain(sentNonce);
+  // 記號用過就刪（只用一次）
+  expect(Object.keys(await 全部存值(page))).not.toContain('l:JDC_LINE_DRAFT_MARK');
+});
+
+test('🔴 🟡3 V2 登入導回後 sessionStorage 沒活下來 ⇒ 明說「沒能保留」，不靜默全丟', async ({ page }) => {
+  await open(page, { 導回清空: true, 回應: { saveWelfareTemplate: 死憑證 } });
+  await 等名單(page);
+  await 勾人換範本改文字(page);
+  await page.locator('#btn-save').click();
+  await expect.poll(async () => (await 副作用(page)).login).toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('剛才的勾選與內容沒能保留，請重新勾選');
+  expect(await 勾了誰(page), '⬛ 零點：暫存真的不見了（否則這條沒量到「不見」）').toEqual([]);
+  expect(Object.keys(await 全部存值(page))).not.toContain('l:JDC_LINE_DRAFT_MARK');
+});
+
+test('⬛ 🟡3 對照：記號只有時間戳；沒有記號時開頁不會說「沒能保留」', async ({ page }) => {
+  await open(page, { 回應: { sendWelfareBroadcast: 死憑證 } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#relogin-box')).toBeVisible();
+  // 按鈕之前記號還沒寫；在這一刻攔下 login 讀記號（不導走）
+  await page.evaluate(() => { window.liff.login = () => { window.__mark = localStorage.getItem('JDC_LINE_DRAFT_MARK'); }; });
+  await page.locator('#btn-relogin').click();
+  const mark = await page.evaluate(() => window.__mark);
+  expect(String(mark), '記號帶了時間戳以外的東西：' + mark).toMatch(/^\d{13}$/);
+  // 全新 context 開頁（沒有記號）⇒ 什麼都不說
+  const p2 = await page.context().browser().newPage();
+  await open(p2, {});
+  await 等名單(p2);
+  await p2.waitForTimeout(500);
+  await expect(p2.locator('#restore-note')).toHaveText('');
+  await p2.close();
+});
+
+test('🔴 🟡2 V3 反悔窗口取消被擋、但送出其實成功 ⇒ 面板與回來的提示講「已送出，不要重寄」', async ({ page }) => {
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => (p.cancel ? 死憑證 : { __delayMs: 2500, body: DEFAULTS.sendWelfareBroadcast }),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#cancel-box')).toBeVisible();
+  await page.locator('#btn-cancel-send').click();
+  await expect(page.locator('#relogin-msg'), '⬛ 零點：送出回來前是「驗證碼不能再用」').toContainText('驗證碼回來之後不能再用');
+  await expect(page.locator('#send-note')).toContainText('已送出 3 則', { timeout: 6000 });
+  await expect(page.locator('#btn-relogin')).toBeEnabled();
+  await expect(page.locator('#relogin-msg')).toContainText('這一批已送出，不要重寄');
+  await expect(page.locator('#relogin-msg')).not.toContainText('寄驗證碼');
+  await page.locator('#btn-relogin').click();
+  await expect.poll(async () => (await 副作用(page)).login).toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('這一批已送出，不要重寄');
+  await expect(page.locator('#restore-note')).not.toContainText('重新寄一次');
 });

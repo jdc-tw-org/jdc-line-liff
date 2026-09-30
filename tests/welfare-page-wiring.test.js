@@ -155,6 +155,7 @@ function ctxWith(names, opt) {
   ctx.onReloginClick = () => {};
   ctx.refreshReloginPanel = () => {};
   ctx.syncReloginButton = () => {};
+  ctx.markReloginSent = () => {};
   vm.createContext(ctx);
   vm.runInContext(fnSrc('wfCall'), ctx, { filename: 'wfCall' });
   // ⚠️ 後載入的定義會覆寫上面的替身——這正是要的：受測的那幾支用真的，其餘用替身

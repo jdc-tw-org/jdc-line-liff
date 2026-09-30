@@ -34,15 +34,23 @@ function declSrc(re, what) {
 const 受測 = ['pickedList', 'newTitleValue', 'reloginPhase', 'snapshotDraft', 'saveDraft',
   'readDraft', 'dropDraft', 'onDeadCredential', 'showReloginPanel', 'refreshReloginPanel',
   'renderReloginPanel', 'syncReloginButton', 'onReloginClick', 'afterInitialLoad',
-  'restoreDraft', 'applyDraft', 'isTplDirty', 'tplTitle', 'setNote'];
+  'restoreDraft', 'applyDraft', 'isTplDirty', 'tplTitle', 'setNote',
+  'markDraftLeaving', 'takeDraftMark', 'markReloginSent'];
 
-/** 一個會真的記住值的 sessionStorage；`broken` ＝寫入就拋（無痕視窗／封鎖儲存）。 */
+/**
+ * 一個會真的記住值的 storage。`broken` ＝寫入就拋（無痕視窗／封鎖儲存）；
+ * `'lossy'` ＝**寫入不拋、但沒寫進去**（讀回來不同）——只有「讀回比對」接得住這一種。
+ */
 function memStore(broken) {
   const m = {};
   return {
     m,
     getItem: (k) => (Object.prototype.hasOwnProperty.call(m, k) ? m[k] : null),
-    setItem: (k, v) => { if (broken) throw new Error('QuotaExceededError'); m[k] = String(v); },
+    setItem: (k, v) => {
+      if (broken === 'lossy') return;
+      if (broken) throw new Error('QuotaExceededError');
+      m[k] = String(v);
+    },
     removeItem: (k) => { delete m[k]; },
   };
 }
@@ -55,10 +63,12 @@ function ctxWith(o) {
   });
   const calls = { logout: 0, login: 0, select: [], edited: 0, bump: 0, openUnit: 0 };
   const store = memStore(o.brokenStore);
+  const local = memStore(false);
   const ctx = {
     console, JSON, Math, Date, Object, Array, String, Number, Promise,
     document: { getElementById: el, body: { appendChild() {} }, createElement: () => ({ setAttribute() {} }) },
     sessionStorage: store,
+    localStorage: local,
     location: { href: 'https://x/line.html?probe=1' },
     ROWS: [], TEMPLATES: {}, TPL_ORDER: [], CURRENT_TPL: '', SAVED_TPL_TEXT: '',
     OPEN_UNIT: '', UNIT_IDX: {},
@@ -83,10 +93,12 @@ function ctxWith(o) {
   vm.runInContext(declSrc(/^var STATUS_WHY = \{[\s\S]*?\n\};/m, 'STATUS_WHY'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_KEY = '[^']+';/m, 'DRAFT_KEY'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_TTL_MS = [^;]+;/m, 'DRAFT_TTL_MS'), ctx);
-  vm.runInContext('var RELOGIN_PANEL = false, RELOGIN_SAVED = false, RELOGIN_HAD_OTP = false;', ctx);
+  vm.runInContext(declSrc(/^var DRAFT_MARK_KEY = '[^']+';/m, 'DRAFT_MARK_KEY'), ctx);
+  vm.runInContext('var RELOGIN_PANEL = false, RELOGIN_SAVED = false, RELOGIN_HAD_OTP = false,'
+    + ' RELOGIN_SENT = false, RELOGIN_OTP_MAYBE = false;', ctx);
   受測.forEach((n) => vm.runInContext(S.fnSrc(n), ctx, { filename: n }));
   if (o.tried) store.setItem(ctx.RELOGIN_FLAG_KEY, '1');
-  return { ctx, els, el, calls, store };
+  return { ctx, els, el, calls, store, local };
 }
 
 /** 名單：三個可發送、一個未綁定。**全部是假的**（本 repo 公開）。 */
@@ -352,6 +364,120 @@ test('存了就讀得回來（來回）；storage 拋例外 ⇒ saveDraft 回 fa
   const b = ctxWith({ brokenStore: true });
   畫名單(b, 名單(), ['E002']);
   assert.equal(b.ctx.saveDraft('b', false), false);
+});
+
+/* ══ ⑤ 第三方驗證的補修（#114 🟡2／🟡3／🟡4／🟡5）══════════════════════ */
+
+test('🔴 🟡4 寫進去卻讀回不同（不拋例外）⇒ saveDraft 回 false、(b) 不導走（突變 D：不讀回比對）', () => {
+  const t = ctxWith({ brokenStore: 'lossy' });
+  畫名單(t, 名單(), ['E001']);
+  assert.equal(t.ctx.saveDraft('b', false), false, '沒存到卻回 true ⇒ 呼叫端會放心導走');
+  t.ctx.onDeadCredential(死憑證, 'saveWelfareTemplate', {});
+  assert.equal(t.calls.logout, 0, '沒存到還整頁導走 ⇒ 勾選被洗掉、而且一句話都沒有');
+  assert.match(t.el('relogin-msg').textContent, /不會還原/);
+  // ⬛ 對照：同一條路、storage 正常 ⇒ 會導走（證明上面的 0 不是這條路本來就不導）
+  const ok = ctxWith();
+  畫名單(ok, 名單(), ['E001']);
+  ok.ctx.onDeadCredential(死憑證, 'saveWelfareTemplate', {});
+  assert.equal(ok.calls.logout, 1);
+});
+
+test('🔴 🟡2 面板開著時送出成功 ⇒ 面板與回來的提示都講「已送出，不要重寄」，不叫她重寄', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001', 'E002']);
+  t.ctx.OTP_STATE = { armed: true };
+  t.ctx.CANCEL_NONCE = 'n1'; t.ctx.SEND_IN_FLIGHT = true;
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { cancel: '1' });
+  assert.match(t.el('relogin-msg').textContent, /驗證碼回來之後不能再用/, '⬛ 零點：送出回來前本來就是這句');
+  t.ctx.OTP_STATE = { armed: false };      // onSend 成功分支先 disarmOtp
+  t.ctx.markReloginSent();
+  t.ctx.SEND_IN_FLIGHT = false;
+  const m = t.el('relogin-msg').textContent;
+  assert.match(m, /這一批已送出，不要重寄/);
+  assert.doesNotMatch(m, /寄驗證碼/, '已送出還叫她重寄：' + m);
+  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
+  assert.equal(d.sent, true);
+  assert.equal(d.otpArmed, false);
+  t.ctx.onReloginClick();
+  const back = ctxWith();
+  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
+  畫名單(back, 名單(), []);
+  back.ctx.afterInitialLoad(true);
+  const n = back.el('restore-note').textContent;
+  assert.match(n, /這一批已送出，不要重寄/);
+  assert.doesNotMatch(n, /重新寄一次/, '還原提示在引導重發：' + n);
+});
+
+test('⬛ 🟡2 對照：面板沒開時送出成功 ⇒ 不留「已送出」（之後才過期的是另一批）', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.markReloginSent();
+  t.ctx.OTP_STATE = { armed: true };
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', {});
+  assert.doesNotMatch(t.el('relogin-msg').textContent, /已送出/);
+  assert.equal(JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY)).sent, false);
+});
+
+test('🔴 🟡3 導走時寫記號（只有時間戳）；回來暫存不見了 ⇒ 明說「沒能保留」', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.onDeadCredential(死憑證, 'saveWelfareTemplate', {});
+  assert.equal(t.calls.logout, 1, '⬛ 零點：(b) 要真的導走');
+  const mark = t.local.getItem(t.ctx.DRAFT_MARK_KEY);
+  assert.match(String(mark), /^\d+$/, '記號只准是時間戳，不可以帶任何內容：' + mark);
+  // 導回來：sessionStorage 沒活下來（全新的一份），localStorage 還在
+  const back = ctxWith();
+  back.local.setItem(back.ctx.DRAFT_MARK_KEY, mark);
+  畫名單(back, 名單(), []);
+  back.ctx.afterInitialLoad(true);
+  assert.match(back.el('restore-note').textContent, /剛才的勾選與內容沒能保留，請重新勾選/);
+  assert.equal(back.local.getItem(back.ctx.DRAFT_MARK_KEY), null, '記號沒刪 ⇒ 下次開頁又誤報');
+});
+
+test('⬛ 🟡3 對照：沒有記號／記號過期 ⇒ 什麼都不說；暫存還在 ⇒ 正常還原並刪記號', () => {
+  const none = ctxWith();
+  畫名單(none, 名單(), []);
+  none.ctx.afterInitialLoad(true);
+  assert.equal(none.el('restore-note').textContent, '');
+  const old = ctxWith();
+  old.local.setItem(old.ctx.DRAFT_MARK_KEY, String(Date.now() - old.ctx.DRAFT_TTL_MS - 60000));
+  畫名單(old, 名單(), []);
+  old.ctx.afterInitialLoad(true);
+  assert.equal(old.el('restore-note').textContent, '');
+  assert.equal(old.local.getItem(old.ctx.DRAFT_MARK_KEY), null);
+  const ok = ctxWith();
+  種暫存(ok, { picked: [{ empNo: 'E001', name: '測試甲' }] });
+  ok.local.setItem(ok.ctx.DRAFT_MARK_KEY, String(Date.now()));
+  畫名單(ok, 名單(), []);
+  ok.ctx.afterInitialLoad(true);
+  assert.match(ok.el('restore-note').textContent, /已還原重新登入前的勾選 1 人/);
+  assert.doesNotMatch(ok.el('restore-note').textContent, /沒能保留/);
+  assert.equal(ok.local.getItem(ok.ctx.DRAFT_MARK_KEY), null);
+});
+
+test('⬛ 🟡3 對照：(c) 只是出面板、還沒按鈕 ⇒ 不寫記號；按了才寫', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.OTP_STATE = { armed: true };
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', {});
+  assert.equal(t.local.getItem(t.ctx.DRAFT_MARK_KEY), null);
+  t.ctx.onReloginClick();
+  assert.match(String(t.local.getItem(t.ctx.DRAFT_MARK_KEY)), /^\d+$/);
+});
+
+test('🔴 🟡5 寄碼中、另一發先回死憑證 ⇒ 面板講「驗證碼可能已寄出」', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.OTP_IN_FLIGHT = true;
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 0);
+  assert.match(t.el('relogin-msg').textContent, /驗證碼可能已寄出/);
+  // ⬛ 對照：寄碼沒在路上、同樣走到面板（這個分頁已試過）⇒ 不講
+  const c = ctxWith({ tried: true });
+  畫名單(c, 名單(), ['E001']);
+  c.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(c.el('relogin-box').hidden, false, '⬛ 零點：對照組也要真的出面板');
+  assert.doesNotMatch(c.el('relogin-msg').textContent, /可能已寄出/);
 });
 
 /* ══ ④ 白名單只有一份 ════════════════════════════════════════════════ */
