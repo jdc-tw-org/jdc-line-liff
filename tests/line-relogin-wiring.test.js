@@ -35,7 +35,7 @@ const 受測 = ['pickedList', 'newTitleValue', 'reloginPhase', 'snapshotDraft', 
   'readDraft', 'dropDraft', 'onDeadCredential', 'showReloginPanel', 'refreshReloginPanel',
   'renderReloginPanel', 'syncReloginButton', 'onReloginClick', 'afterInitialLoad',
   'restoreDraft', 'applyDraft', 'isTplDirty', 'tplTitle', 'setNote',
-  'markDraftLeaving', 'takeDraftMark', 'markReloginSent', 'sendOutcomeNow'];
+  'markDraftLeaving', 'takeDraftMark', 'markReloginSent', 'sendOutcomeNow', 'sentStatusNow'];
 
 /**
  * 一個會真的記住值的 storage。`broken` ＝寫入就拋（無痕視窗／封鎖儲存）；
@@ -470,6 +470,42 @@ test('⬛ 對照：送出之後她改過勾選（UI_GEN 變了）⇒ 那是另�
   const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
   assert.equal(d.sent, false);
   assert.equal(d.sentStatus, null);
+});
+
+test('🔴 W8 倒數內改了勾選（UI_GEN 變了）、送出成功、緊接過期 ⇒ 不帶「這一批已送出」，但狀態列照帶（同一則）', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001', 'E002']);
+  t.ctx.CURRENT_TPL = 't1'; t.ctx.TPL_ORDER = ['t1']; t.ctx.TEMPLATES = { t1: { title: '範本一', text: 'x' } };
+  const gen = t.ctx.UI_GEN;
+  t.el('cb-1').checked = false; t.ctx.UI_GEN++;      // 倒數內取消勾選一人
+  t.ctx.LAST_STATUS = { templateId: 't1', state: 'sent', stateLabel: '已發送（測試）', lastSentAt: '' };
+  t.ctx.markReloginSent('sent', gen);
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 1, '⬛ 零點：(b) 自動導走');
+  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
+  assert.equal(d.sent, false, '「這一批」已經不是送出的那一批');
+  assert.equal(d.sentStatus && d.sentStatus.templateId, 't1', '🔴 同一則剛送過，狀態列副本卻沒帶');
+  const back = ctxWith();
+  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
+  back.ctx.CURRENT_TPL = 't1'; back.ctx.TPL_ORDER = ['t1']; back.ctx.TEMPLATES = t.ctx.TEMPLATES;
+  畫名單(back, 名單(), []);
+  back.ctx.afterInitialLoad(true);
+  assert.doesNotMatch(back.el('restore-note').textContent, /已送出/);
+  assert.equal(back.ctx.LAST_STATUS && back.ctx.LAST_STATUS.state, 'sent', '🔴 回來還在 t1 卻不是「已發送」');
+});
+
+test('⬛ W8 對照：送出後切到別的範本才過期 ⇒ 狀態列副本不帶（那一則不是 t1）', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001']);
+  t.ctx.CURRENT_TPL = 't1';
+  t.ctx.LAST_STATUS = { templateId: 't1', state: 'sent', stateLabel: '已發送（測試）', lastSentAt: '' };
+  t.ctx.markReloginSent('sent', t.ctx.UI_GEN);
+  t.ctx.CURRENT_TPL = 't2'; t.ctx.UI_GEN++;
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 1, '⬛ 零點：(b) 自動導走');
+  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
+  assert.equal(d.sentStatus, null);
+  assert.equal(d.sent, false);
 });
 
 test('🔴 🟡a 寄碼那一發**自己**回死憑證 ⇒ 不講「驗證碼可能已寄出」（守門擋下＝沒寄出；突變 X6）', () => {

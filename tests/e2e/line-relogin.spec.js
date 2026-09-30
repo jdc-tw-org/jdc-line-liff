@@ -477,3 +477,76 @@ test('⬛ W6 對照：送出回 transport 後她切了範本（UI_GEN 變了）�
   await expect(page.locator('#restore-note')).not.toContainText('已送出');
   await expect(page.locator('#restore-note')).not.toContainText('可能已經送出');
 });
+
+/* ══ 驗證軌 W7／W8（#114 重驗 a92a94f）與 🟡b ════════════════════════════════ */
+
+async function 狀態列(page) { return page.evaluate(() => (document.getElementById('status-line') || {}).textContent); }
+async function 還原提示(page) { return page.evaluate(() => (document.getElementById('restore-note') || {}).textContent); }
+
+/**
+ * transport 之後同一批再按寄碼、寄碼那一發過期 ⇒ (b) 導走。回來後 hub 回 `hub`（可延遲）。
+ * @param {'hub 晚到'|'hub 早到'|'hub 回 unsent'} 情境
+ */
+async function W7流程(page, 情境) {
+  let phase = 0;
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => { if (!p.cancel) phase = 1; return { __transport: true }; },
+    requestWelfareOtp: () => (phase === 1 ? (phase = 2, 死憑證) : DEFAULTS.requestWelfareOtp),
+    getWelfareStatus: () => {
+      if (phase < 2) return DEFAULTS.getWelfareStatus;
+      if (情境 === 'hub 回 unsent') return DEFAULTS.getWelfareStatus;   // hub 紀錄還沒寫完
+      const body = { ok: true, state: 'sent', lastSentAt: '2026-09-30 12:00', sentCount: 2, failedCount: 0 };
+      return 情境 === 'hub 晚到' ? { __delayMs: 1500, body } : body;
+    },
+    getWelfareAudience: (p, k) => (k > 1 && 情境 === 'hub 早到' ? { __delayMs: 1500, body: 名單() } : 名單()),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#send-note')).toContainText('不確定對方有沒有收到', { timeout: 8000 });
+  await page.locator('#btn-otp').click();
+  await expect.poll(async () => (await 副作用(page)).login, '⬛ 零點：寄碼那一發過期 ⇒ (b) 導走').toBe(1);
+  await 等名單(page);
+  await page.waitForTimeout(2500);
+}
+
+for (const 快慢 of ['hub 晚到', 'hub 早到']) {
+  test(`W7 transport 後同一批再按寄碼、寄碼那一發過期 ⇒ 帶「可能已送出」；回來 hub 說 sent（${快慢}）⇒ 比它新的 sent 蓋得回來`, async ({ page }) => {
+    await W7流程(page, 快慢);
+    expect(await 還原提示(page)).toContain('可能已經送出');
+    expect(await 狀態列(page)).toBe('已發送（2026-09-30 12:00）');
+  });
+}
+
+test('🔴 🟡b transport 後同一批過期導走、回來 hub 回 unsent ⇒ 狀態列不是「沒有發送紀錄」（突變 Y1）', async ({ page }) => {
+  await W7流程(page, 'hub 回 unsent');
+  expect(await 還原提示(page)).toContain('可能已經送出');
+  const s = await 狀態列(page);
+  expect(s, '🔴 可能已送出的這一則被講成沒發過').not.toContain('沒有發送紀錄');
+  expect(s).toContain('狀態不明');
+});
+
+test('🔴 W8 倒數內取消勾選一人、送出成功、緊接過期 ⇒ 回來仍在 t1，狀態列是「已發送」（不是「沒有發送紀錄」）', async ({ page }) => {
+  let sent = false;
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => { if (!p.cancel) sent = true; return { __delayMs: 2500, body: DEFAULTS.sendWelfareBroadcast }; },
+    getWelfareStatus: () => (sent ? (sent = false, 死憑證) : DEFAULTS.getWelfareStatus),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#cancel-box')).toBeVisible();
+  expect(await page.locator('#cb-3').isDisabled(), '⬛ 零點：倒數內勾選框按得動').toBe(false);
+  await page.locator('#cb-3').uncheck();
+  await expect.poll(async () => (await 副作用(page)).login, { timeout: 10000 }).toBe(1);
+  await 等名單(page);
+  await page.waitForTimeout(800);
+  expect(await 勾了誰(page)).toEqual(['A001']);
+  await expect(page.locator('#wf-tpl-list')).toHaveValue('t1');
+  expect(await 狀態列(page), '🔴 t1 剛送過卻說沒有發送紀錄').not.toContain('沒有發送紀錄');
+  expect(await 狀態列(page)).toContain('已發送');
+  // 「這一批已送出」綁的是這一批（UI_GEN）：她改過勾選，不講這句
+  expect(await 還原提示(page)).not.toContain('這一批已送出');
+});

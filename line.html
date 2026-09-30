@@ -1690,7 +1690,8 @@ var RELOGIN_HAD_OTP = false;
 /**
  * 最近一次送出的結果：`{kind:'sent'|'unknown', gen, status}`。**面板開沒開都記**（#114 重驗 🔴）。
  * `gen` 是按下送出那一刻的 `UI_GEN`，`status` 是 showState 寫下的 LAST_STATUS 副本。
- * 只有 `gen === UI_GEN`（還是同一批、同一則）時才算數，見 `sendOutcomeNow`。
+ * 「這一批已送出」只在 `gen === UI_GEN`（同一批同一則）時算數，見 `sendOutcomeNow`；
+ * 狀態列副本 `status` 只比範本，見 `sentStatusNow`。
  * 為何不能只在面板開著時記：送出成功後緊接的狀態查詢若回死憑證 ⇒ (b) 自動導走，
  * 回來同一批人重新勾好、狀態列卻寫「沒有發送紀錄」（記憶體裡的 LAST_STATUS 隨導走消失）。
  */
@@ -1744,7 +1745,7 @@ function snapshotDraft(phase, hadOtp) {
     openUnit: OPEN_UNIT, newTitle: newTitleValue(),
     otpArmed: !!(OTP_STATE.armed || hadOtp),
     sent: !!(so && so.kind === 'sent'), unknown: !!(so && so.kind === 'unknown'),
-    sentStatus: so ? so.status : null
+    sentStatus: sentStatusNow()
   };
 }
 
@@ -1841,6 +1842,16 @@ function markReloginSent(outcome, gen) {
                    status: LAST_STATUS ? JSON.parse(JSON.stringify(LAST_STATUS)) : null };
   RELOGIN_HAD_OTP = false;
   refreshReloginPanel();                           // 面板沒開時是 no-op
+}
+
+/**
+ * 送出當下的狀態列副本，**只比範本**（#114 重驗 W8）：狀態列講的是「這一則」的事實，不是「這一批」。
+ * 倒數內她改了勾選（UI_GEN 變了）⇒「這一批已送出」那句不帶，但這一則剛送過仍是真的；
+ * 不帶的話，回來 hub 紀錄還沒寫完就會說「沒有發送紀錄」——而畫面仍在這一則。
+ */
+function sentStatusNow() {
+  var st = SEND_OUTCOME && SEND_OUTCOME.status;
+  return (st && st.templateId && st.templateId === CURRENT_TPL) ? st : null;
 }
 
 /** 送出結果還屬不屬於畫面上這一批：勾選／範本／內容沒變過（`UI_GEN` 相同）才算。 */
@@ -1995,11 +2006,12 @@ function applyDraft(d) {
   }
   bumpUiGen();                                     // 驗證碼一律不還原
   renderPickedCount();
-  // 導走前這一批已送出／可能已送出 ⇒ 狀態列也照講（#114 重驗 🔴）。記憶體裡的 LAST_STATUS
+  // 導走前這一則剛送出／可能已送出 ⇒ 狀態列也照講（#114 重驗 🔴 W5／W8）。記憶體裡的 LAST_STATUS
   // 隨導走消失，hub 紀錄若還沒寫完會回「沒有發送紀錄」——放回來之後由 loadStatus 的
   // 「不可降級」擋住那一份 unsent。
   var ss = d.sentStatus;
-  if ((d.sent || d.unknown) && ss && ss.templateId && ss.templateId === CURRENT_TPL) {
+  // 只比範本，不看 d.sent／d.unknown（那兩個綁的是「這一批」，見 sentStatusNow）。
+  if (ss && ss.templateId && ss.templateId === CURRENT_TPL) {
     LAST_STATUS = { templateId: ss.templateId, state: ss.state,
                     stateLabel: String(ss.stateLabel || ''), lastSentAt: ss.lastSentAt };
     renderStatus();
