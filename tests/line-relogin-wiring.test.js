@@ -35,7 +35,7 @@ const 受測 = ['pickedList', 'newTitleValue', 'reloginPhase', 'snapshotDraft', 
   'readDraft', 'dropDraft', 'onDeadCredential', 'showReloginPanel', 'refreshReloginPanel',
   'renderReloginPanel', 'syncReloginButton', 'onReloginClick', 'afterInitialLoad',
   'restoreDraft', 'applyDraft', 'isTplDirty', 'tplTitle', 'setNote',
-  'markDraftLeaving', 'takeDraftMark', 'markReloginSent', 'sendOutcomeNow', 'sentStatusNow'];
+  'markDraftLeaving', 'takeDraftMark', 'reloginAllowed', 'showSentExpired'];
 
 /**
  * 一個會真的記住值的 storage。`broken` ＝寫入就拋（無痕視窗／封鎖儲存）；
@@ -59,7 +59,7 @@ function ctxWith(o) {
   o = o || {};
   const els = {};
   const el = (id) => (els[id] = els[id] || {
-    id, value: '', textContent: '', className: '', hidden: false, disabled: false, checked: false,
+    id, value: '', textContent: '', className: '', hidden: false, disabled: false, checked: false, style: {},
   });
   const calls = { logout: 0, login: 0, select: [], edited: 0, bump: 0, openUnit: 0 };
   const store = memStore(o.brokenStore);
@@ -96,9 +96,9 @@ function ctxWith(o) {
   vm.runInContext(declSrc(/^var DRAFT_KEY = '[^']+';/m, 'DRAFT_KEY'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_TTL_MS = [^;]+;/m, 'DRAFT_TTL_MS'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_MARK_KEY = '[^']+';/m, 'DRAFT_MARK_KEY'), ctx);
-  vm.runInContext(declSrc(/^var RELOGIN_UNKNOWN_MSG = '[^']+';/m, 'RELOGIN_UNKNOWN_MSG'), ctx);
+  vm.runInContext(declSrc(/^var SENT_EXPIRED_MSG = [\s\S]*?;\n/m, 'SENT_EXPIRED_MSG'), ctx);
   vm.runInContext('var RELOGIN_PANEL = false, RELOGIN_SAVED = false, RELOGIN_HAD_OTP = false,'
-    + ' SEND_OUTCOME = null, RELOGIN_OTP_MAYBE = false;', ctx);
+    + ' SEND_FIRED = 0, RELOGIN_OTP_MAYBE = false;', ctx);
   受測.forEach((n) => vm.runInContext(S.fnSrc(n), ctx, { filename: n }));
   if (o.tried) store.setItem(ctx.RELOGIN_FLAG_KEY, '1');
   return { ctx, els, el, calls, store, local };
@@ -385,127 +385,90 @@ test('🔴 🟡4 寫進去卻讀回不同（不拋例外）⇒ saveDraft 回 fal
   assert.equal(ok.calls.logout, 1);
 });
 
-test('🔴 🟡2 面板開著時送出成功 ⇒ 面板與回來的提示都講「已送出，不要重寄」，不叫她重寄', () => {
+/* ══ 送出後不再重登（#114，YU 2026-09-30 拍板：SEND_FIRED）════════════════════ */
+
+/** 按過送出確定之後的起手：勾了人、手上沒碼（送出回來已 disarm）。 */
+function 已送出(o) {
+  const t = ctxWith(o);
+  畫名單(t, 名單(), ['E001', 'E002']);
+  t.ctx.SEND_FIRED = 1;
+  return t;
+}
+
+for (const [情境, action, 設定] of [
+  ['(a) 什麼都沒勾', 'getWelfareStatus', (t) => { 畫名單(t, 名單(), []); }],
+  ['(b) 勾著剛送出的那一批', 'getWelfareStatus', () => {}],
+  ['(b) 改了內容再儲存', 'saveWelfareTemplate', () => {}],
+  ['(c) 又拿到一組碼', 'sendWelfareBroadcast_cancel', (t) => { t.ctx.OTP_STATE = { armed: true }; }],
+]) {
+  test(`🔴 送出後過期・${情境} ⇒ 不導走、不寫暫存與記號、不給鈕，只叫她看完結果再重新整理`, () => {
+    const t = 已送出();
+    設定(t);
+    const a = action.replace('_cancel', '');
+    const out = t.ctx.onDeadCredential(死憑證, a, action.endsWith('_cancel') ? { cancel: '1' } : {});
+    assert.equal(t.calls.logout, 0, '🔴 送出後自動導走 ⇒ 回來忘了剛送過');
+    assert.equal(t.calls.login, 0);
+    assert.equal(t.store.getItem(t.ctx.DRAFT_KEY), null, '送出後還寫暫存');
+    assert.equal(t.local.getItem(t.ctx.DRAFT_MARK_KEY), null, '送出後還寫記號');
+    assert.equal(t.el('btn-relogin').hidden, true, '送出後還給重登鈕');
+    assert.equal(t.el('relogin-box').hidden, false);
+    const m = t.el('relogin-msg').textContent;
+    assert.match(m, /重新整理/);
+    assert.doesNotMatch(m, /寄驗證碼|重寄|重新寄/, '送出後過期的話在引導重寄：' + m);
+    assert.doesNotMatch(out.msg, /寄驗證碼|重寄|資訊人員/);
+    t.ctx.onReloginClick();
+    assert.equal(t.calls.logout, 0, '鈕藏了，但 onReloginClick 本身沒擋');
+  });
+}
+
+test('⬛ 對照：同樣的死憑證、還沒按過送出 ⇒ (b) 照舊自動重登（證明上面的 0 是旗標擋的）', () => {
   const t = ctxWith();
   畫名單(t, 名單(), ['E001', 'E002']);
-  t.ctx.OTP_STATE = { armed: true };
-  t.ctx.CANCEL_NONCE = 'n1'; t.ctx.SEND_IN_FLIGHT = true;
-  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { cancel: '1' });
-  assert.match(t.el('relogin-msg').textContent, /驗證碼回來之後不能再用/, '⬛ 零點：送出回來前本來就是這句');
-  t.ctx.OTP_STATE = { armed: false };      // onSend 成功分支先 disarmOtp
-  t.ctx.markReloginSent('sent', t.ctx.UI_GEN);
-  t.ctx.SEND_IN_FLIGHT = false;
-  const m = t.el('relogin-msg').textContent;
-  assert.match(m, /這一批已送出，不要重寄/);
-  assert.doesNotMatch(m, /寄驗證碼/, '已送出還叫她重寄：' + m);
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.sent, true);
-  assert.equal(d.otpArmed, false);
-  t.ctx.onReloginClick();
-  const back = ctxWith();
-  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
-  畫名單(back, 名單(), []);
-  back.ctx.afterInitialLoad(true);
-  const n = back.el('restore-note').textContent;
-  assert.match(n, /這一批已送出，不要重寄/);
-  assert.doesNotMatch(n, /重新寄一次/, '還原提示在引導重發：' + n);
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 1);
 });
 
-test('🔴 送出回 transport（狀態不明）⇒ 面板與回來的提示講「可能已經送出，不要重寄」，不叫她重寄', () => {
-  const t = ctxWith();
-  畫名單(t, 名單(), ['E001', 'E002']);
-  t.ctx.OTP_STATE = { armed: true };
-  t.ctx.CANCEL_NONCE = 'n1'; t.ctx.SEND_IN_FLIGHT = true;
-  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { cancel: '1' });
-  assert.match(t.el('relogin-msg').textContent, /寄驗證碼/, '⬛ 零點：送出回來前本來會叫她重寄');
-  t.ctx.OTP_STATE = { armed: false };      // transport 分支也先 disarmOtp
-  t.ctx.markReloginSent('unknown', t.ctx.UI_GEN);
-  t.ctx.SEND_IN_FLIGHT = false;
-  const m = t.el('relogin-msg').textContent;
-  assert.match(m, /送出狀態不明，可能已經送出.*不要重寄/);
-  assert.doesNotMatch(m, /寄驗證碼/, '狀態不明還叫她重寄：' + m);
-  assert.doesNotMatch(m, /已送出，不要重寄/, '不明被講成確定已送出');
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.unknown, true);
-  assert.equal(d.otpArmed, false);
-  const back = ctxWith();
-  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
-  畫名單(back, 名單(), []);
-  back.ctx.afterInitialLoad(true);
-  const n = back.el('restore-note').textContent;
-  assert.match(n, /可能已經送出.*不要重寄/);
-  assert.doesNotMatch(n, /重新寄一次/, '還原提示在引導重發：' + n);
+test('🔴 送出那一發**自己**回死憑證 ⇒ 守門擋下＝沒送出 ⇒ 撤回這一次，照 (c) 給鈕（K3 的路）', () => {
+  const t = 已送出();
+  t.ctx.OTP_STATE = { armed: true }; t.ctx.SEND_IN_FLIGHT = true; t.ctx.CANCEL_NONCE = 'n1';
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { otp: '123456' });
+  assert.equal(t.ctx.SEND_FIRED, 0);
+  assert.equal(t.el('btn-relogin').hidden, false);
+  assert.match(t.el('relogin-msg').textContent, /已保存你的勾選（2 人）/);
 });
 
-test('🔴 面板沒開時送出成功、同一批緊接著過期 ⇒ 暫存帶「已送出」，回來提示與狀態列照講（#114 重驗 W5）', () => {
-  const t = ctxWith();
-  畫名單(t, 名單(), ['E001', 'E002']);
-  t.ctx.CURRENT_TPL = 't1'; t.ctx.TPL_ORDER = ['t1']; t.ctx.TEMPLATES = { t1: { title: '範本一', text: 'x' } };
-  t.ctx.LAST_STATUS = { templateId: 't1', state: 'sent', stateLabel: '已發送（測試）', lastSentAt: '' };
-  t.ctx.markReloginSent('sent', t.ctx.UI_GEN);      // 面板沒開
-  assert.equal(t.ctx.RELOGIN_PANEL, false, '⬛ 零點：面板確實沒開');
-  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});   // 送出後緊接的狀態查詢過期 ⇒ (b)
-  assert.equal(t.calls.logout, 1, '⬛ 零點：走的是 (b) 自動導走');
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.sent, true, '🔴 同一批已送出，暫存卻沒帶 ⇒ 回來同一批人勾好、狀態列寫「沒有發送紀錄」');
-  assert.equal(d.sentStatus.templateId, 't1');
-  const back = ctxWith();
-  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
-  back.ctx.CURRENT_TPL = 't1'; back.ctx.TPL_ORDER = ['t1']; back.ctx.TEMPLATES = t.ctx.TEMPLATES;
-  畫名單(back, 名單(), []);
-  back.ctx.afterInitialLoad(true);
-  assert.match(back.el('restore-note').textContent, /這一批已送出，不要重寄/);
-  assert.equal(back.ctx.LAST_STATUS && back.ctx.LAST_STATUS.state, 'sent', '狀態列沒放回「已發送」');
-  assert.equal(back.calls.status, '已發送（測試）');
+test('🔴 同一頁送過 A、再送 B 而 B 自己被擋 ⇒ 只撤回 B，A 的已送出仍然關著重登', () => {
+  const t = 已送出();
+  t.ctx.SEND_FIRED = 2;                              // A 已送出、B 剛按確定
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { otp: '123456' });
+  assert.equal(t.ctx.SEND_FIRED, 1);
+  t.ctx.SEND_IN_FLIGHT = false; t.ctx.CANCEL_NONCE = '';
+  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
+  assert.equal(t.calls.logout, 0, '🔴 B 被擋就把 A 的已送出一起清掉了');
 });
 
-test('⬛ 對照：送出之後她改過勾選（UI_GEN 變了）⇒ 那是另一批，不帶「已送出」', () => {
+test('🔴 取消那一發回死憑證不撤回（取消≠送出被擋；這一批照常送出）', () => {
+  const t = 已送出();
+  t.ctx.SEND_IN_FLIGHT = true; t.ctx.CANCEL_NONCE = 'n1';
+  const out = t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { cancel: '1' });
+  assert.equal(t.ctx.SEND_FIRED, 1);
+  assert.match(out.msg, /照常送出/);
+});
+
+test('🔴 面板在送出前就開著，送出後 ⇒ 面板改講重新整理、不再寫暫存、鈕藏起來', () => {
   const t = ctxWith();
   畫名單(t, 名單(), ['E001']);
-  t.ctx.markReloginSent('sent', t.ctx.UI_GEN);
-  t.ctx.UI_GEN++;                                    // 改勾選＝bumpUiGen
   t.ctx.OTP_STATE = { armed: true };
-  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', {});
-  assert.doesNotMatch(t.el('relogin-msg').textContent, /已送出/);
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.sent, false);
-  assert.equal(d.sentStatus, null);
-});
-
-test('🔴 W8 倒數內改了勾選（UI_GEN 變了）、送出成功、緊接過期 ⇒ 不帶「這一批已送出」，但狀態列照帶（同一則）', () => {
-  const t = ctxWith();
-  畫名單(t, 名單(), ['E001', 'E002']);
-  t.ctx.CURRENT_TPL = 't1'; t.ctx.TPL_ORDER = ['t1']; t.ctx.TEMPLATES = { t1: { title: '範本一', text: 'x' } };
-  const gen = t.ctx.UI_GEN;
-  t.el('cb-1').checked = false; t.ctx.UI_GEN++;      // 倒數內取消勾選一人
-  t.ctx.LAST_STATUS = { templateId: 't1', state: 'sent', stateLabel: '已發送（測試）', lastSentAt: '' };
-  t.ctx.markReloginSent('sent', gen);
   t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
-  assert.equal(t.calls.logout, 1, '⬛ 零點：(b) 自動導走');
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.sent, false, '「這一批」已經不是送出的那一批');
-  assert.equal(d.sentStatus && d.sentStatus.templateId, 't1', '🔴 同一則剛送過，狀態列副本卻沒帶');
-  const back = ctxWith();
-  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
-  back.ctx.CURRENT_TPL = 't1'; back.ctx.TPL_ORDER = ['t1']; back.ctx.TEMPLATES = t.ctx.TEMPLATES;
-  畫名單(back, 名單(), []);
-  back.ctx.afterInitialLoad(true);
-  assert.doesNotMatch(back.el('restore-note').textContent, /已送出/);
-  assert.equal(back.ctx.LAST_STATUS && back.ctx.LAST_STATUS.state, 'sent', '🔴 回來還在 t1 卻不是「已發送」');
-});
-
-test('⬛ W8 對照：送出後切到別的範本才過期 ⇒ 狀態列副本不帶（那一則不是 t1）', () => {
-  const t = ctxWith();
-  畫名單(t, 名單(), ['E001']);
-  t.ctx.CURRENT_TPL = 't1';
-  t.ctx.LAST_STATUS = { templateId: 't1', state: 'sent', stateLabel: '已發送（測試）', lastSentAt: '' };
-  t.ctx.markReloginSent('sent', t.ctx.UI_GEN);
-  t.ctx.CURRENT_TPL = 't2'; t.ctx.UI_GEN++;
-  t.ctx.onDeadCredential(死憑證, 'getWelfareStatus', {});
-  assert.equal(t.calls.logout, 1, '⬛ 零點：(b) 自動導走');
-  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
-  assert.equal(d.sentStatus, null);
-  assert.equal(d.sent, false);
+  assert.equal(t.el('btn-relogin').hidden, false, '⬛ 零點：送出前有鈕');
+  t.store.removeItem(t.ctx.DRAFT_KEY);
+  t.ctx.SEND_FIRED = 1;
+  t.el('cb-1').checked = true;
+  t.ctx.refreshReloginPanel();
+  assert.equal(t.store.getItem(t.ctx.DRAFT_KEY), null, '送出後還在重存暫存');
+  t.ctx.renderReloginPanel();
+  assert.match(t.el('relogin-msg').textContent, /重新整理/);
+  assert.equal(t.el('btn-relogin').hidden, true);
 });
 
 test('🔴 🟡a 寄碼那一發**自己**回死憑證 ⇒ 不講「驗證碼可能已寄出」（守門擋下＝沒寄出；突變 X6）', () => {
