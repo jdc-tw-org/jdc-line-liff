@@ -36,6 +36,10 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    # timeout（規範 ①）：最近 100 次（實得 72 次完成）的 run 最長 42 秒（2026-09-18，run 35290242330）。
+    #   ×3＝126 秒，取整後低於 5 分一律拉到 5 分（上游 Cloud Run 冷啟動偶發慢不該誤殺）。
+    #   量法：`gh run list -w update-hr-stats.yml -L 100`＋`gh api .../runs/<id>/jobs` 的 started_at→completed_at。
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -118,6 +122,12 @@ jobs:
       # 🔴 只在失敗時發，不用 always()。判準是「失敗時誰會被迫看到」，不是「訊息多不多」：
       #    每天一則成功訊息 ⇒ 收訊的人學會無視那一格 ⇒ 失敗那則混在裡面，等於沒發。
       #    （已踩過：告警連五天送達、內容正確、還附了指令，前四則仍然沒有任何事發生。）
+      # 🔴 條件是 `failure() || cancelled()`，不是只有 `failure()`（jdc-tw-migration#101）：
+      #    job 撞到 `timeout-minutes` 被砍時走的是取消路徑，只寫 `failure()` 的步驟不會跑
+      #    ⇒ 「卡住被砍」這種故障會完全靜默。本支只有 schedule／workflow_dispatch 觸發、
+      #    concurrency 是 cancel-in-progress: false ⇒ 不會被新的 run 取代而取消；
+      #    會走到 cancelled() 的只有「timeout」與「有人在 Actions 頁手動按取消」，兩者都值得一則通知。
+      #    仍然不用 always()（理由見上一段）。
       # ⚠️ 這一則擋不住的那一半：**workflow 整支沒跑**（排程停掉、repo 長期沒動被 GitHub
       #    自動停用排程）時它不會響。那一半由前端的「資料為 X 月 X 日」接——
       #    兩者合起來才蓋得住，任一個單獨都有洞。
@@ -131,14 +141,14 @@ jobs:
       #    這個 action 會對取到的值自動遮罩（setSecret），log 裡不會出現 token。
       - name: 失敗時取 Slack 鑰匙（Secret Manager）
         id: slack
-        if: failure()
+        if: failure() || cancelled()
         uses: google-github-actions/get-secretmanager-secrets@v2
         with:
           secrets: |-
             token:${{ steps.auth.outputs.project_id }}/liff-slack-bot-token/1
 
       - name: 失敗時通知
-        if: failure()
+        if: failure() || cancelled()
         env:
           SLACK_TOKEN: ${{ steps.slack.outputs.token }}
           SLACK_CHANNEL: C0C0CAKRWJY   # 正式頻道＝#系統通知中心（2026-09-28 擁有者拍板，jdc-tw-migration#30；取代測試期的 #測試平台）

@@ -21,9 +21,20 @@ on:
     paths: ['**.html', 'assets/**.js', '.github/workflows/syntax-check.yml']
   workflow_dispatch: {}
 
+# ══ concurrency（jdc-tw-org 全組織 workflow 規範 ②，jdc-tw-migration#101）══
+#   PR：以 PR 為單位，同一個 PR 再推一次就取消前一次（舊 commit 的結果沒人要看）。
+#   push main／手動：group 用 ref，cancel 算式對非 PR 事件為 false ⇒ 排隊、不取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    # timeout（規範 ①）：最近 100 次完成的 run 最長 15 秒（2026-09-28，run 36423257792）。×3＝45 秒，
+    #   取整後低於 5 分一律拉到 5 分（runner 偶發慢不該誤殺）。
+    #   量法：`gh run list -w syntax-check.yml -L 100`＋`gh api .../runs/<id>/jobs` 的 started_at→completed_at。
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
