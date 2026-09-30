@@ -191,6 +191,8 @@
 
 <h1>LINE訊息發訊</h1>
 <div class="meta">選人 → 選範本 → 寄驗證碼到你的信箱 → 輸入驗證碼送出。</div>
+<!-- 登入過期重登回來之後，還原了什麼、沒還原什麼（#114）。放在頁首：少還原一個人要一眼看得到。 -->
+<div class="msg" id="restore-note"></div>
 
 <div class="card">
   <h2>① 收件人</h2>
@@ -278,12 +280,21 @@
     <span class="msg" id="cancel-count"></span>
   </div>
   <div class="msg" id="send-note"></div>
+  <!-- 登入過期、但這一刻不可以自動導走時（輸碼中／送出中，#114 的 (c)）由人按的重新登入。
+       鈕的 disabled 只由 syncReloginButton() 指派。 -->
+  <div class="otp-box" id="relogin-box" hidden>
+    <div class="msg err" id="relogin-msg"></div>
+    <div style="margin-top:8px"><button type="button" class="btn btn-pri" id="btn-relogin" disabled>重新登入（會離開這一頁）</button></div>
+    <div class="msg" id="relogin-wait"></div>
+  </div>
 </div>
 
 <!-- 順序：資料 → 模組 → inline script。四支都要在 inline script 之前，
      否則 gasCall／LINE_EMOJI／encodeSelection is not defined，而畫面只會停在載入中。 -->
 <!-- LIFF SDK。**必須早於下面的 assets 與頁內 script**——startLiff() 會用到 window.liff。 -->
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- 要早於下面的 inline script：`wfCall` 的解析出口用它的 `reloginVerdict`／`reloginOnDeadCredential`（#114）。 -->
+<script src="assets/liff-relogin.js"></script>
 <script src="assets/gas-call.js"></script>
 <script src="assets/welfare-client.js"></script>
 <script src="assets/line-emoji.js"></script>
@@ -665,6 +676,7 @@ function renderPickedCount() {
   }
   document.getElementById('unit-picked-n').textContent =
     '本單位已選 ' + (OPEN_UNIT ? unitPickedN(OPEN_UNIT) : 0) + ' 人';
+  refreshReloginPanel();        // 重登面板開著時，它說的「已保存 N 人」要跟著現況重存（#114）
 }
 
 /** 勾選 → bitmap。**rows 的順序就是後端的 canonical order，不可重排。** */
@@ -843,6 +855,9 @@ function syncOtpButton() {
 function syncSendButton() {
   document.getElementById('btn-send').disabled =
     !(OTP_STATE.armed && otpBindingStillValid() && !SEND_IN_FLIGHT);
+  // 重新登入鈕也看 SEND_IN_FLIGHT，而 SEND_IN_FLIGHT 每一次變動後都會呼叫本支
+  // ⇒ 從這裡帶一下，不必在送出流程的三個地方各補一行（指派仍只在 syncReloginButton）。
+  syncReloginButton();
 }
 
 /* ── 驗證碼的 binding ─────────────────────────────────────────────────── */
@@ -1190,6 +1205,8 @@ function onSend() {
           + '\n⚠️ 關掉這一頁不會取消——等待是在伺服器上進行的，時間到照樣送出。'
           + '\n⚠️ LINE 訊息送出後收不回來。';
   if (!confirm(msg)) { SEND_IN_FLIGHT = false; syncSendButton(); syncSaveButton(); return; }
+  // 🔴 **按下確定＝這一頁從此不再重登**（#114，見 SEND_FIRED）。排在任何非同步之前。
+  SEND_FIRED++;
   // 開倒數＋取消鈕。**用這次的 nonce 記住「可以取消的是哪一發」**。
   armCancel(nonce);
   return wfCall('sendWelfareBroadcast',    // ← return：見 onSaveTemplate 的理由
@@ -1245,7 +1262,10 @@ function showServerReject(r) {
  *    `getWelfareMessageLog`，**只帶 idToken**——與本頁 `wfCall` 同一條路（本頁已經只走 LINE 登入）。
  *    誰看得到什麼由 gas 的守門與角色過濾決定，`from` 不是授權。
  *
- * ⚠️ **刻意不再讀 `r.msgLogToken`／`r.msgLogWhy`**（`getWelfareAudience` 仍會回，後端不動）。
+ * ⚠️ **刻意不再讀 `r.msgLogToken`／`r.msgLogWhy`。**
+ *    🪦 2026-09-30（jdc-tw-migration#93）：後端 `getWelfareAudience` 已經**不再回這兩格**
+ *       （gas `Code.js` 那段刪除的墓碑）。原文寫的「仍會回，後端不動」是那之前的現況，已過期。
+ *       「不讀它」的守門（`tests/msglog-line-wiring.test.js`）照樣保留：它擋的是日後有人又去讀。
  *    🔴 **2026-09-16（`jdc-tw-org/jdc-line-hub#27`）：這一段的「為何」已經整段過期，照現況重寫。**
  *       原文的理由是「讀了就會把 `?t=` 帶回網址 ⇒ 走①舊路直接打 hub」，並且明寫
  *       「仍然成立的是：`?t=` 那條路沒有被拿掉，只是網址換了名字」。**那句話現在是假的**——
@@ -1272,8 +1292,8 @@ function onAudienceLoaded(r) {
   AUDIENCE_REV = r.audienceRev;
   ROWS = r.rows || [];
   renderAudience(r, keep);          // 重繪（invalidator 是委派的，不受影響）
-  renderMsgLogEntry(r);             // 🔴 msgLogToken 就在**這份**回應裡
-                                    //    接在 Promise 鏈尾巴會拿到 undefined
+  renderMsgLogEntry(r);             // 🔴 用**這份**回應，不接在 Promise 鏈尾巴（那裡會拿到 undefined）。
+                                    //    （原本的理由「msgLogToken 就在這份回應裡」已過期：#93 後端不再回它）
   bumpUiGen();
 }
 
@@ -1282,9 +1302,10 @@ function loadAudience() {
   return wfCall('getWelfareAudience', {}, 45000)
     .then(function (r) {
       if (!r || !r.ok) { setNote('audience-note',
-        '名單讀不到：' + ((r && r.msg) || '沒有收到伺服器回應'), 'err'); return; }
+        '名單讀不到：' + ((r && r.msg) || '沒有收到伺服器回應'), 'err'); return false; }
       setNote('audience-note', '');     // ← 成功要清掉上一次的錯誤，否則畫面同時說
       onAudienceLoaded(r);              //    「讀不到」又列出 123 個人
+      return true;                      // ← 重登回來的還原要知道名單有沒有真的載到（#114）
     });
 }
 
@@ -1296,7 +1317,7 @@ function loadTemplates() {
   return wfCall('getWelfareTemplates', {}, 30000)
     .then(function (r) {
       if (!r || !r.ok) { setNote('tpl-note',
-        '範本讀不到：' + ((r && r.msg) || '沒有收到伺服器回應'), 'err'); return; }
+        '範本讀不到：' + ((r && r.msg) || '沒有收到伺服器回應'), 'err'); return false; }
       setNote('tpl-note', '');          // ← 同上
       TEMPLATES = {}; TPL_ORDER = [];
       // 🔴 **欄位是 `templateId` 不是 `id`。**（2026-08-29 上線當天實測抓到。）
@@ -1317,6 +1338,7 @@ function loadTemplates() {
       renderTemplateSelector();                       // 只畫下拉；事件已委派好
       renderDisabledList();
       if (TPL_ORDER.length) selectTemplate(TPL_ORDER[0]);   // ← 一則都沒有時不可以硬選
+      return true;
     });
 }
 
@@ -1393,17 +1415,26 @@ function wireBindingInvalidators() {
     });
   // 範本草稿：input 而不是 change（change 要失焦才觸發）
   document.getElementById('wf-tpl').addEventListener('input', function () {
-    bumpUiGen();        // 讓已取得的碼失效
-    syncOtpButton();    // 未存草稿 ⇒ 寄碼鈕也要跟著停用
-    syncSaveButton();   // ⇒ 而儲存鈕相反：這時候才該亮起來
-    paintMirror('wf-tpl', 'wf-mirror', 'wf');
-    paintPreview('wf-tpl', 'wf-preview', 'wf');
+    onTplEdited();
     phPopup('wf-tpl', 'wf');
   });
   // 鏡像層的捲動同步。綁在頁面而不搬進模組——它綁的是特定的 DOM id，屬頁面接線。
   document.getElementById('wf-tpl').addEventListener('scroll', function () {
     document.getElementById('wf-mirror').scrollTop = document.getElementById('wf-tpl').scrollTop;
   });
+}
+
+/**
+ * 編輯區的內容變了之後要做的事。**打字與「重登回來還原」共用這一支**（#114）
+ * ——還原時少做一件（例如沒 bumpUiGen），就是一個「畫面 B、碼綁 A」。
+ */
+function onTplEdited() {
+  bumpUiGen();        // 讓已取得的碼失效
+  syncOtpButton();    // 未存草稿 ⇒ 寄碼鈕也要跟著停用
+  syncSaveButton();   // ⇒ 而儲存鈕相反：這時候才該亮起來
+  paintMirror('wf-tpl', 'wf-mirror', 'wf');
+  paintPreview('wf-tpl', 'wf-preview', 'wf');
+  refreshReloginPanel();
 }
 
 /**
@@ -1455,6 +1486,7 @@ function wireButtons() {
   document.getElementById('btn-otp').addEventListener('click', onRequestOtp);
   document.getElementById('btn-send').addEventListener('click', onSend);
   document.getElementById('btn-cancel-send').addEventListener('click', onCancelSend);
+  document.getElementById('btn-relogin').addEventListener('click', onReloginClick);
   document.getElementById('btn-all').addEventListener('click', function () { setAllChecked(true); });
   document.getElementById('btn-none').addEventListener('click', function () { setAllChecked(false); });
   document.getElementById('btn-unit-all').addEventListener('click', function () { setUnitChecked(true); });
@@ -1534,12 +1566,14 @@ function liffOpen() {
  *      「她按送出 → 驗簽失敗 → 畫面說請重新登入、而她根本沒登出過」**照樣會發生**。
  *    ⚠️ 這不代表這支函式該改掉：不在這裡取只會更糟（開頁時取會錯過「登入完才拿得到」）。
  *       要修的是**過期之後怎麼辦**，那在 `assets/liff-relogin.js`
- *       ——⚠️ **本頁還沒有掛那一支**（它只掛在 board.html／hr-stats.html）。
+ *       ——✅ **2026-09-30 起本頁已經掛上**（jdc-tw-migration#114），接在 `wfCall` 的解析出口
+ *       （`onDeadCredential`），並依時機分三種處置，勾選與內容先存進 sessionStorage 再導走。
  *       🔴 2026-09-13 起本頁只走 LINE 登入（`wfCall` 不再帶 `?t=`）⇒ 每一個請求都走
  *       後端 `gateActionByLine`，憑證過期時收到的就是 `line_bad_token`。
  *       改之前（兩個都帶、走舊守門）過期時擋下它的是第二道，reason 是 `verify_` 開頭的那一類。
- *       **兩者都擋、都有一句話，但都不會自動重新登入**——那一格仍是死巷。
- *       要接 `liff-relogin.js` 是另一件事：它會整頁導走，送出流程中途導走時勾選怎麼辦要先想清楚。
+ *       沿革（改寫不刪）：原文寫「本頁還沒有掛那一支」「那一格仍是死巷」，並說
+ *       「要接 `liff-relogin.js` 是另一件事：它會整頁導走，送出流程中途導走時勾選怎麼辦要先想清楚」
+ *       ——那個「先想清楚」就是 #114 的三種時機，答案寫在 `onDeadCredential` 那一段的檔頭。
  *
  * 🔴 **2026-09-13 更正②：「還沒有任何呼叫帶著它送出去」也是假的。**
  *    原文寫的是「這一輪（Task 1 前半）只把它準備好」——那句在 Task 1 前半是真的，
@@ -1603,7 +1637,385 @@ function wfCall(action, params, timeoutMs) {
   delete p.token;
   delete p.t;
   p.idToken = idToken;
-  return gasCall(GAS_URL, action, p, timeoutMs);
+  // 解析出口：憑證死掉時依當下所處的時機處置（#114，見 onDeadCredential）。
+  //    ⚠️ 本頁**每一支 action 都走這裡** ⇒ 只掛這一處就涵蓋全部。
+  return gasCall(GAS_URL, action, p, timeoutMs)
+    .then(function (r) { return onDeadCredential(r, action, params); });
+}
+
+/* ── 登入過期：依時機處置，並保住勾選與內容（jdc-tw-migration#114）──────────
+ *
+ * 其他頁遇到 `line_bad_token` 由 `assets/liff-relogin.js` 自動登出＋登入（整頁導走）。
+ * 本頁原本刻意不接，因為**導走會洗掉她勾好的人與編到一半的範本**。現在分三種時機：
+ *
+ *   (a) 還沒動任何東西（開頁載名單／範本）      ⇒ 直接交給 reloginOnDeadCredential，同其他頁
+ *   (b) 勾了人／換過範本／有未存內容，還沒寄碼  ⇒ 先存進 sessionStorage，再自動重登；回來還原
+ *   (c) 已取得驗證碼等著輸入／送出中／反悔窗口  ⇒ **不自動導走**，存起來、給一顆鈕由她按
+ *
+ * 🔴 判斷看的是**當下的狀態，不是哪個呼叫點**：同一支 `getWelfareTemplates`
+ *    開頁時是 (a)、新增範本之後可能是 (b)。判準只有 `reloginPhase` 一支。
+ * 🔴 「哪些代號重登有用」只問 `reloginVerdict`（`RELOGIN_REASONS` 那一份），本頁不另抄。
+ * ⚠️ 收到 `line_bad_token` ＝**這一發的 action 沒有執行**：後端先過守門才分派
+ *    （gas `Code.js` 的 `if (!_gate.ok)` 直接回應，早於 action 分派）⇒ 寄碼那一發被擋
+ *    就是信沒寄出，所以「寄碼那一發自己」歸 (b)，見 `reloginPhase`。
+ */
+
+/** 暫存鍵。刻意**不以 `LIFF_STORE:` 開頭**：`liff.logout()` 會清掉那個前綴（同 liff-relogin.js）。 */
+var DRAFT_KEY = 'JDC_LINE_DRAFT';
+/** 暫存多久內算數。登入往返是秒到分鐘級；超過就丟掉，但**一定講出來**。 */
+var DRAFT_TTL_MS = 30 * 60 * 1000;
+/**
+ * 「導走時手上有一份暫存」的記號（#114 🟡3）。**只有時間戳，不含任何勾選、內容、驗證碼。**
+ *
+ * 為何需要：導回來之後 sessionStorage 若沒活下來（iOS LINE 的 WKWebView 未量過），
+ * 「沒有暫存」與「暫存不見了」長得一模一樣 ⇒ 整批靜默消失。記號讓後者講得出一句話。
+ * 為何放 localStorage、不放 redirectUri：LINE 的 Callback 白名單只認站台根，子路徑會在
+ * authorize 端被改寫、經 `liff.state` 送回（yu-agent work-schedule 2026-09-12 線 L 實測），
+ * 網址上的記號會不會跟著回來**在 e2e 以外證明不了**；而且 (b) 的導走在共用模組
+ * `liff-relogin.js` 裡（#115 的範圍）。localStorage 不經網址，實測活過整頁導向（見該檔檔頭）。
+ * ⚠️ 已知代價：localStorage 是同網域各分頁共用 ⇒ 她在 A 分頁重登的那幾十秒內另開 B 分頁，
+ *    B 會說「沒能保留」（誤報一次，讀了就刪）。寧可誤報一句，不要靜默全丟。
+ */
+var DRAFT_MARK_KEY = 'JDC_LINE_DRAFT_MARK';
+
+/** (c) 的面板開著沒有、存成功沒有、當時手上有沒有驗證碼。 */
+var RELOGIN_PANEL = false;
+var RELOGIN_SAVED = false;
+var RELOGIN_HAD_OTP = false;
+/**
+ * 🔴 **這一頁已經按過送出確定 ⇒ 之後所有重登入口都關**（#114，YU 2026-09-30 拍板）。
+ *
+ * 為何：W5／W8／W6 延伸／W10 四輪都是同一個形狀——送出之後導走，回來的畫面忘了剛送過
+ * （狀態列被洗成「沒有發送紀錄」、被上一批的舊紀錄蓋掉、「紀錄沒記到」的警告消失）。
+ * 送出後不導走，這一類在結構上就不存在：畫面上的送出結果與狀態列原樣留著（＝base 的行為）。
+ * 代價：同一頁送完一批、再發下一批時剛好過期，要自己重新整理（勾選不保留，＝改前的正式站）。
+ *
+ * 入口（涵蓋式，全部經 `reloginAllowed()` 這一處判斷）：
+ *   ① onDeadCredential 的 (a) 自動導走 ② (b) 自動導走 ③ (c)／(b) 退路的重登面板
+ *   ④ onReloginClick ⑤ syncReloginButton（鈕的顯示與可按）⑥ refresh／renderReloginPanel（寫暫存）
+ *   開頁的 `startLiff` 未登入 ⇒ liff.login 不在此列：那時這一頁還沒送出過（旗標必為 false）。
+ * 唯一的撤回：**送出那一發自己**回死憑證＝守門擋下、這一批沒有送出（同寄碼那一發的判準）。
+ * ⚠️ 是**計數**不是布林：同一頁送過 A、再送 B 而 B 自己被擋下時，只撤回 B 那一次，
+ *    A 已送出的事實仍然關著重登（布林的話會被 B 一起清掉）。
+ * 不寫進任何 storage：重新整理＝新的一次開頁，本來就該重新判斷。
+ */
+var SEND_FIRED = 0;
+/** 送出後過期時講的話。**不引導重寄**：只叫她看完結果再重新整理。 */
+var SENT_EXPIRED_MSG = '⚠️ LINE 登入已過期。這一頁剛送出過，為了讓上面的送出結果與狀態留在畫面上，'
+  + '這一頁不會自動重新登入——看完結果後請重新整理這一頁（重新整理會自動重新登入）。';
+
+/** 重登入口能不能開。**只有這一支判斷**，各入口都問它。 */
+function reloginAllowed() { return SEND_FIRED === 0; }
+
+/** 寄碼請求還在路上時被別的一發判成 (c) ⇒ 信可能已經寄出（🟡5）。 */
+var RELOGIN_OTP_MAYBE = false;
+
+/** 勾了誰（員編＋姓名）。**用員編認人**——還原時名單可能換過順序。 */
+function pickedList() {
+  var out = [];
+  ROWS.forEach(function (row, i) {
+    var cb = document.getElementById('cb-' + i);
+    if (cb && cb.checked) out.push({ empNo: row.empNo, name: row.name || '' });
+  });
+  return out;
+}
+
+function newTitleValue() {
+  var el = document.getElementById('tpl-new-title');
+  return String((el && el.value) || '');
+}
+
+/**
+ * 現在屬於哪一種時機。**由上往下，先命中的算數。**
+ * @param {string} action 收到死憑證的那一發
+ * @returns {'a'|'b'|'c'}
+ */
+function reloginPhase(action) {
+  // (c) 輸碼中／送出中／反悔窗口：導走會丟掉她正在做的那一步，而且可能看不到結果
+  if (OTP_STATE.armed || SEND_IN_FLIGHT || CANCEL_NONCE) return 'c';
+  // 寄碼請求還在路上、而先回死憑證的是**另一發** ⇒ 不知道信寄出去沒有。
+  // 回死憑證的若就是寄碼那一發 ⇒ 守門擋下＝沒寄出 ⇒ 落到下面照 (b)／(a) 判。
+  if (OTP_IN_FLIGHT && action !== 'requestWelfareOtp') return 'c';
+  if (pickedList().length || isTplDirty()
+      || (CURRENT_TPL && CURRENT_TPL !== TPL_ORDER[0])
+      || newTitleValue().trim()) return 'b';
+  return 'a';
+}
+
+/** 要存的那一份。**驗證碼、nonce、OTP_STATE 一律不存**——回來之後碼一律重寄。 */
+function snapshotDraft(phase, hadOtp) {
+  return {
+    v: 1, at: Date.now(), phase: phase,
+    picked: pickedList(),
+    templateId: CURRENT_TPL, templateTitle: CURRENT_TPL ? tplTitle(CURRENT_TPL) : '',
+    text: String(document.getElementById('wf-tpl').value || ''),
+    dirty: isTplDirty(), baseText: SAVED_TPL_TEXT,
+    openUnit: OPEN_UNIT, newTitle: newTitleValue(),
+    otpArmed: !!(OTP_STATE.armed || hadOtp)
+  };
+}
+
+/** 存。**寫完讀回來比對**，對不上＝沒存到（回 false，呼叫端不可以自動導走）。 */
+function saveDraft(phase, hadOtp) {
+  try {
+    var s = JSON.stringify(snapshotDraft(phase, hadOtp));
+    sessionStorage.setItem(DRAFT_KEY, s);
+    return sessionStorage.getItem(DRAFT_KEY) === s;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** 讀（不移除）。@returns {{status:'none'|'ok'|'expired'|'bad', draft?:object, ageMin?:number}} */
+function readDraft() {
+  var raw;
+  try { raw = sessionStorage.getItem(DRAFT_KEY); } catch (e) { return { status: 'none' }; }
+  if (!raw) return { status: 'none' };
+  var d;
+  try { d = JSON.parse(raw); } catch (e) { return { status: 'bad' }; }
+  if (!d || d.v !== 1 || typeof d.at !== 'number') return { status: 'bad' };
+  var age = Date.now() - d.at;
+  if (age > DRAFT_TTL_MS) return { status: 'expired', ageMin: Math.round(age / 60000) };
+  return { status: 'ok', draft: d };
+}
+
+function dropDraft() {
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch (e) {}
+}
+
+/** 要導走、而且手上有存好的暫存時才寫。寫不進去就算了（只是少一句提示，不擋導走）。 */
+function markDraftLeaving() {
+  try { localStorage.setItem(DRAFT_MARK_KEY, String(Date.now())); } catch (e) {}
+}
+
+/** 讀記號並**立刻刪掉**（只用一次）。回 true ＝30 分鐘內導走過、手上有過一份暫存。 */
+function takeDraftMark() {
+  var at;
+  try {
+    at = Number(localStorage.getItem(DRAFT_MARK_KEY));
+    localStorage.removeItem(DRAFT_MARK_KEY);
+  } catch (e) { return false; }
+  return at > 0 && Date.now() - at <= DRAFT_TTL_MS;
+}
+
+/**
+ * `wfCall` 的解析出口。死憑證以外的回應**原樣交還**。
+ * (b) 在「存不進去」或「這個分頁已經自動重登過一次」時不自動導走，改給 (c) 的鈕：
+ * 存不起來就導走＝洗掉她的東西；而第二次的覆蓋層會把她勾好的畫面整個遮住。
+ * 由人按的重登不會形成迴圈。
+ */
+function onDeadCredential(r, action, params) {
+  if (reloginVerdict(r, false) === 'none') return r;
+  // 送出那一發**自己**回死憑證＝守門擋下＝這一批沒有送出 ⇒ 解除「已送出」（見 SEND_FIRED）。
+  if (action === 'sendWelfareBroadcast' && !(params && params.cancel) && SEND_FIRED > 0) SEND_FIRED--;
+  if (!reloginAllowed()) return showSentExpired(r, action, params);
+  // 寄碼那一發自己回死憑證＝守門擋下＝信沒寄出 ⇒ 撤掉「可能已寄出」（見檔頭）。
+  if (action === 'requestWelfareOtp') RELOGIN_OTP_MAYBE = false;
+  var otpMaybe = OTP_IN_FLIGHT && action !== 'requestWelfareOtp';
+  var phase = reloginPhase(action);
+  if (phase === 'a') return reloginOnDeadCredential(r);
+  var saved = saveDraft(phase, false);
+  if (phase === 'b' && saved && !reloginTried()) {
+    markDraftLeaving();
+    return reloginOnDeadCredential(r);
+  }
+  showReloginPanel(saved, !!OTP_STATE.armed, otpMaybe);
+  // 後端這個代號的原文叫她「聯絡資訊人員」——面板就在旁邊時那句是假的，換成實話。
+  var out = {};
+  Object.keys(r).forEach(function (k) { out[k] = r[k]; });
+  out.msg = (action === 'sendWelfareBroadcast' && params && params.cancel)
+    ? '⚠️ 登入已過期，取消沒有送達伺服器——這一批會照常送出。'
+    : 'LINE 登入已過期，請按下方「重新登入」。';
+  return out;
+}
+
+/**
+ * 送出後過期：**不導走、不給鈕、不寫暫存與記號**，只講一句實話（見 SEND_FIRED）。
+ * 畫面上其他東西（送出結果、狀態列）一個都不動——它們因為沒有導走而原樣留著。
+ */
+function showSentExpired(r, action, params) {
+  document.getElementById('relogin-box').hidden = false;
+  setNote('relogin-msg', SENT_EXPIRED_MSG, 'err');
+  syncReloginButton();
+  var out = {};
+  Object.keys(r).forEach(function (k) { out[k] = r[k]; });
+  out.msg = (action === 'sendWelfareBroadcast' && params && params.cancel)
+    ? '⚠️ 登入已過期，取消沒有送達伺服器——這一批會照常送出。'
+    : 'LINE 登入已過期，請看完上面的結果後重新整理這一頁。';
+  return out;
+}
+
+function showReloginPanel(saved, hadOtp, otpMaybe) {
+  RELOGIN_PANEL = true;
+  RELOGIN_SAVED = saved;
+  RELOGIN_HAD_OTP = RELOGIN_HAD_OTP || hadOtp;
+  RELOGIN_OTP_MAYBE = RELOGIN_OTP_MAYBE || !!otpMaybe;
+  renderReloginPanel();
+}
+
+/** 面板開著時，勾選或內容變了 ⇒ 重存一次，讓「已保存 N 人」一直是真的。 */
+function refreshReloginPanel() {
+  if (!RELOGIN_PANEL || !reloginAllowed()) return;   // 送出後不再寫暫存
+  RELOGIN_SAVED = saveDraft('c', RELOGIN_HAD_OTP);
+  renderReloginPanel();
+}
+
+function renderReloginPanel() {
+  document.getElementById('relogin-box').hidden = !RELOGIN_PANEL;
+  if (!RELOGIN_PANEL) return;
+  if (!reloginAllowed()) { setNote('relogin-msg', SENT_EXPIRED_MSG, 'err'); syncReloginButton(); return; }
+  var t = RELOGIN_SAVED
+    ? 'LINE 登入已過期。已保存你的勾選（' + pickedList().length + ' 人）與範本內容，'
+      + '按下面的鈕重新登入，回來後會自動還原。'
+    : '⚠️ LINE 登入已過期。這個瀏覽器不讓這一頁暫存資料，重新登入後勾選與內容不會還原'
+      + '——範本文字要留的話請先自己複製。';
+  if (RELOGIN_HAD_OTP) {
+    t += '\n⚠️ 手上這組驗證碼回來之後不能再用（這一頁不會記住它），請重新按「寄驗證碼」。';
+  } else if (RELOGIN_OTP_MAYBE) {
+    t += '\n⚠️ 驗證碼可能已寄出（寄碼的請求還沒回來）。那組碼回來之後不能再用，請重新按「寄驗證碼」。';
+  }
+  setNote('relogin-msg', t, 'err');
+  syncReloginButton();
+}
+
+/**
+ * 🔴 btn-relogin.disabled／hidden 只准由這一支指派。送出中先停用：導走就看不到這一批的結果。
+ *    按過送出確定之後整顆藏起來（見 SEND_FIRED）。
+ */
+function syncReloginButton() {
+  var b = document.getElementById('btn-relogin');
+  if (!b) return;
+  // ⚠️ 只設 hidden 不夠：`.btn` 的 display 會蓋過 [hidden]（e2e 實測鈕仍看得到），要連 style 一起關。
+  b.hidden = !reloginAllowed();
+  b.style.display = reloginAllowed() ? '' : 'none';
+  b.disabled = !RELOGIN_PANEL || SEND_IN_FLIGHT || !reloginAllowed();
+  setNote('relogin-wait', (RELOGIN_PANEL && SEND_IN_FLIGHT)
+    ? '送出結果還沒回來，等它回來再按——離開這一頁不會取消這一批，也就看不到結果。' : '');
+}
+
+/** 她按了重新登入。**先再存一次**（面板出現後她可能又改過），再走唯一有效的 logout＋login。 */
+function onReloginClick() {
+  if (!RELOGIN_PANEL || SEND_IN_FLIGHT || !reloginAllowed()) return;
+  var saved = saveDraft('c', RELOGIN_HAD_OTP);
+  if (!(window.liff && typeof liff.logout === 'function' && typeof liff.login === 'function')) {
+    setNote('relogin-msg', 'LINE 的元件不在，沒辦法重新登入。請重新整理這一頁；一直這樣的話請找資訊人員。', 'err');
+    return;
+  }
+  if (saved) markDraftLeaving();
+  liff.logout();                                   // 唯一會移除 ID token 的地方（見 liff-relogin.js）
+  liff.login({ redirectUri: location.href });
+}
+
+/**
+ * 開頁的名單與範本都跑完之後。**兩支都成功才還原**；任一支失敗就不動那份暫存
+ * （例如又收到死憑證、正在被自動導走），並講一句「還沒還原」。
+ */
+function afterInitialLoad(ok) {
+  if (!ok) {
+    var st = readDraft().status;
+    if (st !== 'none') {
+      setNote('restore-note', '⚠️ 有一份保存的勾選與內容還沒還原（名單或範本讀不到），'
+        + '重新整理成功後會自動還原。', 'err');
+    }
+    return;
+  }
+  restoreDraft();
+}
+
+function restoreDraft() {
+  var got = readDraft();
+  var marked = takeDraftMark();                    // 讀了就刪，不論有沒有暫存
+  if (got.status === 'none') {
+    // 導走時有一份、回來卻沒了（sessionStorage 沒活過導向）⇒ **明說**，不可以靜默全丟（🟡3）
+    if (marked) {
+      setNote('restore-note', '⚠️ 剛才的勾選與內容沒能保留，請重新勾選'
+        + '（重新登入的過程中，這個瀏覽器沒有把暫存留下來）。', 'err');
+    }
+    return;
+  }
+  dropDraft();                                     // 只用一次
+  if (got.status === 'bad') {
+    setNote('restore-note', '⚠️ 找到一份重新登入前保存的勾選與內容，但讀不出來，'
+      + '請重新勾選並確認範本內容。', 'err');
+    return;
+  }
+  if (got.status === 'expired') {
+    setNote('restore-note', '⚠️ 找到一份 ' + got.ageMin + ' 分鐘前保存的勾選與內容，'
+      + '已超過 30 分鐘沒有還原，請重新勾選。', 'err');
+    return;
+  }
+  applyDraft(got.draft);
+}
+
+/**
+ * 把保存的那一份放回畫面。**少還原任何一個人都要點名**，不可以靜默少人。
+ * 勾選取聯集（不取消她搶先勾的）；編輯區她已經動過就不蓋，改把保存的版本放進提示。
+ */
+function applyDraft(d) {
+  var bad = false, extra = [];
+  var idx = {};
+  ROWS.forEach(function (row, i) { idx[row.empNo] = i; });
+  var picked = Array.isArray(d.picked) ? d.picked : [];
+  var missing = [];
+  picked.forEach(function (p) {
+    var who = (p && (p.name || p.empNo)) || '（不明）';
+    var i = idx[p && p.empNo];
+    if (i === undefined) { missing.push(who + '（不在名單上）'); return; }
+    var cb = document.getElementById('cb-' + i);
+    if (!cb || cb.disabled) {
+      missing.push(who + '（' + (STATUS_WHY[ROWS[i].status] || '目前不可發送') + '）');
+      return;
+    }
+    cb.checked = true;
+  });
+
+  var tplOk = false;
+  if (d.templateId) {
+    if (TPL_ORDER.indexOf(d.templateId) >= 0) {
+      tplOk = true;
+      if (d.templateId !== CURRENT_TPL) selectTemplate(d.templateId);
+      if (d.dirty) {
+        if (isTplDirty()) {
+          bad = true;
+          extra.push('⚠️ 你已經開始改這一則，保存的版本沒有蓋上去。保存的內容是：\n' + d.text);
+        } else {
+          document.getElementById('wf-tpl').value = String(d.text || '');
+          onTplEdited();
+          var cur = TEMPLATES[d.templateId] && TEMPLATES[d.templateId].text;
+          if (cur !== d.baseText) {
+            bad = true;
+            extra.push('⚠️ 範本「' + tplTitle(d.templateId) + '」在你離開期間被改過，'
+              + '編輯區放回的是你原本編到一半的版本，請確認後再儲存。');
+          }
+        }
+      }
+    } else {
+      bad = true;
+      extra.push('⚠️ 你原本在用的範本「' + (d.templateTitle || d.templateId) + '」已經不在可用清單裡'
+        + (d.dirty ? '，編到一半的內容沒有放回編輯區，原文如下：\n' + d.text : '。'));
+    }
+  }
+  if (d.openUnit && UNIT_IDX[d.openUnit]) { OPEN_UNIT = d.openUnit; applyOpenUnit(); }
+  if (d.newTitle) {
+    document.getElementById('tpl-add-box').hidden = false;
+    document.getElementById('tpl-new-title').value = d.newTitle;
+  }
+  bumpUiGen();                                     // 驗證碼一律不還原
+  renderPickedCount();
+
+  var got = picked.length - missing.length;
+  var head;
+  if (missing.length) {
+    bad = true;
+    head = '⚠️ 重新登入前勾了 ' + picked.length + ' 人，只還原了 ' + got + ' 人。沒還原的：'
+      + missing.join('、');
+  } else {
+    head = '已還原重新登入前的勾選 ' + got + ' 人'
+      + (tplOk ? '、範本「' + tplTitle(d.templateId) + '」' + (d.dirty ? '與編到一半的內容' : '') : '')
+      + '。';
+  }
+  if (d.otpArmed) extra.push('驗證碼要重新寄一次：請按「寄驗證碼到我的信箱」。');
+  setNote('restore-note', [head].concat(extra).join('\n'), bad ? 'err' : 'ok');
 }
 
 function startLiff() {
@@ -1628,7 +2040,14 @@ function startLiff() {
         return;
       }
       liffOpen();
-      return loadAudience().then(loadTemplates);
+      // 🔴 **還原排在兩支都載完之後，當最後一個寫入者**（#114）。
+      //    `loadTemplates` 會 `selectTemplate(TPL_ORDER[0])` 把編輯區換回伺服器版本
+      //    ——還原若早於它或與它並行，放回去的文字會被這一格靜靜蓋掉（SWR 吃輸入的同一型）。
+      return loadAudience().then(function (audOk) {
+        return loadTemplates().then(function (tplOk) {
+          afterInitialLoad(audOk === true && tplOk === true);
+        });
+      });
     })
     .catch(function (err) {
       // **不靜默**。訊息帶出原因，否則「畫面一直是載入中」查不出是哪一段。
