@@ -1226,6 +1226,7 @@ function onSend() {
         //    ⚠️ 這裡**也要 disarm**：碼可能已經被後端消耗掉了（used=true），
         //    留著輸碼狀態只會讓她再按一次、然後收到「已用過」。
         disarmOtp();
+        markReloginSent('unknown');        // 重登面板開著的話：不可以叫她重寄碼（#114）
         showState({ ok: true, state: 'unknown', msg:
           '⚠️ 送不出去，而且不確定對方有沒有收到。請不要重按——'
           + '請先到訊息紀錄確認，或聯絡工務管理組。' }, sentTpl);
@@ -1686,6 +1687,10 @@ var RELOGIN_SAVED = false;
 var RELOGIN_HAD_OTP = false;
 /** 面板開著期間，送出那一發**成功**回來了 ⇒ 這一批已送出，回來後不可以叫她重寄（🟡2）。 */
 var RELOGIN_SENT = false;
+/** 同上，但送出那一發回的是 transport（狀態不明）⇒ 可能已送出，同樣不可以叫她重寄。 */
+var RELOGIN_UNKNOWN = false;
+/** 狀態不明時面板與還原提示共用的那一句（與 `onSend` transport 分支的 showState 同方向）。 */
+var RELOGIN_UNKNOWN_MSG = '⚠️ 送出狀態不明，可能已經送出——先看「最近一次狀態」，不要重寄。';
 /** 寄碼請求還在路上時被別的一發判成 (c) ⇒ 信可能已經寄出（🟡5）。 */
 var RELOGIN_OTP_MAYBE = false;
 
@@ -1731,7 +1736,7 @@ function snapshotDraft(phase, hadOtp) {
     dirty: isTplDirty(), baseText: SAVED_TPL_TEXT,
     openUnit: OPEN_UNIT, newTitle: newTitleValue(),
     otpArmed: !!(OTP_STATE.armed || hadOtp),
-    sent: RELOGIN_SENT
+    sent: RELOGIN_SENT, unknown: RELOGIN_UNKNOWN
   };
 }
 
@@ -1815,13 +1820,17 @@ function showReloginPanel(saved, hadOtp, otpMaybe) {
 }
 
 /**
- * 送出那一發**成功**回來（`onSend` 的 `r.ok` 分支呼叫）。面板開著時
- * ⇒ 這一批已送出：清掉「手上有驗證碼」，面板與回來後的提示改講「不要重寄」（🟡2）。
+ * 送出那一發回來了（`onSend` 呼叫）。面板開著時：
+ *   · 無參數＝**成功**（`r.ok`）⇒ 這一批已送出（🟡2）
+ *   · `'unknown'`＝**transport**（狀態不明）⇒ 可能已送出（#114 指揮台 2026-09-30 裁定）
+ * 兩種都清掉「手上有驗證碼」，面板與回來後的提示改講「不要重寄」——
+ * 叫她重寄碼＝引導重發一批可能已經收到的訊息（8/20 誤發的形狀）。
  * 面板沒開就什麼都不做——之後才過期的話，那是另一批，不可以帶著「已送出」。
  */
-function markReloginSent() {
+function markReloginSent(outcome) {
   if (!RELOGIN_PANEL) return;
-  RELOGIN_SENT = true;
+  if (outcome === 'unknown') RELOGIN_UNKNOWN = true;
+  else RELOGIN_SENT = true;
   RELOGIN_HAD_OTP = false;
   refreshReloginPanel();
 }
@@ -1843,6 +1852,8 @@ function renderReloginPanel() {
       + '——範本文字要留的話請先自己複製。';
   if (RELOGIN_SENT) {
     t += '\n這一批已送出，不要重寄。';
+  } else if (RELOGIN_UNKNOWN) {
+    t += '\n' + RELOGIN_UNKNOWN_MSG;
   } else if (RELOGIN_HAD_OTP) {
     t += '\n⚠️ 手上這組驗證碼回來之後不能再用（這一頁不會記住它），請重新按「寄驗證碼」。';
   } else if (RELOGIN_OTP_MAYBE) {
@@ -1983,6 +1994,7 @@ function applyDraft(d) {
       + '。';
   }
   if (d.sent) extra.push('這一批已送出，不要重寄——上面還原的是已經送出的那一批人。');
+  else if (d.unknown) extra.push(RELOGIN_UNKNOWN_MSG + '上面還原的是那一批人。');
   else if (d.otpArmed) extra.push('驗證碼要重新寄一次：請按「寄驗證碼到我的信箱」。');
   setNote('restore-note', [head].concat(extra).join('\n'), bad ? 'err' : 'ok');
 }

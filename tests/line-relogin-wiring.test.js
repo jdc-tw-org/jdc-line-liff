@@ -94,8 +94,9 @@ function ctxWith(o) {
   vm.runInContext(declSrc(/^var DRAFT_KEY = '[^']+';/m, 'DRAFT_KEY'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_TTL_MS = [^;]+;/m, 'DRAFT_TTL_MS'), ctx);
   vm.runInContext(declSrc(/^var DRAFT_MARK_KEY = '[^']+';/m, 'DRAFT_MARK_KEY'), ctx);
+  vm.runInContext(declSrc(/^var RELOGIN_UNKNOWN_MSG = '[^']+';/m, 'RELOGIN_UNKNOWN_MSG'), ctx);
   vm.runInContext('var RELOGIN_PANEL = false, RELOGIN_SAVED = false, RELOGIN_HAD_OTP = false,'
-    + ' RELOGIN_SENT = false, RELOGIN_OTP_MAYBE = false;', ctx);
+    + ' RELOGIN_SENT = false, RELOGIN_UNKNOWN = false, RELOGIN_OTP_MAYBE = false;', ctx);
   受測.forEach((n) => vm.runInContext(S.fnSrc(n), ctx, { filename: n }));
   if (o.tried) store.setItem(ctx.RELOGIN_FLAG_KEY, '1');
   return { ctx, els, el, calls, store, local };
@@ -405,6 +406,32 @@ test('🔴 🟡2 面板開著時送出成功 ⇒ 面板與回來的提示都講�
   back.ctx.afterInitialLoad(true);
   const n = back.el('restore-note').textContent;
   assert.match(n, /這一批已送出，不要重寄/);
+  assert.doesNotMatch(n, /重新寄一次/, '還原提示在引導重發：' + n);
+});
+
+test('🔴 送出回 transport（狀態不明）⇒ 面板與回來的提示講「可能已經送出，不要重寄」，不叫她重寄', () => {
+  const t = ctxWith();
+  畫名單(t, 名單(), ['E001', 'E002']);
+  t.ctx.OTP_STATE = { armed: true };
+  t.ctx.CANCEL_NONCE = 'n1'; t.ctx.SEND_IN_FLIGHT = true;
+  t.ctx.onDeadCredential(死憑證, 'sendWelfareBroadcast', { cancel: '1' });
+  assert.match(t.el('relogin-msg').textContent, /寄驗證碼/, '⬛ 零點：送出回來前本來會叫她重寄');
+  t.ctx.OTP_STATE = { armed: false };      // transport 分支也先 disarmOtp
+  t.ctx.markReloginSent('unknown');
+  t.ctx.SEND_IN_FLIGHT = false;
+  const m = t.el('relogin-msg').textContent;
+  assert.match(m, /送出狀態不明，可能已經送出.*不要重寄/);
+  assert.doesNotMatch(m, /寄驗證碼/, '狀態不明還叫她重寄：' + m);
+  assert.doesNotMatch(m, /已送出，不要重寄/, '不明被講成確定已送出');
+  const d = JSON.parse(t.store.getItem(t.ctx.DRAFT_KEY));
+  assert.equal(d.unknown, true);
+  assert.equal(d.otpArmed, false);
+  const back = ctxWith();
+  back.store.setItem(back.ctx.DRAFT_KEY, t.store.getItem(t.ctx.DRAFT_KEY));
+  畫名單(back, 名單(), []);
+  back.ctx.afterInitialLoad(true);
+  const n = back.el('restore-note').textContent;
+  assert.match(n, /可能已經送出.*不要重寄/);
   assert.doesNotMatch(n, /重新寄一次/, '還原提示在引導重發：' + n);
 });
 

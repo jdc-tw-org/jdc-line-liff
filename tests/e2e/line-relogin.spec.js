@@ -68,6 +68,11 @@ async function open(page, o) {
     if (typeof v === 'function') v = v(params, n[a]);
     if (v === undefined) v = DEFAULTS[a] || { ok: true };
     if (v && v.__delayMs) { await new Promise((r) => setTimeout(r, v.__delayMs)); v = v.body; }
+    // `__transport`：回一段解析不了的東西 ⇒ gasCall 走 catch ⇒ `{transport:true}`（請求送出了、沒拿到答案）
+    if (v && v.__transport) {
+      await route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: 'x' });
+      return;
+    }
     await route.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8',
       body: 'cb(' + JSON.stringify(v) + ')' });
   });
@@ -382,5 +387,28 @@ test('🔴 🟡2 V3 反悔窗口取消被擋、但送出其實成功 ⇒ 面板�
   await expect.poll(async () => (await 副作用(page)).login).toBe(1);
   await 等名單(page);
   await expect(page.locator('#restore-note')).toContainText('這一批已送出，不要重寄');
+  await expect(page.locator('#restore-note')).not.toContainText('重新寄一次');
+});
+
+test('🔴 送出回 transport（狀態不明）⇒ 面板與回來的提示講「可能已經送出，不要重寄」，不出現重寄碼', async ({ page }) => {
+  await open(page, { 回應: {
+    sendWelfareBroadcast: (p) => (p.cancel ? 死憑證 : { __delayMs: 2500, body: { __transport: true } }),
+  } });
+  await 等名單(page);
+  await 取得驗證碼(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#btn-send').click();
+  await expect(page.locator('#cancel-box')).toBeVisible();
+  await page.locator('#btn-cancel-send').click();
+  await expect(page.locator('#relogin-msg'), '⬛ 零點：送出回來前是「驗證碼不能再用」').toContainText('驗證碼回來之後不能再用');
+  await expect(page.locator('#send-note'), '⬛ 零點：真的走到 transport 分支').toContainText('不確定對方有沒有收到', { timeout: 6000 });
+  await expect(page.locator('#btn-relogin')).toBeEnabled();
+  await expect(page.locator('#relogin-msg')).toContainText('送出狀態不明，可能已經送出');
+  await expect(page.locator('#relogin-msg')).toContainText('不要重寄');
+  await expect(page.locator('#relogin-msg')).not.toContainText('寄驗證碼');
+  await page.locator('#btn-relogin').click();
+  await expect.poll(async () => (await 副作用(page)).login).toBe(1);
+  await 等名單(page);
+  await expect(page.locator('#restore-note')).toContainText('可能已經送出');
   await expect(page.locator('#restore-note')).not.toContainText('重新寄一次');
 });
