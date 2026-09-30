@@ -26,8 +26,7 @@ const TPL_B = '{姓名}中秋節快樂';
 
 const DEFAULTS = {
   getWelfareAudience: { ok: true, rows: ROWS, audienceRev: 'REV1',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 },
-    msgLogToken: 'MT-abc', msgLogWhy: '' },
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 } },
   // 🔴 **欄位名必須與真實後端一致**：`getWelfareTemplates` 回的是 `templateId`。
   //    這裡原本寫 `id`，於是 54 條 e2e 全綠而線上的下拉整個壞掉
   //    （兩則寫進同一格、value 都是 "undefined"）。mock 與真實後端對不上時，
@@ -178,7 +177,7 @@ test('🔴 名單重繪不得清掉已經勾好的（SWR 會畫兩次，2026-08-
   // 第二次繪製（快取先畫、網路回來再畫的那一次）
   await page.evaluate(() => onAudienceLoaded({
     ok: true, rows: ROWS, audienceRev: 'REV1',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: 'MT-abc' }));
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 } }));
   await expect(page.locator('#cb-0')).toBeChecked();
   await expect(page.locator('#cb-1')).toBeChecked();
   await expect(page.locator('#picked-n')).toHaveText('已選 2 人');
@@ -189,25 +188,26 @@ test('對照組：重繪之後沒勾的仍然沒勾（證明上一條不是「�
   await pick(page, 0);
   await page.evaluate(() => onAudienceLoaded({
     ok: true, rows: ROWS, audienceRev: 'REV1',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: 'MT-abc' }));
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 } }));
   await expect(page.locator('#cb-3')).not.toBeChecked();
 });
 
 // 🔴 2026-09-13（訊息平台多人化「乙」，線 ML）：入口改走 LINE 登入。舊版這條斷言的是
 //    「href 帶 `?t=MT-abc`、換發失敗寫出 msgLogWhy」——那正是這一刀要拿掉的（瀏覽器拿 hub token 直接打 hub）。
-test('🔴 訊息紀錄入口走 LINE 登入：連到 line-messages.html?from=welfare，不帶 hub token（後端仍回 msgLogToken 也不用）', async ({ page }) => {
-  await open(page);   // DEFAULTS 的 getWelfareAudience 仍帶 msgLogToken: 'MT-abc'
+// 🪦 2026-09-30（jdc-tw-migration#93／#114）：後端已不再回 `msgLogToken`／`msgLogWhy`，
+//    夾具裡的這兩格是殘影、已拿掉（原本第二段「換發失敗寫出 msgLogWhy」的情境也跟著不存在）。
+//    下面第二段**刻意**塞一顆 `msgLogToken`：它不是在模擬現在的後端，是擋「有人又去讀它」。
+test('🔴 訊息紀錄入口走 LINE 登入：連到 line-messages.html?from=welfare，不帶 hub token', async ({ page }) => {
+  await open(page);
   await expect(page.locator('#msglog-entry a'))
     .toHaveAttribute('href', 'line-messages.html?from=welfare&days=180');
 
-  // 換發失敗（舊 token 路的原因）不再影響入口：連結照樣在、不顯示舊路的錯誤。
+  // 刻意夾帶（見上）：回應裡就算又出現這一格，入口也不可以把它帶上網址。
   await open(page, { responses: { getWelfareAudience: {
     ok: true, rows: ROWS, audienceRev: 'REV1',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 },
-    msgLogToken: '', msgLogWhy: 'HUB_VIEWER_BY_ROLE 還沒有 welfare 這一格。' } } });
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: 'MT-abc' } } });
   await expect(page.locator('#msglog-entry a'))
     .toHaveAttribute('href', 'line-messages.html?from=welfare&days=180');
-  await expect(page.locator('#msglog-entry')).not.toContainText('還沒有 welfare 這一格');
 });
 
 /* ══════════════ 範本編輯 ══════════════ */
@@ -702,7 +702,7 @@ const U_ROWS = [
   { empNo: 'T402', name: '測試丁二', unit: '丁組', email: 'd2@x.tw', userId: 'U402', status: 'ambiguous' },
 ];
 const U_AUD = { ok: true, rows: U_ROWS, audienceRev: 'REV-U',
-  counts: { ok: 6, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: '', msgLogWhy: '' };
+  counts: { ok: 6, unbound: 1, no_email: 1, ambiguous: 1 } };
 const openU = (page) => open(page, { responses: { getWelfareAudience: U_AUD } });
 const tile = (page, u) => page.locator(`#unit-tiles .tile[data-unit="${u}"]`);
 /** 所有 checkbox 的勾選狀態（含藏起來的單位）。 */
@@ -1124,7 +1124,7 @@ test('🔴 名單換序後重繪，勾選要跟著「人」走，不是跟著位
   const before = await page.evaluate(() => ROWS[0].empNo);
   await page.evaluate((rows) => onAudienceLoaded({
     ok: true, rows: rows, audienceRev: 'REV2',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: 'MT-abc' }),
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 } }),
     ROWS_SWAPPED);
   const after = await page.evaluate(() => ROWS.filter((r, i) => {
     const cb = document.getElementById('cb-' + i); return cb && cb.checked;
@@ -1138,7 +1138,7 @@ test('對照組：順序不變時當然也要保留（證明上一條不是「�
   await pick(page, 0);
   await page.evaluate((rows) => onAudienceLoaded({
     ok: true, rows: rows, audienceRev: 'REV1',
-    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 }, msgLogToken: 'MT-abc' }),
+    counts: { ok: 3, unbound: 1, no_email: 1, ambiguous: 1 } }),
     ROWS);
   const after = await page.evaluate(() => ROWS.filter((r, i) => {
     const cb = document.getElementById('cb-' + i); return cb && cb.checked;

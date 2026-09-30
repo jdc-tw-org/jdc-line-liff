@@ -149,6 +149,12 @@ function ctxWith(names, opt) {
   // ⚠️ **載入真的 wfCall，不另做替身**——替身會把「憑證有沒有掛上去」整個跳過，
   //    而那正是這一輪加的東西。底下的 gasCall 仍是替身。
   ctx.freshIdToken = () => (opt.idToken === undefined ? 'stub-id-token' : opt.idToken);
+  // #114：wfCall 的解析出口與重登鈕。這支檔不測它們（在 `line-relogin-wiring.test.js`），
+  //    預設原樣交還／noop；要測的時候由 `names` 載入真的那一支覆寫。
+  ctx.onDeadCredential = (r) => r;
+  ctx.onReloginClick = () => {};
+  ctx.refreshReloginPanel = () => {};
+  ctx.syncReloginButton = () => {};
   vm.createContext(ctx);
   vm.runInContext(fnSrc('wfCall'), ctx, { filename: 'wfCall' });
   // ⚠️ 後載入的定義會覆寫上面的替身——這正是要的：受測的那幾支用真的，其餘用替身
@@ -205,11 +211,12 @@ test('對照組：受測函式都抽得到，而且不是空的', () => {
 test('🔴 訊息紀錄入口拿到的是 audience 回應本身（不是鏈尾巴的 undefined）', async () => {
   const { ctx, calls } = ctxWith(['loadAudience', 'onAudienceLoaded'], {
     responses: { getWelfareAudience:
-      { ok: true, rows: [], audienceRev: 'R1', msgLogToken: 'MT-123' } },
+      { ok: true, rows: [], audienceRev: 'R-MARK-123' } },
   });
   await vm.runInContext('loadAudience()', ctx);
   assert.equal(calls.msglog.length, 1, 'renderMsgLogEntry 沒有被呼叫');
-  assert.equal(calls.msglog[0] && calls.msglog[0].msgLogToken, 'MT-123',
+  // 記號用 audienceRev（#93 之後後端不再回 msgLogToken，原本拿它當記號）
+  assert.equal(calls.msglog[0] && calls.msglog[0].audienceRev, 'R-MARK-123',
     '拿到的不是 audience 回應——第六輪就是這裡拿到 undefined 而 TypeError');
 });
 
@@ -690,8 +697,10 @@ function liffCtx(liffStub, extra) {
   const { ctx, calls, els } = ctxWith(['startLiff', 'liffGate', 'liffOpen', 'liffBlock',
     'freshIdToken'], {});
   const loaded = [];
-  ctx.loadAudience = () => { loaded.push('audience'); return Promise.resolve(); };
-  ctx.loadTemplates = () => loaded.push('templates');
+  ctx.loadAudience = () => { loaded.push('audience'); return Promise.resolve(true); };
+  // #114：startLiff 會等範本載完才跑還原（afterInitialLoad），所以這裡要回 Promise。
+  ctx.loadTemplates = () => { loaded.push('templates'); return Promise.resolve(true); };
+  ctx.afterInitialLoad = (ok) => loaded.push('after:' + ok);
   ctx.location = { href: 'https://x/line.html?t=T', reload() {} };
   ctx.window = ctx;
   if (liffStub) ctx.liff = liffStub;
@@ -746,7 +755,8 @@ test('🔴 已登入且拿得到憑證：開閘並載資料', () => {
     getIDToken: () => 'tok', login() {},
   });
   return vm.runInContext('startLiff()', ctx).then(() => {
-    assert.deepStrictEqual(loaded, ['audience', 'templates'], '沒載資料：' + JSON.stringify(loaded));
+    assert.deepStrictEqual(loaded, ['audience', 'templates', 'after:true'],
+      '沒載資料，或還原沒排在兩支都載完之後（#114）：' + JSON.stringify(loaded));
     assert.ok(!gateShut(els), '閘沒開 ⇒ 她看得到畫面卻按不到任何東西');
   });
 });
@@ -931,7 +941,8 @@ test('🔴 每一支 welfare 呼叫都要走 wfCall，不可以有人直接呼�
   //    不排除的話這條會永遠是紅的，而永遠響的紅燈比沒有判準更糟。
   // ⚠️ **要剝註解**：第 858 行有一句註解提到 gasCall（在講 nonce 的產生時機）。
   //    不剝的話這條永遠是紅的——而永遠響的紅燈比沒有判準更糟。
-  const WF_OWN = 'return gasCall(GAS_URL, action, p, timeoutMs);';
+  // #114 之後這一行後面接了 `.then(onDeadCredential…)`（換行），所以不含分號。
+  const WF_OWN = 'return gasCall(GAS_URL, action, p, timeoutMs)';
   const 直呼 = [];
   stripComments(SRC).split('\n').forEach((ln, i) => {
     if (/gasCall\(/.test(ln) && ln.indexOf(WF_OWN) < 0) {
