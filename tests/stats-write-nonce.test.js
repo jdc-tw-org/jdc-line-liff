@@ -34,7 +34,7 @@ const nonceOf = (u) => new URL(u).searchParams.get('nonce');
  *   - 可排程的 fetch：`plan[action]` 是一串回應，用完就回預設 `{ok:true}`
  *   - 重送間隔（jsonp 的 2000ms、jsonpW 的 1500ms）縮成 1ms，其餘計時器不動
  */
-function boot() {
+function boot({ fastTimeout = false } = {}) {
   const r = runPage({ file: FILE, search: '?t=STUBTOKEN&act=A1' });
   const { ctx, urls } = r;
   const plan = {};
@@ -45,13 +45,16 @@ function boot() {
     // 沒排程的一律 {ok:false}：不讓假 DOM 上的渲染器去碰它不需要的欄位（同 stats-e1b-wiring 的 replying）
     const step = (q && q.length) ? q.shift() : { ok: false, msg: '測試替身' };
     // GAS 404：回的是 HTML，沒有 JSONP 外皮 ⇒ 頁面的解析會丟 'bad'——與「斷線」同一條傳輸失敗路徑
+    // 'hang'：請求送出去了但永遠不回 ⇒ 走 jsonp 的逾時（AbortError）那條傳輸失敗路徑
+    if (step === 'hang') return new Promise(() => {});
     if (step === 404) return Promise.resolve({ text: () => Promise.resolve('<!DOCTYPE html><html><body>404 Not Found</body></html>') });
     return Promise.resolve({ text: () => Promise.resolve('cb(' + JSON.stringify(step) + ')') });
   };
   const els = {};
   ctx.document.getElementById = (id) => (els[id] = els[id] || fakeEl());
   const origSet = ctx.setTimeout;
-  ctx.setTimeout = (fn, ms) => origSet(fn, (ms === 2000 || ms === 1500) ? 1 : ms);
+  // fastTimeout：jsonp 的逾時計時器（30s／45s／60s／120s，都 ≥30000）縮成 5ms，不必真的等兩分鐘
+  ctx.setTimeout = (fn, ms) => origSet(fn, (ms === 2000 || ms === 1500) ? 1 : (fastTimeout && ms >= 30000) ? 5 : ms);
   ctx.confirm = () => true;
   ctx.prompt = () => 'X';
   return Object.assign(r, { plan, els });
@@ -428,3 +431,55 @@ test('⬛ 對照組：完整性掃描器對「拿掉一支的 nonce」會命中'
 test('註解不再寫「僅限讀取」（那個前提不成立，#123）', () => {
   assert.equal(/僅限「?讀取」?/.test(SRC), false);
 });
+
+/* ══ 逾時那條傳輸失敗（#123 驗證軌突變 V15）════════════════════════════ */
+// 上面的傳輸失敗全用 404 模擬（解析丟 'bad'）。**逾時走的是另一個分支**（AbortError），
+// 而發送入口最常見的真實失敗正是 120 秒逾時。V15「只有 404 標 transport、逾時不標」在只有 404 案例時存活。
+// fetch 永遠不回（'hang'）＋把 ≥30s 的逾時計時器縮成 5ms。
+
+test('逾時 jsonp（帶 timeoutMs 的寫入）⇒ transport:true、訊息是連線逾時', async () => {
+  const h = boot({ fastTimeout: true });
+  try {
+    await drain();
+    h.plan.sendSeniorNotice = ['hang'];
+    const r = await h.ctx.jsonp('sendSeniorNotice', { token: 'STUBTOKEN', nonce: 'N1' }, 120000);
+    assert.equal(r.ok, false);
+    assert.equal(r.transport, true, '逾時沒標 transport ⇒ 發送入口會把「可能已送出」說成一般失敗');
+    assert.match(r.msg, /逾時/);
+  } finally { h.cleanup(); }
+});
+
+test('逾時 jsonp（讀取，沒帶 timeoutMs）⇒ 照舊重送一次，兩發都逾時後回 transport:true', async () => {
+  const h = boot({ fastTimeout: true });
+  try {
+    await drain();
+    h.plan.getBindLink = ['hang', 'hang'];
+    const from = execOnly(h.urls).length;
+    const r = await h.ctx.jsonp('getBindLink', { token: 'STUBTOKEN' });
+    assert.equal(sent(h.urls, 'getBindLink', from).length, 2, '讀取逾時後沒有重送');
+    assert.equal(r.transport, true);
+  } finally { h.cleanup(); }
+});
+
+for (const s of SENDERS) {
+  test(`K4 ${s.name}：逾時 ⇒ 說「不確定有沒有送出」、重新載入發送狀態、只送 1 發`, async () => {
+    const h = boot({ fastTimeout: true });
+    try {
+      await drain();
+      s.setup(h.ctx, h.els);
+      h.plan[ACTION[s.name]] = ['hang'];
+      if (s.reloadBody) Object.assign(h.plan, s.reloadBody());
+      const from = execOnly(h.urls).length;
+      s.run(h.ctx);
+      const reloaded = await waitFor(() => execOnly(h.urls).slice(from).some(s.reload));
+      if (s.after) await waitFor(() => s.after(h.ctx));
+      await drain();
+      const text = h.els[s.msg].textContent;
+      assert.match(text, /不確定有沒有送出/, s.name + ' 逾時卻說：「' + text + '」');
+      assert.ok(reloaded, s.name + ' 逾時後沒有重新載入發送狀態（實送：'
+        + execOnly(h.urls).slice(from).map(actionOf).join(',') + '）');
+      assert.equal(sent(h.urls, ACTION[s.name], from).length, 1, s.name + ' 逾時後自動重送了發送');
+      if (s.after) assert.ok(s.after(h.ctx), s.name + ' 重載回來了，發送狀態卻沒更新');
+    } finally { h.cleanup(); }
+  });
+}
