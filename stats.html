@@ -1305,19 +1305,24 @@ function snBusyRun(run){
  */
 function snReload(selectKey,okMsg){
   var y=document.getElementById('sn-year').value||String(currentTaipeiYear());
-  return queueRead(function(){
-    return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
-      return cacheSave(FP,N.senior(y),r2).then(function(){
-        if(r2&&r2.ok){
-          settleRefresh('sn-people',r2,null);
-          renderSenior(r2,selectKey);
-          if(okMsg)setMsg('sn-msg',okMsg,'ok');
-          return;
-        }
-        // 讀不到最新清單 ⇒ 畫面上那份是改動前的，**不可以再拿它刪或發**——清掉 SN，按鈕就不動作
-        SN=null;
-        setMsg('sn-msg',(okMsg?okMsg+'但':'')+'清單重新載入失敗，請重新整理頁面再操作。','err');
-      });
+  return queueRead(function(){return snReloadNow(y,selectKey,okMsg);});
+}
+/**
+ * `snReload` 的本體，**不排隊**——只給已經在 `queueRead` 裡面的呼叫端用（#129 `snApplyList` 的退路）。
+ * ⚠️ 在排隊中的函式裡再呼叫 `queueRead` 會自己等自己（佇列尾巴要等目前這一支結束）⇒ 永遠卡住。
+ */
+function snReloadNow(y,selectKey,okMsg){
+  return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
+    return cacheSave(FP,N.senior(y),r2).then(function(){
+      if(r2&&r2.ok){
+        settleRefresh('sn-people',r2,null);
+        renderSenior(r2,selectKey);
+        if(okMsg)setMsg('sn-msg',okMsg,'ok');
+        return;
+      }
+      // 讀不到最新清單 ⇒ 畫面上那份是改動前的，**不可以再拿它刪或發**——清掉 SN，按鈕就不動作
+      SN=null;
+      setMsg('sn-msg',(okMsg?okMsg+'但':'')+'清單重新載入失敗，請重新整理頁面再操作。','err');
     });
   });
 }
@@ -1348,28 +1353,36 @@ function snRememberStatus(r){
  */
 function snApplyList(r,selectKey,okMsg,newId){
   var L=r&&r.list;
-  var shaped=!!(SN&&L&&Array.isArray(L.ids)&&Array.isArray(L.titles)&&Array.isArray(L.templates)
+  var shaped=!!(L&&Array.isArray(L.ids)&&Array.isArray(L.titles)&&Array.isArray(L.templates)
     &&Array.isArray(L.disabled)&&L.ids.length===L.titles.length&&L.ids.length===L.templates.length);
   if(!shaped)return snReload(selectKey,okMsg);
-  var status=[];
-  for(var k=0;k<L.ids.length;k++){
-    var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];
-    if(!st&&newId!=null&&id===String(newId))st=SN.why?'unknown':'unsent';
-    if(!st)return snReload(selectKey,okMsg);
-    status.push(st);
-  }
-  var next={};
-  for(var f in SN)if(Object.prototype.hasOwnProperty.call(SN,f))next[f]=SN[f];
-  next.ids=L.ids.slice();next.titles=L.titles.slice();next.templates=L.templates.slice();
-  next.disabled=L.disabled.slice();next.status=status;
-  SN=next;
-  snRememberStatus(SN);   // 新增那則的狀態也記下來，下一個動作才對得到
-  snRenderTpl(SN,selectKey);
-  snPickMsg();
-  if(okMsg)setMsg('sn-msg',okMsg,'ok');
-  // 下次開頁的秒顯也要是寫入後的清單（改版前 snReload 會存）；cacheSave 不會失敗（失敗自己吞掉）
   var y=document.getElementById('sn-year').value||String(currentTaipeiYear());
-  return cacheSave(FP,N.senior(y),SN);
+  // 🔴 重畫也排進 queueRead（驗證軌 V4，2026-10-01）：比這次寫入**早發出**的讀取（發送後的 snLoad、
+  //    切年度的 snLoad）可能還在飛，它回來時會用**寫入前**的清單 renderSenior 一次。不排隊 ⇒ 寫入後的清單
+  //    先畫、舊清單後到把它蓋掉（已刪的又出現、成功訊息被清掉）——#126 擋的同一型，只是從快取換成較早的讀取。
+  //    排隊 ⇒ 與改版前的 snReload 同序：先到的先畫，寫入後的清單最後畫。**不多打任何一發**。
+  //    狀態也在排到之後才對：前面那支讀取若帶回較新的發送狀態，用的是它。
+  return queueRead(function(){
+    if(!SN)return snReloadNow(y,selectKey,okMsg);
+    var status=[];
+    for(var k=0;k<L.ids.length;k++){
+      var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];
+      if(!st&&newId!=null&&id===String(newId))st=SN.why?'unknown':'unsent';
+      if(!st)return snReloadNow(y,selectKey,okMsg);   // 已在佇列裡，不可再 queueRead（會自己等自己）
+      status.push(st);
+    }
+    var next={};
+    for(var f in SN)if(Object.prototype.hasOwnProperty.call(SN,f))next[f]=SN[f];
+    next.ids=L.ids.slice();next.titles=L.titles.slice();next.templates=L.templates.slice();
+    next.disabled=L.disabled.slice();next.status=status;
+    SN=next;
+    snRememberStatus(SN);   // 新增那則的狀態也記下來，下一個動作才對得到
+    snRenderTpl(SN,selectKey);
+    snPickMsg();
+    if(okMsg)setMsg('sn-msg',okMsg,'ok');
+    // 下次開頁的秒顯也要是寫入後的清單（改版前 snReload 會存）；cacheSave 不會失敗（失敗自己吞掉）
+    return cacheSave(FP,N.senior(y),SN);
+  });
 }
 function snLoad(){
   // ⚠️ 預設值必須是 String(currentTaipeiYear())，與第二發送出的 p.year 同一個字串——

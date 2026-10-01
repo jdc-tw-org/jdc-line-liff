@@ -782,14 +782,14 @@ test('#129 ⬛ 突變：沒有清單時不退回重讀 ⇒ K3 紅', async () => 
 });
 
 test('#129 ⬛ 突變：重畫時連名冊一起重畫（呼叫 renderSenior）⇒ K2「名冊不重畫」紅', async () => {
-  await mustRed(mutated('  snRenderTpl(SN,selectKey);\n  snPickMsg();', '  renderSenior(SN,selectKey);'), async (h, g) => {
+  await mustRed(mutated('    snRenderTpl(SN,selectKey);\n    snPickMsg();', '    renderSenior(SN,selectKey);'), async (h, g) => {
     await runAdd(h, g);
     assert.strictEqual(String(h.els['sn-people'].innerHTML), 'PEOPLE-MARK');
   });
 });
 
 test('#129 ⬛ 突變：對不到狀態時猜「未發送」而不退回重讀 ⇒ 恢復那條紅', async () => {
-  await mustRed(mutated('    if(!st)return snReload(selectKey,okMsg);', "    if(!st)st='unsent';"), async (h, g) => {
+  await mustRed(mutated('      if(!st)return snReloadNow(y,selectKey,okMsg);   // 已在佇列裡，不可再 queueRead（會自己等自己）', "      if(!st)st='unsent';"), async (h, g) => {
     const after = noticeD(['表揚', '舊的', '問卷', '截止'], ['legacy-0', 'uuid-d', 'legacy-1', 'legacy-2'], []);
     h.plan.restoreSeniorTemplate = [{ ok: true, id: 'uuid-d', idx: 1, list: listOf(after) }];
     click(h, 0);
@@ -800,7 +800,7 @@ test('#129 ⬛ 突變：對不到狀態時猜「未發送」而不退回重讀 �
 });
 
 test('#129 ⬛ 突變：狀態依則次而不是依編號沿用 ⇒ 刪除那條紅（刪了中間那則，後面的狀態位移）', async () => {
-  await mustRed(mutated("    var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];", "    var id=String(L.ids[k]),st=SN.status[k];"), async (h) => {
+  await mustRed(mutated("      var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];", "      var id=String(L.ids[k]),st=SN.status[k];"), async (h) => {
     h.plan.removeSeniorTemplate = [{ ok: true, list: listOf(OPS129.del.after) }];
     OPS129.del.press(h);
     await waitFor(() => msg(h) === '已刪除。');
