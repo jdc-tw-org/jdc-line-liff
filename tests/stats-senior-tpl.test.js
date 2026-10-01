@@ -33,8 +33,8 @@ function notice(titles, ids) {
  * 起一頁 stats，換上：依 id 記住的假 DOM、可排程的 fetch、**永遠回舊清單的快取**、不吃第二發。
  * 寫入動作的回應由 `plan[action]` 排；getSeniorNotice 的回應由 `latest()` 決定（呼叫當下的最新清單）。
  */
-function boot({ stale, latest }) {
-  const r = runPage({ file: FILE, search: '?t=STUBTOKEN&act=A1' });
+function boot({ stale, latest, html }) {
+  const r = runPage({ file: FILE, search: '?t=STUBTOKEN&act=A1', html: html == null ? null : html });
   const { ctx, urls } = r;
   const plan = {};
   const confirms = [];
@@ -564,4 +564,247 @@ test('#128 取消（prompt 按取消／confirm 按否）⇒ 不上鎖、不顯�
     assert.notStrictEqual(msg(h), '處理中…');
     assert.strictEqual(h.ctx.SN_BUSY, false);
   } finally { h.cleanup(); }
+});
+
+/* ══ #129 寫入回應附清單 ⇒ 不再打 getSeniorNotice ═══════════════════════
+ *
+ * jdc-tw-migration#129（2026-10-01）：每次新增／刪除／儲存／恢復都是兩發串接的 GAS 呼叫，第二發
+ * `getSeniorNotice` 要讀名冊、使用者清單、巢狀打 hub，只為了拿最新範本清單。gas 起四支寫入的成功回應附
+ * `list`（`{ids,titles,templates,disabled}`，與 getSeniorNotice 同名同形），前端只重畫範本下拉與停用清單。
+ *   #129 K1 四個動作各只發 1 次後端呼叫，getSeniorNotice 計數＝0
+ *   #129 K2 下拉選到該則、成功訊息照舊、清單＝回應清單；名冊與勾選不重畫；發送狀態依編號沿用
+ *   #129 K3 舊版後端（回應沒有清單）⇒ 退回 snReload，行為同現行
+ *   （#128 的鎖與「處理中…」在新路徑上不退化；狀態對不到時寧可退回重讀，不可顯示成「未發送」）
+ * ⚠️ 替身裡 getSeniorNotice 的「最新清單」刻意與回應清單**不同**——兩條路畫出來一樣的話，這一段什麼都沒測到。
+ * ═════════════════════════════════════════════════════════════════════ */
+
+const listOf = (n) => ({ ids: n.ids.slice(), titles: n.titles.slice(), templates: n.templates.slice(),
+  disabled: (n.disabled || []).map((x) => Object.assign({}, x)) });
+/** 畫面原本那份：第 2 則（問卷）發過、第 3 則（截止）狀態不明；停用清單有「舊的」。名冊有一個人。 */
+function before129() {
+  const r = noticeD(['表揚', '問卷', '截止'], ['legacy-0', 'legacy-1', 'legacy-2'], [D_OLD]);
+  r.status = ['unsent', 'sent', 'unknown'];
+  r.audience = [{ status: 'ok', userId: 'U1', name: '己', unit: '工務', years: 5 }];
+  return r;
+}
+/** 四個動作成功後的回應（附清單）與對應的期望。`after` 是寫入後的範本清單。 */
+const OPS129 = {
+  add: { action: 'addSeniorTemplate', press: (h) => h.ctx.snAddTpl(),
+    after: noticeD(['表揚', '問卷', '截止', '測試-刪除用'], ['legacy-0', 'legacy-1', 'legacy-2', 'uuid-new'], [D_OLD]),
+    res: { ok: true, id: 'uuid-new', idx: 3 }, sel: 'uuid-new', okMsg: /^已新增，內容還是空的。$/,
+    status: ['unsent', 'sent', 'unknown', 'unsent'] },
+  del: { action: 'removeSeniorTemplate', press: (h) => { h.els['sn-idx'].value = 'legacy-1'; h.ctx.snDelTpl(); },
+    after: noticeD(['表揚', '截止'], ['legacy-0', 'legacy-2'], [D_OLD, { id: 'legacy-1', title: '問卷', disabledAt: '2026-10-01T05:00:00.000Z' }]),
+    res: { ok: true }, sel: 'legacy-0', okMsg: /^已刪除。$/, status: ['unsent', 'unknown'] },
+  save: { action: 'saveSeniorTemplate', press: (h) => { h.els['sn-idx'].value = 'legacy-2'; h.els['sn-tpl'].value = '改過'; h.ctx.snSaveTpl(); },
+    after: (() => { const n = noticeD(['表揚', '問卷', '截止'], ['legacy-0', 'legacy-1', 'legacy-2'], [D_OLD]); n.templates[2] = '改過'; return n; })(),
+    res: { ok: true, id: 'legacy-2' }, sel: 'legacy-2', okMsg: /^已儲存。$/, status: ['unsent', 'sent', 'unknown'] },
+};
+
+async function boot129(html) {
+  // getSeniorNotice 若被打到，回的是一份**與回應清單不同**的清單（多一則「重讀才有」）
+  const RELOAD = noticeD(['重讀才有'], ['uuid-reload'], []);
+  const h = boot({ stale: before129(), latest: () => RELOAD, html });
+  await drain(); stubCache(h);
+  const saved = [];
+  h.ctx.cacheSave = (_t, name, obj) => { saved.push({ name, obj: JSON.parse(JSON.stringify(obj)) }); return Promise.resolve(); };
+  h.ctx.renderSenior(before129());
+  h.els['sn-people'].innerHTML = 'PEOPLE-MARK';   // 名冊被重畫就會被換掉
+  const g = gated(h);
+  return { h, g, saved };
+}
+const reloads = (g) => g.counts.getSeniorNotice || 0;
+
+Object.keys(OPS129).forEach((name) => {
+  const op = OPS129[name];
+  test('#129 K1＋K2 ' + name + '：只發 1 次（getSeniorNotice＝0），選取／訊息／清單／狀態對，名冊不重畫', async () => {
+    const { h, g, saved } = await boot129();
+    try {
+      h.plan[op.action] = [Object.assign({ list: listOf(op.after) }, op.res)];
+      op.press(h);
+      assert.ok(await waitFor(() => op.okMsg.test(msg(h))), '沒有成功訊息（實際：' + msg(h) + '）');
+      await drain();
+      assert.strictEqual(g.counts[op.action], 1, '寫入送了 ' + g.counts[op.action] + ' 發');
+      assert.strictEqual(reloads(g), 0, '寫入回應已附清單，還打了 getSeniorNotice');
+      assert.strictEqual(sel(h), op.sel, '下拉沒有選到該則');
+      assert.match(msg(h), op.okMsg, '成功訊息被清掉');
+      assert.deepStrictEqual(Array.from(h.ctx.SN.ids), op.after.ids, '畫面清單不是回應附的那份');
+      assert.deepStrictEqual(Array.from(h.ctx.SN.templates), op.after.templates);
+      assert.deepStrictEqual(h.ctx.SN.disabled.map((x) => x.id), op.after.disabled.map((x) => x.id), '停用清單不是回應附的那份');
+      assert.deepStrictEqual(Array.from(h.ctx.SN.status), op.status, '發送狀態沒有依編號沿用');
+      assert.strictEqual(String(h.els['sn-people'].innerHTML), 'PEOPLE-MARK', '名冊被重畫了（勾選會被清掉）');
+      assert.strictEqual(h.ctx.SN.audience.length, 1, '名冊資料被換掉');
+      assert.ok(lockedNone(h), '畫完沒有解鎖');
+      assert.ok(saved.length >= 1 && saved[saved.length - 1].obj.ids.join() === op.after.ids.join(),
+        '下次開頁的快取不是寫入後的清單');
+    } finally { h.cleanup(); }
+  });
+  test('#129 K3 ' + name + '：舊版後端（回應沒有清單）⇒ 退回 snReload 重讀整區（同現行）', async () => {
+    const { h, g } = await boot129();
+    try {
+      h.plan[op.action] = [op.res];
+      op.press(h);
+      assert.ok(await waitFor(() => op.okMsg.test(msg(h))), '實際：' + msg(h));
+      await drain();
+      assert.strictEqual(reloads(g), 1, '沒有清單卻沒重讀 ⇒ 畫面停在改動前的清單');
+      assert.deepStrictEqual(Array.from(h.ctx.SN.ids), ['uuid-reload'], '畫的不是重讀回來的清單');
+    } finally { h.cleanup(); }
+  });
+});
+
+test('#129 K1＋K2 恢復（刪除後同一個畫面裡恢復，H1 的情境）：只發 1 次、選到它、狀態沿用刪除前讀到的「發過」', async () => {
+  const { h, g } = await boot129();
+  try {
+    // 先刪「問卷」（發過的那則）
+    h.plan.removeSeniorTemplate = [{ ok: true, list: listOf(OPS129.del.after) }];
+    OPS129.del.press(h);
+    assert.ok(await waitFor(() => msg(h) === '已刪除。'));
+    await drain();
+    // 再從已停用清單恢復它（停用清單第 1 個位置）
+    const after = noticeD(['表揚', '問卷', '截止'], ['legacy-0', 'legacy-1', 'legacy-2'], [D_OLD]);
+    h.plan.restoreSeniorTemplate = [{ ok: true, id: 'legacy-1', idx: 1, list: listOf(after) }];
+    click(h, 1);
+    assert.ok(await waitFor(() => msg(h) === '已恢復。'), '實際：' + msg(h));
+    await drain();
+    assert.strictEqual(g.counts.restoreSeniorTemplate, 1);
+    assert.strictEqual(reloads(g), 0, '兩個動作加起來還打了 getSeniorNotice');
+    assert.strictEqual(sel(h), 'legacy-1');
+    assert.deepStrictEqual(Array.from(h.ctx.SN.status), ['unsent', 'sent', 'unknown'], '恢復的那則「發過」被弄丟了');
+    assert.strictEqual(h.ctx.snCur().status, 'sent');
+  } finally { h.cleanup(); }
+});
+
+test('#129 🔴 恢復的那則在這個畫面裡從沒讀過狀態（開頁前就停用了）⇒ 退回重讀，不顯示成「未發送」', async () => {
+  const { h, g } = await boot129();
+  try {
+    const after = noticeD(['表揚', '舊的', '問卷', '截止'], ['legacy-0', 'uuid-d', 'legacy-1', 'legacy-2'], []);
+    h.plan.restoreSeniorTemplate = [{ ok: true, id: 'uuid-d', idx: 1, list: listOf(after) }];
+    click(h, 0);
+    assert.ok(await waitFor(() => /已恢復/.test(msg(h))), '實際：' + msg(h));
+    await drain();
+    assert.strictEqual(reloads(g), 1, '狀態不明卻沒重讀 ⇒ 會被顯示成「未發送」');
+    assert.deepStrictEqual(Array.from(h.ctx.SN.ids), ['uuid-reload']);
+  } finally { h.cleanup(); }
+});
+
+test('#129 新增時 hub 上次讀不到（why）⇒ 新那則是「不明」不是「未發送」（與重讀整區的結果一致）', async () => {
+  const { h } = await boot129();
+  try {
+    const b = before129(); b.why = 'hub_down';
+    h.ctx.renderSenior(b);
+    h.plan.addSeniorTemplate = [{ ok: true, id: 'uuid-new', idx: 3, list: listOf(OPS129.add.after) }];
+    h.ctx.snAddTpl();
+    assert.ok(await waitFor(() => /已新增/.test(msg(h))));
+    await drain();
+    assert.strictEqual(h.ctx.SN.status[3], 'unknown');
+  } finally { h.cleanup(); }
+});
+
+test('#129 回應清單形狀不對（長度對不上／少一格）⇒ 退回重讀', async () => {
+  for (const bad of [{ ids: ['a'], titles: [], templates: [], disabled: [] },
+                     { ids: ['legacy-0'], titles: ['表揚'], templates: ['x'] }]) {
+    const { h, g } = await boot129();
+    try {
+      h.plan.saveSeniorTemplate = [{ ok: true, id: 'legacy-0', list: bad }];
+      h.ctx.snSaveTpl();
+      assert.ok(await waitFor(() => /已儲存/.test(msg(h))));
+      await drain();
+      assert.strictEqual(reloads(g), 1, JSON.stringify(bad));
+    } finally { h.cleanup(); }
+  }
+});
+
+test('#129 #128 不退化：新路徑上「處理中…」立即出現、全鎖、回應前再按不送第二發；畫完才解鎖', async () => {
+  const { h, g } = await boot129();
+  try {
+    g.hold('addSeniorTemplate');
+    h.ctx.snAddTpl();
+    await drain();
+    assert.strictEqual(msg(h), '處理中…');
+    assert.ok(lockedAll(h));
+    Object.keys(OPS).forEach((k) => OPS[k].press(h));
+    await drain();
+    assert.strictEqual(g.counts.addSeniorTemplate, 1);
+    ['removeSeniorTemplate', 'saveSeniorTemplate', 'restoreSeniorTemplate'].forEach((a) => assert.strictEqual(g.counts[a] || 0, 0, a));
+    g.release('addSeniorTemplate', { ok: true, id: 'uuid-new', idx: 3, list: listOf(OPS129.add.after) });
+    assert.ok(await waitFor(() => /已新增/.test(msg(h))));
+    await drain();
+    assert.ok(lockedNone(h));
+    assert.strictEqual(reloads(g), 0);
+  } finally { h.cleanup(); }
+});
+
+/* ── #129 突變對照：改壞 stats.html（記憶體裡）→ 上面的斷言要紅 ──────────── */
+
+const SRC = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', FILE), 'utf8');
+/** 恰好取代一次；找不到丟一般 Error（不是 AssertionError），免得「沒套上」被讀成「擋下了」。 */
+function mutated(from, to) {
+  const n = SRC.split(from).length - 1;
+  if (n !== 1) throw new Error('突變沒套上：原文出現 ' + n + ' 次：' + JSON.stringify(from));
+  return SRC.split(from).join(to);
+}
+async function mustRed(html, run) {
+  let red = false;
+  const { h, g } = await boot129(html);
+  try { await run(h, g); } catch (e) {
+    if (!(e instanceof assert.AssertionError)) throw e;
+    red = true;
+  } finally { h.cleanup(); }
+  assert.ok(red, '突變後斷言沒紅 ⇒ 這條量不到它要量的東西');
+}
+const runAdd = async (h, g) => {
+  h.plan.addSeniorTemplate = [{ ok: true, id: 'uuid-new', idx: 3, list: listOf(OPS129.add.after) }];
+  h.ctx.snAddTpl();
+  await waitFor(() => /已新增/.test(msg(h)));
+  await drain();
+  assert.strictEqual(reloads(g), 0);
+  assert.deepStrictEqual(Array.from(h.ctx.SN.ids), OPS129.add.after.ids);
+  assert.strictEqual(sel(h), 'uuid-new');
+};
+
+test('#129 ⬛ 突變（票上的對照組）：寫入後仍呼叫 getSeniorNotice ⇒ K1 紅', async () => {
+  await mustRed(mutated('  if(!shaped)return snReload(selectKey,okMsg);', '  return snReload(selectKey,okMsg);'), runAdd);
+});
+
+test('#129 ⬛ 突變（票上的對照組）：清單用寫入前的資料（畫面上那份）⇒ K2 紅', async () => {
+  await mustRed(mutated('  var L=r&&r.list;', '  var L=SN&&{ids:SN.ids,titles:SN.titles,templates:SN.templates,disabled:SN.disabled};'), runAdd);
+});
+
+test('#129 ⬛ 突變：沒有清單時不退回重讀 ⇒ K3 紅', async () => {
+  await mustRed(mutated('  if(!shaped)return snReload(selectKey,okMsg);', '  if(!shaped)return;'), async (h, g) => {
+    h.plan.saveSeniorTemplate = [{ ok: true, id: 'legacy-0' }];
+    h.ctx.snSaveTpl();
+    await waitFor(() => msg(h) !== '處理中…');
+    await drain();
+    assert.strictEqual(reloads(g), 1);
+    assert.match(msg(h), /已儲存/);
+  });
+});
+
+test('#129 ⬛ 突變：重畫時連名冊一起重畫（呼叫 renderSenior）⇒ K2「名冊不重畫」紅', async () => {
+  await mustRed(mutated('  snRenderTpl(SN,selectKey);\n  snPickMsg();', '  renderSenior(SN,selectKey);'), async (h, g) => {
+    await runAdd(h, g);
+    assert.strictEqual(String(h.els['sn-people'].innerHTML), 'PEOPLE-MARK');
+  });
+});
+
+test('#129 ⬛ 突變：對不到狀態時猜「未發送」而不退回重讀 ⇒ 恢復那條紅', async () => {
+  await mustRed(mutated('    if(!st)return snReload(selectKey,okMsg);', "    if(!st)st='unsent';"), async (h, g) => {
+    const after = noticeD(['表揚', '舊的', '問卷', '截止'], ['legacy-0', 'uuid-d', 'legacy-1', 'legacy-2'], []);
+    h.plan.restoreSeniorTemplate = [{ ok: true, id: 'uuid-d', idx: 1, list: listOf(after) }];
+    click(h, 0);
+    await waitFor(() => /已恢復/.test(msg(h)));
+    await drain();
+    assert.strictEqual(reloads(g), 1);
+  });
+});
+
+test('#129 ⬛ 突變：狀態依則次而不是依編號沿用 ⇒ 刪除那條紅（刪了中間那則，後面的狀態位移）', async () => {
+  await mustRed(mutated("    var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];", "    var id=String(L.ids[k]),st=SN.status[k];"), async (h) => {
+    h.plan.removeSeniorTemplate = [{ ok: true, list: listOf(OPS129.del.after) }];
+    OPS129.del.press(h);
+    await waitFor(() => msg(h) === '已刪除。');
+    await drain();
+    assert.deepStrictEqual(Array.from(h.ctx.SN.status), OPS129.del.status);
+  });
 });

@@ -1294,7 +1294,8 @@ function snBusyRun(run){
   });
 }
 /**
- * 範本改動（新增／刪除／儲存）之後的重載：**不先畫快取、不吃第二發**，等最新清單回來才畫（#126）。
+ * 範本改動之後的重讀整區：**不先畫快取、不吃第二發**，等最新清單回來才畫（#126）。
+ * #129 起是**退路**：寫入回應附了清單就走 `snApplyList`（少一發）；沒附或對不到發送狀態才走這裡。
  *
  * 🔴 為何（10-01 #123 H1）：快取與第二發都是**改動前**的清單。先畫它 ⇒ 下拉被重設、
  *    「已新增／已刪除」被 snPickMsg 清掉，而確認框讀的是畫面上那一份
@@ -1319,6 +1320,56 @@ function snReload(selectKey,okMsg){
       });
     });
   });
+}
+/**
+ * 每一則**最近一次讀到**的發送狀態，以「年度|編號」記（#129）。只由完整讀取（`renderSenior`）寫入。
+ * 為何要記：寫入回應只帶範本、不帶發送狀態；刪掉又恢復的那一則，在恢復前的清單裡沒有它的狀態，
+ * 要靠刪除前讀到的那一次。**記不到就不猜**——退回重讀整區（見 `snApplyList`）。
+ */
+var SN_ST_SEEN={};
+function snRememberStatus(r){
+  if(!r||!r.ok||!Array.isArray(r.status)||!Array.isArray(r.ids))return;
+  r.ids.forEach(function(id,k){if(r.status[k])SN_ST_SEEN[r.year+'|'+id]=r.status[k];});
+}
+/**
+ * 範本改動（新增／刪除／儲存／恢復）成功之後：**用寫入回應附的清單只重畫範本下拉與停用清單**（#129），
+ * 不再打 `getSeniorNotice`（那一發要讀名冊、使用者清單、還巢狀打 hub，是整個等待裡最重的一段）。
+ * 名冊、勾選、年度不動；畫的是寫入**之後**的清單（後端重讀分頁），不是快取（#126 的原則照舊）。
+ *
+ * 每一則的發送狀態沿用畫面上那份（以**編號**對應，不以則次）；新增的那則編號是新產生的、
+ * 不可能有發送紀錄 ⇒ 未發送（上次讀取 hub 讀不到時照舊是「不明」）。
+ * 🔴 **任何一則對不到狀態 ⇒ 退回 `snReload` 重讀整區**：寧可多等一發，也不可把狀態不明的那一則
+ *    顯示成「未發送」——那會引誘承辦人重發，而 LINE 收不回來（三態的理由，見 snPickMsg）。
+ * ⚠️ 回應沒有清單（舊版後端、寫入後重讀失敗、回應太大沒附）⇒ 同樣退回 `snReload`，行為與改版前相同。
+ * @param {Object} r 寫入回應（`r.list` 是 `{ids,titles,templates,disabled}`，與 getSeniorNotice 同名同形）
+ * @param {string|null} selectKey 畫完要選到的那一則；null＝第一則
+ * @param {string} okMsg 畫完才寫的成功訊息
+ * @param {string} [newId] 新增那一則的編號（只有新增傳）
+ */
+function snApplyList(r,selectKey,okMsg,newId){
+  var L=r&&r.list;
+  var shaped=!!(SN&&L&&Array.isArray(L.ids)&&Array.isArray(L.titles)&&Array.isArray(L.templates)
+    &&Array.isArray(L.disabled)&&L.ids.length===L.titles.length&&L.ids.length===L.templates.length);
+  if(!shaped)return snReload(selectKey,okMsg);
+  var status=[];
+  for(var k=0;k<L.ids.length;k++){
+    var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];
+    if(!st&&newId!=null&&id===String(newId))st=SN.why?'unknown':'unsent';
+    if(!st)return snReload(selectKey,okMsg);
+    status.push(st);
+  }
+  var next={};
+  for(var f in SN)if(Object.prototype.hasOwnProperty.call(SN,f))next[f]=SN[f];
+  next.ids=L.ids.slice();next.titles=L.titles.slice();next.templates=L.templates.slice();
+  next.disabled=L.disabled.slice();next.status=status;
+  SN=next;
+  snRememberStatus(SN);   // 新增那則的狀態也記下來，下一個動作才對得到
+  snRenderTpl(SN,selectKey);
+  snPickMsg();
+  if(okMsg)setMsg('sn-msg',okMsg,'ok');
+  // 下次開頁的秒顯也要是寫入後的清單（改版前 snReload 會存）；cacheSave 不會失敗（失敗自己吞掉）
+  var y=document.getElementById('sn-year').value||String(currentTaipeiYear());
+  return cacheSave(FP,N.senior(y),SN);
 }
 function snLoad(){
   // ⚠️ 預設值必須是 String(currentTaipeiYear())，與第二發送出的 p.year 同一個字串——
@@ -1391,19 +1442,13 @@ function renderSenior(r,selectKey){
     var box=document.getElementById('sn-people');
     if(!r||!r.ok){box.innerHTML='<div class="empty">'+esc((r&&r.msg)||'載入失敗')+'</div>';return;}
     SN=r;
+    snRememberStatus(r);   // #129：寫入後只換範本時，靠它對回每一則的發送狀態
     var ysel=document.getElementById('sn-year');
     if(!ysel.options.length){
       ysel.innerHTML=r.years.map(function(y){
         return '<option value="'+y+'"'+(y===r.year?' selected':'')+'>'+y+' 年度期滿</option>';}).join('');
     }
-    // 則數會變（可新增／刪除），所以每次都重建；用 keep 保住目前選到的那則。
-    // #126：value 是編號（舊版後端是則次）——以則次保留的話，清單一變就會指到別則。
-    var isel=document.getElementById('sn-idx');
-    var keep=(selectKey!==undefined)?selectKey:isel.value;
-    var keys=r.titles.map(function(_t,k){return snKey(r,k);});
-    isel.innerHTML=r.titles.map(function(t,k){return '<option value="'+esc(keys[k])+'">'+esc(t)+'</option>';}).join('');
-    isel.value=(keep!=null&&keys.indexOf(String(keep))>=0)?String(keep):(keys[0]||'');
-    snRenderDisabled(r);
+    snRenderTpl(r,selectKey);
     var sum=document.getElementById('sn-cnt');
     if(!r.audience.length){
       box.innerHTML='';
@@ -1441,6 +1486,20 @@ function renderSenior(r,selectKey){
     snPickMsg();
 }
 /**
+ * 範本下拉＋已停用清單（只畫範本，不碰名冊與勾選）。`renderSenior` 與 #129 的 `snApplyList` 共用這一份——
+ * 各寫一次「下拉怎麼建、選取怎麼保住」，分歧的樣子就是「寫完選到的與重新整理後選到的不一樣」。
+ */
+function snRenderTpl(r,selectKey){
+    // 則數會變（可新增／刪除），所以每次都重建；用 keep 保住目前選到的那則。
+    // #126：value 是編號（舊版後端是則次）——以則次保留的話，清單一變就會指到別則。
+    var isel=document.getElementById('sn-idx');
+    var keep=(selectKey!==undefined)?selectKey:isel.value;
+    var keys=r.titles.map(function(_t,k){return snKey(r,k);});
+    isel.innerHTML=r.titles.map(function(t,k){return '<option value="'+esc(keys[k])+'">'+esc(t)+'</option>';}).join('');
+    isel.value=(keep!=null&&keys.indexOf(String(keep))>=0)?String(keep):(keys[0]||'');
+    snRenderDisabled(r);
+}
+/**
  * 「已停用的訊息」清單（#127）。每一則配一顆「恢復」，按鈕只帶**位置**（`data-k`），
  * 恢復時從同一份 `SN.disabled` 取編號與標題——同 snCur() 的同源原則，不把字串塞進屬性再讀回來。
  * 舊版後端沒有 `disabled` 這一格 ⇒ 整塊收起來（見 HTML 那段註解）。
@@ -1471,7 +1530,7 @@ function snDisClick(e){
 }
 /**
  * 恢復第 k 則已停用的訊息（#127）。送**編號＋標題**，後端兩者都對得上才恢復（同刪除）；
- * 成功後等最新清單回來才畫（snReload，沿用 #126 的重畫規則）、選到恢復的那則、畫完才寫「已恢復。」。
+ * 成功後用回應附的寫入後清單重畫（#129 `snApplyList`；沒附才 snReload）、選到恢復的那則、畫完才寫「已恢復。」。
  */
 function snRestoreTpl(k){
   if(SN_BUSY||!SN||!Array.isArray(SN.disabled))return;
@@ -1481,7 +1540,7 @@ function snRestoreTpl(k){
   return snBusyRun(function(){
     return jsonp('restoreSeniorTemplate',{token:q('t'),id:x.id,title:x.title,nonce:nonce}).then(function(r){
       if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'恢復失敗','err');return;}
-      return snReload((r.id!=null&&r.id!=='')?String(r.id):String(x.id),'已恢復。');
+      return snApplyList(r,(r.id!=null&&r.id!=='')?String(r.id):String(x.id),'已恢復。');
     });
   });
 }
@@ -1526,7 +1585,7 @@ function snSaveTpl(){
     return jsonp('saveSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,nonce:nonce,
       text:text}).then(function(r){
       if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'儲存失敗','err');return;}
-      return snReload(key,'已儲存。');
+      return snApplyList(r,key,'已儲存。');
     });
   });
 }
@@ -1541,12 +1600,13 @@ function snAddTpl(){
     return jsonp('addSeniorTemplate',{token:q('t'),title:t,nonce:nonce}).then(function(r){
       if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'新增失敗','err');return;}
       // #126：新版後端回新編號；舊版只回則次。等最新清單回來再選到它（舊清單裡還沒有這一則）
-      return snReload((r.id!=null&&r.id!=='')?String(r.id):String(r.idx),'已新增，內容還是空的。');
+      return snApplyList(r,(r.id!=null&&r.id!=='')?String(r.id):String(r.idx),'已新增，內容還是空的。',r.id);
     });
   });
 }
 /**
- * 刪除目前這一則。刪完一律等最新清單回來再畫（snReload），不在前端自己拼。
+ * 刪除目前這一則。刪完用回應附的**寫入後**清單重畫（#129 `snApplyList`；沒附才 snReload），
+ * 不在前端從舊清單裡自己拿掉一則。
  * #126：送**編號＋標題**，後端兩者都對得上才刪；確認框的名稱與送出的編號取自同一個 snCur()。
  * idx 只給舊版後端（新版不收則次）。
  */
@@ -1563,7 +1623,7 @@ function snDelTpl(){
   return snBusyRun(function(){
     return jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title,nonce:nonce}).then(function(r){
       if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'刪除失敗','err');return;}
-      return snReload(null,'已刪除。');
+      return snApplyList(r,null,'已刪除。');
     });
   });
 }
