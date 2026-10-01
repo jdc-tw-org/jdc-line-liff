@@ -686,16 +686,22 @@ function chunkByLen(rows,maxEnc){
   return out;
 }
 /**
- * 寫入類呼叫：45s 逾時＋失敗自動重試（預設再試 2 次）。
- * 🔴 呼叫端必須在 params 帶**呼叫前就產生好的** nonce（#123）：遞迴重送沿用同一個 params ⇒ 同一個 nonce
- *    ⇒ 後端重播第一次的結果。分包的流程（addGuests 等）**每一包各自一個** nonce——
+ * 寫入類呼叫：45s 逾時＋**傳輸失敗**時自動重試（預設再試 2 次）。
+ * 🔴 只在傳輸失敗（逾時／斷線／404）重送；伺服器明確拒絕（transport:false）**不重送**——
+ *    拒絕是確定的答案，再送一次只會重播同一個拒絕或疊出第二次寫入（#123，YU 2026-10-01 拍板）。
+ * 🔴 「接在表尾」類（clearGuests 之後的 addGuests 等）呼叫端必須在 params 帶**呼叫前就產生好的** nonce：
+ *    遞迴重送沿用同一個 params ⇒ 同一個 nonce ⇒ 後端重播第一次的結果。分包時**每一包各自一個**——
  *    後端的鍵只有 nonce 本身，整批共用一個的話，第二包會被當成第一包的重送而**不寫入**。
+ * ⚠️ 整格覆寫類分包（setGuestTables／setTables）**刻意不帶**：重送結果相同、不需防重，
+ *    而每個 nonce 都在 Script Properties 留一把 10 分鐘的鍵（超過 50 個設定頁會變唯讀）。
+ *    白名單在 tests/stats-write-nonce.test.js 的 OVERWRITE_CHUNKS。
  */
 function jsonpW(action,params,tries){
   tries=(tries==null?2:tries);
   return jsonp(action,params,45000).then(function(r){
     if(r&&r.ok)return r;
     if(tries<=0)return r;
+    if(!(r&&r.transport))return r;      // 伺服器拒絕：不重送
     return new Promise(function(res){setTimeout(res,1500);}).then(function(){return jsonpW(action,params,tries-1);});
   });
 }
@@ -2015,13 +2021,13 @@ function upSeating(input){
               loadSeating();
             });return;
           }
-          var gn=newNonce();   // #123：每一包各自一個（理由見 jsonpW）
-          jsonpW('setGuestTables',{token:q('t'),actId:actId(),rows:JSON.stringify(gc),base:'1',nonce:gn}).then(nextG);
+          // #123：整格覆寫類分包，刻意不帶 nonce（理由見 jsonpW）
+          jsonpW('setGuestTables',{token:q('t'),actId:actId(),rows:JSON.stringify(gc),base:'1'}).then(nextG);
         })();
         return;
       }
-      var en=newNonce();   // #123：每一包各自一個（理由見 jsonpW）
-      jsonpW('setTables',{token:q('t'),actId:actId(),writes:JSON.stringify(c),nonce:en}).then(function(r){
+      // #123：整格覆寫類分包，刻意不帶 nonce（理由見 jsonpW）
+      jsonpW('setTables',{token:q('t'),actId:actId(),writes:JSON.stringify(c)}).then(function(r){
         if(!r||!r.ok){setMsg('sm-msg',(r&&r.msg)||'寫入失敗','err');return;}
         applied+=r.applied;eSkipped+=((r.skipped&&r.skipped.length)||0);next();
       });

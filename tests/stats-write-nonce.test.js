@@ -11,7 +11,8 @@
  *    量不到「重送時是不是同一個」——那正是唯一會靜默失效的地方。
  *
  * 檢核代號對照票上：K1 同一個 nonce／K2 重按換新的／K3 讀取不變／K4 發送入口分得出傳輸失敗。
- * 最後一段是完整性掃描：**每一個** jsonp／jsonpW 呼叫不是在唯讀白名單裡，就是帶 nonce（二擇一，逼新增的人表態）。
+ * 最後一段是完整性掃描：**每一個** jsonp／jsonpW 呼叫不是在唯讀白名單裡，就是帶 nonce（二擇一，逼新增的人表態）；
+ * 例外只有整格覆寫分包白名單 OVERWRITE_CHUNKS（必須**不**帶）。②（jsonpW 只在傳輸失敗重送）也在這一檔。
  */
 const { test } = require('node:test');
 const assert = require('node:assert');
@@ -174,7 +175,7 @@ test('K1 clearGuests＋addGuests：每一包第一發 404 ⇒ 重送同一個 no
   } finally { h.cleanup(); }
 });
 
-test('K1 setTables／setGuestTables／clearSeatMarks（排位匯入）：第一發 404 ⇒ 重送同一個 nonce', async () => {
+test('K1 排位匯入：clearSeatMarks 第一發 404 ⇒ 重送同一個 nonce；整格覆寫分包（setTables／setGuestTables）照樣重送、不帶 nonce', async () => {
   const h = boot();
   try {
     await drain();
@@ -189,12 +190,66 @@ test('K1 setTables／setGuestTables／clearSeatMarks（排位匯入）：第一�
     h.ctx.upSeating({ files: [{}], value: '' });
     await waitFor(() => /匯入完成/.test(h.els['sm-msg'] && h.els['sm-msg'].textContent));
     assert.match(h.els['sm-msg'].textContent, /匯入完成/, '排位匯入沒有跑完：' + (h.els['sm-msg'] || {}).textContent);
-    for (const a of ['setTables', 'setGuestTables', 'clearSeatMarks']) {
-      const n = sent(h.urls, a, from).map(nonceOf);
-      assert.equal(n.length, 2, a + ' 送了 ' + n.length + ' 發');
-      assert.ok(n[0], a + ' 沒帶 nonce');
-      assert.equal(n[1], n[0], a + ' 重送換了 nonce');
+    const cm = sent(h.urls, 'clearSeatMarks', from).map(nonceOf);
+    assert.equal(cm.length, 2, 'clearSeatMarks 送了 ' + cm.length + ' 發');
+    assert.ok(cm[0], 'clearSeatMarks 沒帶 nonce');
+    assert.equal(cm[1], cm[0], 'clearSeatMarks 重送換了 nonce');
+    // YU 2026-10-01 拍板：整格覆寫重送結果相同，不帶 nonce，少產生 Script Property 暫存鍵
+    for (const a of ['setTables', 'setGuestTables']) {
+      const u = sent(h.urls, a, from);
+      assert.equal(u.length, 2, a + ' 404 後沒有照樣重送（送了 ' + u.length + ' 發）');
+      u.forEach((x) => assert.equal(nonceOf(x), null, a + ' 是整格覆寫分包，卻帶了 nonce（每一包多一把 10 分鐘的 Script Property 鍵）'));
+      assert.equal(new URL(u[0]).searchParams.get(a === 'setTables' ? 'writes' : 'rows'),
+        new URL(u[1]).searchParams.get(a === 'setTables' ? 'writes' : 'rows'), a + ' 重送的不是同一包');
     }
+  } finally { h.cleanup(); }
+});
+
+/* ══ ② jsonpW 只在傳輸失敗時重送（YU 2026-10-01 拍板）════════════════ */
+
+test('② jsonpW：伺服器明確拒絕 ⇒ 不重送，原樣回拒絕', async () => {
+  const h = boot();
+  try {
+    await drain();
+    h.plan.addGuests = [{ ok: false, msg: '欄位不符' }, { ok: true, added: 1 }, { ok: true, added: 1 }];
+    const from = execOnly(h.urls).length;
+    const r = await h.ctx.jsonpW('addGuests', { token: 'STUBTOKEN', actId: 'A1', rows: '[]', nonce: 'N1' });
+    assert.equal(sent(h.urls, 'addGuests', from).length, 1, '伺服器拒絕了還重送 ⇒ 拒絕是確定的答案，重送只會重播或疊出第二次寫入');
+    assert.equal(r.ok, false);
+    assert.equal(r.msg, '欄位不符');
+    assert.equal(r.transport, false);
+  } finally { h.cleanup(); }
+});
+
+test('② jsonpW：傳輸失敗 ⇒ 照舊重送（最多共 3 發），三發同一個 nonce', async () => {
+  const h = boot();
+  try {
+    await drain();
+    h.plan.addGuests = [404, 404, 404];
+    const from = execOnly(h.urls).length;
+    const r = await h.ctx.jsonpW('addGuests', { token: 'STUBTOKEN', actId: 'A1', rows: '[]', nonce: 'N1' });
+    const u = sent(h.urls, 'addGuests', from);
+    assert.equal(u.length, 3, '傳輸失敗應重送到共 3 發，實送 ' + u.length);
+    u.forEach((x) => assert.equal(nonceOf(x), 'N1'));
+    assert.equal(r.transport, true);
+  } finally { h.cleanup(); }
+});
+
+test('② 來賓匯入：addGuests 被伺服器拒絕 ⇒ 只送一發、畫面說寫入中斷', async () => {
+  const h = boot();
+  try {
+    await drain();
+    h.els['ti-act'] = val('A1');
+    h.ctx.SB = null;
+    h.ctx.readSheetAoa_ = () => Promise.resolve(guestAoa(1));
+    h.plan.clearGuests = [{ ok: true }];
+    h.plan.addGuests = [{ ok: false, msg: '活動已關閉' }, { ok: true, added: 1 }];
+    const from = execOnly(h.urls).length;
+    h.ctx.upGuests({ files: [{}], value: '' });
+    await waitFor(() => /寫入中斷/.test(h.els['gl-msg'] && h.els['gl-msg'].textContent));
+    await drain();
+    assert.match(h.els['gl-msg'].textContent, /寫入中斷.*活動已關閉/);
+    assert.equal(sent(h.urls, 'addGuests', from).length, 1, '被拒絕的那一包又重送了');
   } finally { h.cleanup(); }
 });
 
@@ -313,13 +368,18 @@ for (const s of SENDERS) {
 const READ_ACTIONS = ['listActivities', 'getRefillCandidates', 'getSeatingBoard', 'getBindLink', 'getSeniorNotice',
   'batch', 'listStaffStations', 'listGuests', 'listOptions', 'getCheckinCodes', 'getActivityReplies',
   'getUndelivered', 'getActivityStats'];
+// 整格覆寫類**分包**（排位匯入走 jsonpW 的那兩支）：刻意不帶 nonce（YU 2026-10-01 拍板）。
+// 重送結果相同、不需防重；每個 nonce 在 Script Properties 留一把 10 分鐘的鍵，超過 50 個 GAS 設定頁變唯讀。
+// ⚠️ 以「jsonpW＋action」為鍵：同名的 `jsonp('setTables'`（移桌，單發）**不在**白名單裡，照樣要帶。
+// ⚠️ 「接在表尾」類（addGuests 等）絕不可進這裡：重送會重複寫入。
+const OVERWRITE_CHUNKS = ['jsonpW:setTables', 'jsonpW:setGuestTables'];
 
 test('每一個 jsonp／jsonpW 呼叫都必須「在唯讀白名單裡」或「帶事先產生的 nonce」，二擇一', () => {
   const CODE = SRC.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
   const all = [];
-  const re = /\bjsonpW?\(\s*'([A-Za-z]\w*)'/g;
+  const re = /\b(jsonpW?)\(\s*'([A-Za-z]\w*)'/g;
   let m;
-  while ((m = re.exec(CODE))) all.push({ action: m[1], idx: m.index });
+  while ((m = re.exec(CODE))) all.push({ fn: m[1], action: m[2], idx: m.index });
   // 掃描器自己沒漏：字面量呼叫數＝全部呼叫數（扣掉 `(action,` 開頭的：兩支定義本身與它們內部的轉手／遞迴）
   const total = (CODE.match(/[^A-Za-z_$.]jsonpW?\(/g) || []).length
     - (CODE.match(/[^A-Za-z_$.]jsonpW?\(action,/g) || []).length
@@ -327,9 +387,15 @@ test('每一個 jsonp／jsonpW 呼叫都必須「在唯讀白名單裡」或「�
   assert.equal(all.length, total, '有 ' + (total - all.length) + ' 個呼叫的 action 不是字面字串，這個掃描器看不到它們');
   assert.ok(all.length >= 40, '只掃到 ' + all.length + ' 個呼叫點——掃描器壞了');
 
-  const missing = [], inline = [];
-  all.forEach(({ action, idx }) => {
+  const missing = [], inline = [], overwriteWithNonce = [], overwriteSeen = [];
+  all.forEach(({ fn, action, idx }) => {
     if (READ_ACTIONS.indexOf(action) >= 0) return;
+    const line0 = CODE.slice(idx, CODE.indexOf('\n', idx));
+    if (OVERWRITE_CHUNKS.indexOf(fn + ':' + action) >= 0) {
+      overwriteSeen.push(fn + ':' + action);
+      if (/nonce/.test(line0)) overwriteWithNonce.push(fn + ':' + action);
+      return;
+    }
     const line = CODE.slice(idx, CODE.indexOf('\n', idx));
     const arg = line.slice(line.indexOf(',') + 1).trimStart();
     let params = line;
@@ -342,9 +408,13 @@ test('每一個 jsonp／jsonpW 呼叫都必須「在唯讀白名單裡」或「�
     else if (!/nonce\s*:\s*[A-Za-z_$][\w$]*/.test(params)) missing.push(action);
   });
   assert.deepEqual(missing, [], '這些呼叫既不在唯讀白名單裡、也沒帶 nonce：' + missing.join('、')
-    + '。本頁沒帶 timeoutMs 的呼叫 404 後會自動重送，jsonpW 對任何失敗再送最多兩次 ⇒ 寫入會靜默重跑。'
+    + '。本頁沒帶 timeoutMs 的呼叫 404 後會自動重送，jsonpW 傳輸失敗再送最多兩次 ⇒ 寫入會靜默重跑。'
     + '寫入的請加 nonce；唯讀的請加進 READ_ACTIONS——兩者都要刻意表態');
   assert.deepEqual(inline, [], '這些呼叫在參數裡就地產生 nonce：' + inline.join('、') + '。請在呼叫前產生、存進變數再傳');
+  assert.deepEqual(overwriteWithNonce, [], '整格覆寫分包帶了 nonce：' + overwriteWithNonce.join('、')
+    + '（YU 2026-10-01 拍板不帶：重送結果相同，每包多一把 Script Property 鍵）');
+  assert.deepEqual(overwriteSeen.sort(), OVERWRITE_CHUNKS.slice().sort(),
+    '白名單裡的呼叫點不見了或多了（實見：' + overwriteSeen.join('、') + '）——被改名或刪了，白名單要跟著改，不能留著空放行');
 });
 
 test('⬛ 對照組：完整性掃描器對「拿掉一支的 nonce」會命中', () => {
