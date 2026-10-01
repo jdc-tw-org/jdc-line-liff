@@ -1251,6 +1251,33 @@ function selectBindLink(msg){
   }catch(e){ msg.textContent='自動複製失敗，請手動選取上方連結複製。'; }
 }
 
+/**
+ * 範本改動（新增／刪除／儲存）之後的重載：**不先畫快取、不吃第二發**，等最新清單回來才畫（#126）。
+ *
+ * 🔴 為何（10-01 #123 H1）：快取與第二發都是**改動前**的清單。先畫它 ⇒ 下拉被重設、
+ *    「已新增／已刪除」被 snPickMsg 清掉，而確認框讀的是畫面上那一份
+ *    ⇒ 確認框顯示的名稱可以與實際送出的那一則不同。YU 因為看不到回饋而新增 3 次、刪除 3 次。
+ * @param {string|null} selectKey 畫完要選到的那一則（編號；舊版後端是則次）；null＝第一則
+ * @param {string} okMsg 畫完才寫的成功訊息（寫早了會被重繪清掉）
+ */
+function snReload(selectKey,okMsg){
+  var y=document.getElementById('sn-year').value||String(currentTaipeiYear());
+  return queueRead(function(){
+    return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
+      return cacheSave(FP,N.senior(y),r2).then(function(){
+        if(r2&&r2.ok){
+          settleRefresh('sn-people',r2,null);
+          renderSenior(r2,selectKey);
+          if(okMsg)setMsg('sn-msg',okMsg,'ok');
+          return;
+        }
+        // 讀不到最新清單 ⇒ 畫面上那份是改動前的，**不可以再拿它刪或發**——清掉 SN，按鈕就不動作
+        SN=null;
+        setMsg('sn-msg',(okMsg?okMsg+'但':'')+'清單重新載入失敗，請重新整理頁面再操作。','err');
+      });
+    });
+  });
+}
 function snLoad(){
   // ⚠️ 預設值必須是 String(currentTaipeiYear())，與第二發送出的 p.year 同一個字串——
   // 否則快取名稱對不上、永遠不命中，且不會有任何錯誤訊息。
@@ -1278,7 +1305,26 @@ function snLoad(){
     });
   });
 }
-function renderSenior(r){
+/**
+ * 第 k 則的鍵＝下拉的 value。新版後端給固定編號（`r.ids`，#126）；
+ * **舊版後端沒有 `ids` ⇒ 退回則次**——gas 還沒部署、這一頁先上線時不壞。
+ */
+function snKey(r,k){return (r&&r.ids&&r.ids[k]!=null)?String(r.ids[k]):String(k);}
+/**
+ * 目前選到的那一則。則次、編號、標題、內文、發送狀態**全取自同一份 SN、同一個 k**——
+ * 確認框顯示的名稱與送出的編號必然是同一則（#126）。找不到回 null。
+ */
+function snCur(){
+  if(!SN||!SN.titles)return null;
+  var v=String(document.getElementById('sn-idx').value);
+  for(var k=0;k<SN.titles.length;k++){
+    if(snKey(SN,k)===v)return {k:k,id:(SN.ids&&SN.ids[k]!=null)?String(SN.ids[k]):'',
+      title:SN.titles[k],body:(SN.templates&&SN.templates[k])||'',
+      status:(SN.status&&SN.status[k])||'unknown'};
+  }
+  return null;
+}
+function renderSenior(r,selectKey){
     // ⚠️ 重繪前先記下使用者已經勾好的人（2026-08-20 事故修正）。
     //
     // 為什麼需要：snLoad() 會繪製**兩次**——快取先秒顯一次，網路回來再一次。
@@ -1308,10 +1354,13 @@ function renderSenior(r){
       ysel.innerHTML=r.years.map(function(y){
         return '<option value="'+y+'"'+(y===r.year?' selected':'')+'>'+y+' 年度期滿</option>';}).join('');
     }
-    // 則數會變（可新增／刪除），所以每次都重建；用 keep 保住目前選到的那則
-    var isel=document.getElementById('sn-idx'),keep=isel.value;
-    isel.innerHTML=r.titles.map(function(t,i){return '<option value="'+i+'">'+esc(t)+'</option>';}).join('');
-    if(keep&&Number(keep)<r.titles.length)isel.value=keep;
+    // 則數會變（可新增／刪除），所以每次都重建；用 keep 保住目前選到的那則。
+    // #126：value 是編號（舊版後端是則次）——以則次保留的話，清單一變就會指到別則。
+    var isel=document.getElementById('sn-idx');
+    var keep=(selectKey!==undefined)?selectKey:isel.value;
+    var keys=r.titles.map(function(_t,k){return snKey(r,k);});
+    isel.innerHTML=r.titles.map(function(t,k){return '<option value="'+esc(keys[k])+'">'+esc(t)+'</option>';}).join('');
+    isel.value=(keep!=null&&keys.indexOf(String(keep))>=0)?String(keep):(keys[0]||'');
     var sum=document.getElementById('sn-cnt');
     if(!r.audience.length){
       box.innerHTML='';
@@ -1358,13 +1407,13 @@ function snCheckAll(on){
 }
 function snPickMsg(){
   if(!SN)return;
-  var i=Number(document.getElementById('sn-idx').value||0);
-  document.getElementById('sn-tpl').value=SN.templates[i]||'';
+  var c=snCur();
+  document.getElementById('sn-tpl').value=c?c.body:'';
   renderPhs('sn','sn-phs','sn-tpl');
   paintMirror('sn-tpl','sn-mirror','sn');
   // 三態（2026-08-19，SENIOR_LOG_PROP 退役後改由 hub 判定）：
   // 'unknown' 絕不可顯示成「未發送」——那會引誘承辦人重發，而 LINE 收不回來。
-  var st=(SN.status&&SN.status[i])||'unknown';
+  var st=c?c.status:'unknown';
   var el=document.getElementById('sn-sent');
   el.textContent = st==='sent'    ? '這則已經發送過。收件名單請開「LINE 訊息紀錄」查看。'
                  : st==='unknown' ? '⚠️ 無法確認這則發送過沒有——訊息平台沒有回應。發送前請先開「LINE 訊息紀錄」確認。'
@@ -1379,12 +1428,13 @@ function snTplChanged(){
 }
 function snSaveTpl(){
   var nonce=newNonce();   // #123
-  var i=Number(document.getElementById('sn-idx').value||0);
-  jsonp('saveSeniorTemplate',{token:q('t'),idx:i,nonce:nonce,
+  var c=snCur();
+  if(!c){setMsg('sn-msg','清單還沒載入完成，請稍候再試。','err');return;}
+  // #126：idx 給舊版後端、id 給新版（有 id 就只認 id）
+  jsonp('saveSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,nonce:nonce,
     text:document.getElementById('sn-tpl').value}).then(function(r){
     if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'儲存失敗','err');return;}
-    setMsg('sn-msg','已儲存。','ok');
-    snLoad();
+    snReload(snKey(SN,c.k),'已儲存。');
   });
 }
 /** 新增一則空白範本（則數不再寫死三則）。 */
@@ -1395,24 +1445,26 @@ function snAddTpl(){
   t=t.trim();if(!t){setMsg('sn-msg','要給它一個名稱。','err');return;}
   jsonp('addSeniorTemplate',{token:q('t'),title:t,nonce:nonce}).then(function(r){
     if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'新增失敗','err');return;}
-    document.getElementById('sn-idx').value=String(r.idx);
-    setMsg('sn-msg','已新增，內容還是空的。','ok');
-    snLoad();
+    // #126：新版後端回新編號；舊版只回則次。等最新清單回來再選到它（舊清單裡還沒有這一則）
+    snReload((r.id!=null&&r.id!=='')?String(r.id):String(r.idx),'已新增，內容還是空的。');
   });
 }
-/** 刪除目前這一則。刪掉之後索引會位移，所以刪完一律重載，不在前端自己拼。 */
+/**
+ * 刪除目前這一則。刪完一律等最新清單回來再畫（snReload），不在前端自己拼。
+ * #126：送**編號＋標題**，後端兩者都對得上才刪；確認框的名稱與送出的編號取自同一個 snCur()。
+ * idx 只給舊版後端（新版不收則次）。
+ */
 function snDelTpl(){
   if(!SN)return;
-  // #123：後端用「第幾則」刪除，沒帶 nonce 的自動重送會**再刪掉遞補上來的下一則**，畫面仍說「已刪除。」
+  // #123：沒帶 nonce 的自動重送會讓後端再執行一次
   var nonce=newNonce();
-  var i=Number(document.getElementById('sn-idx').value||0);
+  var c=snCur();
+  if(!c){setMsg('sn-msg','清單還沒載入完成，請稍候再試。','err');return;}
   if(SN.titles.length<=1){setMsg('sn-msg','只剩一則，不能再刪。','err');return;}
-  if(!confirm('刪除「'+SN.titles[i]+'」？'))return;
-  jsonp('removeSeniorTemplate',{token:q('t'),idx:i,nonce:nonce}).then(function(r){
+  if(!confirm('刪除「'+c.title+'」？'))return;
+  jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title,nonce:nonce}).then(function(r){
     if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'刪除失敗','err');return;}
-    document.getElementById('sn-idx').value='0';
-    setMsg('sn-msg','已刪除。','ok');
-    snLoad();
+    snReload(null,'已刪除。');
   });
 }
 // ── 呼叫 nonce（診斷儀器，2026-08-21）──────────────────────────────────
@@ -1449,11 +1501,13 @@ function newNonce(){
 function snSend(){
   if(!SN)return;
   var nonce=newNonce();   // ⚠️ 點擊當下產生，早於 confirm 與 jsonp。理由見 newNonce 上方。
-  var i=Number(document.getElementById('sn-idx').value||0);
+  // #126：確認框的名稱、狀態與送出的編號取自同一個 snCur()
+  var cur=snCur();
+  if(!cur){setMsg('sn-msg','清單還沒載入完成，請稍候再試。','err');return;}
   var uids=[].slice.call(document.querySelectorAll('.sn-ck:checked')).map(function(c){return c.dataset.uid;});
   if(!uids.length){setMsg('sn-msg','沒有勾選任何收件人','err');return;}
-  var title=document.getElementById('sn-idx').selectedOptions[0].textContent;
-  var st=(SN.status&&SN.status[i])||'unknown';
+  var title=cur.title;
+  var st=cur.status;
   // 三則又跨兩個日曆年，重複發最容易發生；把狀態寫進確認框而不是只放在小字。
   // 'unknown' 要講得比 'sent' 更重——不知道有沒有發過，比知道發過更該停下來查。
   var warn = st==='sent'    ? '⚠️ 這則已經發送過一次。\n\n'
@@ -1464,7 +1518,7 @@ function snSend(){
   document.getElementById('sn-send').disabled=true;
   setMsg('sn-msg','發送中…','ok');
   sendModal('busy','發送中…');
-  jsonp('sendSeniorNotice',{token:q('t'),year:SN.year,idx:i,nonce:nonce,
+  jsonp('sendSeniorNotice',{token:q('t'),year:SN.year,idx:cur.k,id:cur.id,nonce:nonce,
     tpl:document.getElementById('sn-tpl').value,userIds:JSON.stringify(uids)},120000).then(function(r){
     document.getElementById('sn-send').disabled=false;
     // 🔴 #123：傳輸失敗＝**不確定有沒有送出**，不是失敗。說「失敗」會引誘重按，而超過 hub 120 秒去重窗＝整批再送一次。
