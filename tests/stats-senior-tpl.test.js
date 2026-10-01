@@ -164,6 +164,36 @@ test('K6 快取與最新清單不同時：確認框名稱＝送出編號在最�
   } finally { h.cleanup(); }
 });
 
+test('K6 走真 snLoad 兩段繪製（快取與最新順序不同）：刪除確認框名稱＝送出編號在最新清單的標題', async () => {
+  // 🔴 驗證軌 #126 L5 補的（2026-10-01）：上面幾條不是沒換快取替身、就是快取那個位置剛好是空的，
+  //    「確認框名稱改從快取取」會退回正確的標題而活下來。這一條讓快取那一份在**同一個位置**有**別的**標題。
+  const LATEST = notice(['新的', '截止', '表揚'], ['uuid-x', 'legacy-2', 'legacy-0']);
+  const h = boot({ stale: STALE, latest: () => LATEST });
+  try {
+    await drain(); stubCache(h);
+    let cacheReads = 0;
+    h.ctx.cacheGet = () => { cacheReads++; return { value: STALE, savedAt: 1 }; };
+    h.ctx.snLoad();
+    assert.ok(await waitFor(() => h.ctx.SN && h.ctx.SN.ids && h.ctx.SN.ids[0] === 'uuid-x'), '最新清單沒有畫上去');
+    await drain();
+    assert.ok(cacheReads >= 1, '⬛ 前提不成立：快取那一段沒有被讀到 ⇒ 這一條量不到「從快取取」');
+    h.els['sn-idx'].value = 'legacy-2';              // 使用者在最新清單上選「截止」（最新第 1 位；快取第 1 位是「問卷」）
+    h.plan.removeSeniorTemplate = [{ ok: true }];
+    const from = execOnly(h.urls).length;
+    h.ctx.snDelTpl();
+    await waitFor(() => sentOf(h, 'removeSeniorTemplate', from).length >= 1);
+    const sent = sentOf(h, 'removeSeniorTemplate', from);
+    assert.strictEqual(sent.length, 1);
+    const p = qs(sent[0]);
+    const k = LATEST.ids.indexOf(p.get('id'));
+    assert.strictEqual(p.get('id'), 'legacy-2');
+    assert.strictEqual(p.get('idx'), '1');
+    assert.strictEqual(p.get('title'), '截止');
+    assert.strictEqual(h.confirms[h.confirms.length - 1], '刪除「' + LATEST.titles[k] + '」？',
+      '確認框名稱不是送出編號在最新清單裡的標題（H1 的形狀）');
+  } finally { h.cleanup(); }
+});
+
 test('K6 發送：確認框的名稱＝送出的編號對應的標題', async () => {
   const LATEST = notice(['新的', '截止', '表揚'], ['uuid-x', 'legacy-2', 'legacy-0']);
   const h = boot({ stale: STALE, latest: () => LATEST });
