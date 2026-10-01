@@ -189,13 +189,19 @@ test('V4 競態：背景重讀（發送後的 snLoad）還在飛時刪除 ⇒ �
   expect(r.env.external.filter((u) => !/static\.line-scdn\.net|script\.google\.com/.test(u))).toEqual([]);
 });
 
-test('⬛ 突變：snApplyList 不排隊（直接畫）⇒ V4 紅（已刪的又回到下拉）', async ({ page }) => {
+// 🕰 第三輪（世代號）起，「只拿掉排隊」不再讓 V4 紅——畫面由世代號保住（落後的讀取不重畫範本區）。
+//    兩道防護各自的鑑別力：只拿掉世代號 ⇒ W3 紅；只拿掉排隊 ⇒ W3 的快取那格紅（見 stats-senior-tpl-gen.spec.js）。
+//    這裡留的是「兩道都拿掉」⇒ V4 紅：證明 V4 這個情境本身仍量得到蓋回去。
+test('⬛ 突變：snApplyList 不排隊＋回來時不比世代 ⇒ V4 紅（已刪的又回到下拉）', async ({ page }) => {
   const fs = require('node:fs');
   const path = require('node:path');
   const src = fs.readFileSync(path.join(__dirname, '..', '..', 'stats.html'), 'utf8');
   const from = '  return queueRead(function(){\n    if(!SN)return snReloadNow(y,selectKey,okMsg);';
   expect(src.split(from).length - 1, '突變沒套上（原文不是恰好一處）').toBe(1);
-  const html = src.split(from).join('  return Promise.resolve().then(function(){\n    if(!SN)return snReloadNow(y,selectKey,okMsg);');
+  const gate = '  if(gen===SN_GEN||!r||!r.ok){renderSenior(r,selectKey);return;}';
+  expect(src.split(gate).length - 1, '突變沒套上（世代比較那行）').toBe(1);
+  const html = src.split(from).join('  return Promise.resolve().then(function(){\n    if(!SN)return snReloadNow(y,selectKey,okMsg);')
+    .split(gate).join('  {renderSenior(r,selectKey);return;}');
   const r = await v4(page, html);
   console.log('【V4 突變】', JSON.stringify({ final: r.final, msg: r.msg }));
   expect(count(r.env.calls, 'removeSeniorTemplate'), '刪除沒送出 ⇒ 突變沒有被量到').toBe(1);

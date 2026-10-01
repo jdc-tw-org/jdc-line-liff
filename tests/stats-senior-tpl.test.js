@@ -808,3 +808,88 @@ test('#129 ⬛ 突變：狀態依則次而不是依編號沿用 ⇒ 刪除那條
     assert.deepStrictEqual(Array.from(h.ctx.SN.status), OPS129.del.status);
   });
 });
+
+/* ══ #129 第三輪：瘦身版重播回應（沒有 failures）不崩 ═══════════════════
+ *
+ * 後端冪等存檔太大時只留 ok／sent／failed／skipped／msg（`trimmed:true`）。同一個 nonce 被重送時，前端拿到的就是它。
+ * 原本三處（snSend、bcSendOne、bcSend）直接 `r.failures.map` ⇒ TypeError ⇒ 停在「發送中…」。
+ * #129 的位元組門檻把觸發點從約 142 筆提早到約 63 筆失敗，所以在本票補防呆（只改顯示，不改發送）。
+ * ═════════════════════════════════════════════════════════════════════ */
+const TRIMMED = { ok: true, sent: 70, failed: 70, skipped: 0, trimmed: true };
+const FULL = { ok: true, sent: 2, failed: 1, skipped: 0, failures: [{ name: '甲', msg: '封鎖' }] };
+
+/** 起一頁、把三個發送入口要的東西備好；`reply` 是發送的回應。回 h。 */
+async function bootSend(reply, html) {
+  const h = boot({ stale: STALE, latest: () => STALE, html });
+  await drain(); stubCache(h);
+  h.ctx.renderSenior(STALE);
+  h.plan.sendSeniorNotice = [reply];
+  h.plan.sendPassBroadcast = [reply, reply];
+  const docQSA = h.ctx.document.querySelectorAll;
+  h.ctx.document.querySelectorAll = (q) => (q === '.sn-ck:checked' ? [{ dataset: { uid: 'U1' } }] : docQSA(q));
+  const one = h.ctx.document.getElementById('bc-one-sel');
+  one.value = 'U1';
+  one.selectedOptions = [{ textContent: '甲' }];
+  h.ctx.document.getElementById('sn-msg'); h.ctx.document.getElementById('bc-msg');
+  h.ctx.BC = { tplHasUrl: true, willSend: 2 };
+  h.ctx.bcInvalidate = () => {};
+  h.ctx.snLoad = () => Promise.resolve();
+  return h;
+}
+const SEND_ENTRIES = [
+  ['snSend', 'sn-msg', (h) => h.ctx.snSend()],
+  ['bcSendOne', 'bc-msg', (h) => h.ctx.bcSendOne()],
+  ['bcSend', 'bc-msg', (h) => h.ctx.bcSend()],
+];
+SEND_ENTRIES.forEach(([nm, box, press]) => {
+  test('#129 ' + nm + '：瘦身版重播（沒有 failures）⇒ 不崩、講「明細已省略」，不停在發送中', async () => {
+    const h = await bootSend(TRIMMED);
+    try {
+      press(h);
+      const ok = await waitFor(() => /明細已省略/.test(String(h.els[box].textContent)));
+      assert.ok(ok, nm + ' 沒有講明細已省略（實際：' + h.els[box].textContent + '）');
+      assert.match(String(h.els[box].textContent), /失敗|補發失敗/);
+    } finally { h.cleanup(); }
+  });
+  test('#129 ' + nm + '：⬛ 對照：完整回應照舊列出失敗明細（防呆不吃掉正常的明細）', async () => {
+    const h = await bootSend(FULL);
+    try {
+      press(h);
+      assert.ok(await waitFor(() => /甲\(封鎖\)/.test(String(h.els[box].textContent))), '實際：' + h.els[box].textContent);
+    } finally { h.cleanup(); }
+  });
+});
+
+test('#129 ⬛ 突變：拿掉防呆（缺 failures 仍直接 map）⇒ 三個入口都停在發送中', async () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', FILE), 'utf8');
+  const from = "  if(!r||!Array.isArray(r.failures))return '明細已省略，請開「LINE 訊息紀錄」查看';\n";
+  assert.strictEqual(src.split(from).length - 1, 1, '突變沒套上');
+  const html = src.split(from).join('');
+  // 崩潰長在頁面自己 `jsonp(...).then(…)` 的那條 promise 上（沒人接）⇒ 包一層 jsonp，在那條 promise 上掛 catch
+  // 收下來當證據（不包的話 node:test 會把它記成這條測試之後的非同步錯誤）
+  const crashes = [];
+  {
+    for (const [nm, box, press] of SEND_ENTRIES) {
+      const before = crashes.length;
+      const h = await bootSend(TRIMMED, html);
+      const orig = h.ctx.jsonp;
+      h.ctx.jsonp = function () {
+        const p = orig.apply(this, arguments);
+        return { then(f, r) { const q = p.then(f, r); q.catch((e) => crashes.push(String(e && e.message))); return q; } };
+      };
+      try {
+        press(h);
+        await drain();
+        assert.ok(!/明細已省略/.test(String(h.els[box].textContent)), nm);
+        assert.match(String(h.els[box].textContent), /中/, nm + '：拿掉防呆卻沒停在「…中」（實際：' + h.els[box].textContent + '）⇒ 這條量不到崩潰');
+        assert.ok(crashes.length > before && /map/.test(crashes[crashes.length - 1]), nm + '：沒有崩（' + crashes.slice(before).join('|') + '）');
+      } finally { h.cleanup(); }
+    }
+  }
+});
+
+test('#129 發送回應的失敗明細全檔只經 failText（沒有第四處直接 map）', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', FILE), 'utf8');
+  assert.strictEqual((src.match(/\.failures\.map\(/g) || []).length, 1, '有 failText 以外的地方直接 map failures');
+  assert.strictEqual((src.match(/\+failText\(r\)/g) || []).length, 3, '三個發送入口都要經 failText');
+});

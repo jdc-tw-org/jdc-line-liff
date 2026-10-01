@@ -734,6 +734,17 @@ function showTab(t){
 var checkinLoaded=false,staffLoaded=false;
 var tablesLoaded=false;
 function setMsg(id,text,cls){var el=document.getElementById(id);el.textContent=text;el.className='msg '+(cls||'');}
+/**
+ * 發送回應的失敗明細（「甲(原因)、乙(原因)」）。**`failures` 缺了就講明細已省略，不崩**（jdc-tw-migration#129）。
+ * 🔴 為何：同一個 nonce 被重送時，後端重播的是冪等存檔裡的結果；結果太大（失敗筆數多）會被
+ *    `trimResultForStore` 瘦身成只剩 ok／sent／failed／skipped／msg（`trimmed:true`）。原本三處直接對
+ *    failures 呼叫 map ⇒ TypeError ⇒ 畫面停在「發送中…」、視窗不關。#129 把門檻改算位元組，觸發點提早
+ *    （約 63 筆起），所以在本票補上。只改顯示，不改發送邏輯。
+ */
+function failText(r){
+  if(!r||!Array.isArray(r.failures))return '明細已省略，請開「LINE 訊息紀錄」查看';
+  return r.failures.map(function(f){return f.name+'('+f.msg+')';}).join('、');
+}
 
 // ── 活動管理 ──────────────────────────────────────────────────────────────
 // 與 snLoad／loadSeating 同一個形狀：快取秒顯 → 背景重抓校正 → 存回快取。
@@ -1275,6 +1286,16 @@ function selectBindLink(msg){
  *    第二發仍然送不出去。不改實際時間、不重新引入「先畫快取」。
  */
 var SN_BUSY=false;
+/**
+ * 範本世代號（#129 第三輪裁定）：**範本寫入成功就加一**（`snApplyList` 開頭，含退回重讀的那條路）。
+ * 每一支 `getSeniorNotice` 讀取在**發出時**記下世代，回來時若已落後（中間有寫入成功）⇒ 它帶回的是寫入**前**的
+ * 範本清單：**不重畫範本區、不清成功訊息**，只取它的名冊與發送狀態（見 `snRenderRead`）。
+ * 為何不逐條排隊：V4（發送後）、W3（開頁預取）是同一型，逐條收進佇列是在列舉已知路徑——漏的那條不會報錯。
+ * 入口（每一處用讀取結果畫範本區的都走 `snRenderRead`）：snLoad 的快取秒顯、pick2 預取（世代＝`SECOND_GEN`，
+ * 批次發出時記）、snLoad 自己打的那一發、snReloadNow（snReload 與 snApplyList 的退路都走它）。
+ * `snApplyList` 本身畫的是寫入結果，不比世代。
+ */
+var SN_GEN=0;
 var SN_LOCK_IDS=['sn-add','sn-del','sn-save','sn-send','sn-idx','sn-year'];
 function snSetBusy(on){
   SN_BUSY=on;
@@ -1312,11 +1333,12 @@ function snReload(selectKey,okMsg){
  * ⚠️ 在排隊中的函式裡再呼叫 `queueRead` 會自己等自己（佇列尾巴要等目前這一支結束）⇒ 永遠卡住。
  */
 function snReloadNow(y,selectKey,okMsg){
+  var gen=SN_GEN;   // 發出時的世代（見 SN_GEN）
   return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
     return cacheSave(FP,N.senior(y),r2).then(function(){
       if(r2&&r2.ok){
         settleRefresh('sn-people',r2,null);
-        renderSenior(r2,selectKey);
+        snRenderRead(r2,gen,selectKey);
         if(okMsg)setMsg('sn-msg',okMsg,'ok');
         return;
       }
@@ -1352,6 +1374,7 @@ function snRememberStatus(r){
  * @param {string} [newId] 新增那一則的編號（只有新增傳）
  */
 function snApplyList(r,selectKey,okMsg,newId){
+  SN_GEN++;   // 範本寫入成功 ⇒ 之前發出、還沒回來的讀取一律落後（見 SN_GEN）；退回重讀那條也算
   var L=r&&r.list;
   var shaped=!!(L&&Array.isArray(L.ids)&&Array.isArray(L.titles)&&Array.isArray(L.templates)
     &&Array.isArray(L.disabled)&&L.ids.length===L.titles.length&&L.ids.length===L.templates.length);
@@ -1364,6 +1387,9 @@ function snApplyList(r,selectKey,okMsg,newId){
   //    狀態也在排到之後才對：前面那支讀取若帶回較新的發送狀態，用的是它。
   return queueRead(function(){
     if(!SN)return snReloadNow(y,selectKey,okMsg);
+    // W5：畫面上那份 SN 的年度與年度下拉不同（切年度讀取失敗、SN 停在原年度）⇒ 不拼，重讀下拉那一年。
+    //    拼了的話快取鍵是下拉的年度、內容卻是另一年的名冊與發送狀態（main 的 snReload 會補正，這裡也要）。
+    if(String(SN.year)!==String(y))return snReloadNow(y,selectKey,okMsg);
     var status=[];
     for(var k=0;k<L.ids.length;k++){
       var id=String(L.ids[k]),st=SN_ST_SEEN[SN.year+'|'+id];
@@ -1381,30 +1407,51 @@ function snApplyList(r,selectKey,okMsg,newId){
     snPickMsg();
     if(okMsg)setMsg('sn-msg',okMsg,'ok');
     // 下次開頁的秒顯也要是寫入後的清單（改版前 snReload 會存）；cacheSave 不會失敗（失敗自己吞掉）
-    return cacheSave(FP,N.senior(y),SN);
+    return cacheSave(FP,N.senior(String(SN.year)),SN);   // 鍵與內容同一年度（上面已確認＝y）
   });
+}
+/**
+ * 用一支 `getSeniorNotice` 讀取的結果重畫（#129 第三輪：世代號）。`gen` 是那支讀取**發出時**的 `SN_GEN`。
+ * - 沒落後 ⇒ 照舊 `renderSenior`。
+ * - 落後（發出之後有範本寫入成功）⇒ 它的範本清單是寫入前的：範本四格沿用畫面上那份（寫入後的），
+ *   名冊、年度、發送狀態取它的（發送狀態以編號對；對不到記成「不明」，不猜「未發送」），**不清成功訊息**。
+ *   名冊與狀態要取：發送後的重讀帶回的正是「這則已發過」，丟掉它會讓重複發送的警示不出現。
+ * - 落後而畫面上沒有可沿用的清單（SN 已清空＝上次重讀失敗）⇒ 不畫，留著「請重新整理」。
+ */
+function snRenderRead(r,gen,selectKey){
+  if(gen===SN_GEN||!r||!r.ok){renderSenior(r,selectKey);return;}
+  if(!SN||!Array.isArray(SN.ids)||!Array.isArray(SN.titles))return;
+  snRememberStatus(r);
+  var m={};
+  for(var f in r)if(Object.prototype.hasOwnProperty.call(r,f))m[f]=r[f];
+  m.ids=SN.ids.slice();m.titles=SN.titles.slice();m.templates=(SN.templates||[]).slice();
+  m.disabled=Array.isArray(SN.disabled)?SN.disabled.slice():SN.disabled;
+  m.status=m.ids.map(function(id){return SN_ST_SEEN[r.year+'|'+id]||'unknown';});
+  renderSenior(m,undefined,true);
 }
 function snLoad(){
   // ⚠️ 預設值必須是 String(currentTaipeiYear())，與第二發送出的 p.year 同一個字串——
   // 否則快取名稱對不上、永遠不命中，且不會有任何錯誤訊息。
   var y=document.getElementById('sn-year').value||String(currentTaipeiYear());
   var cached=null;
+  var gen=SN_GEN;   // 快取秒顯：以呼叫當下的世代比（見 SN_GEN）
   CACHE_READY.then(function(){
     cached=cacheGet(N.senior(y));
-    if(cached){renderSenior(cached.value);}           // 秒顯
+    if(cached){snRenderRead(cached.value,gen);}           // 秒顯
     else{document.getElementById('sn-people').innerHTML='<div class="empty">載入中…</div>';}
   });
   // pick2 抓的是「當前台北年度」——只有選到同一個年度才能沿用，切年度一律自己打。
   var p=(y===String(currentTaipeiYear()))?pick2('getSeniorNotice'):Promise.resolve(null);
   // 回傳網路那一段（#123：發送狀態不明時要等它畫完，再把警示寫回去——重繪會清掉 sn-msg）
   return p.then(function(r){
-    if(r){renderSenior(r);return;}                     // 第二發已備妥（且同一年度）
+    if(r){snRenderRead(r,SECOND_GEN);return;}         // 第二發已備妥（且同一年度）；世代＝批次發出時（W3）
     return queueRead(function(){                        // 沒有才自己打
+      var g2=SN_GEN;                                    // 發出時的世代
       return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
         return cacheSave(FP,N.senior(y),r2).then(function(){
           // 失敗而畫面上是快取 ⇒ 不重繪（這張卡有勾選，見 renderSenior 的事故註解）、清單上方掛提示
           if(!settleRefresh('sn-people',r2,cached))return;
-          if(r2&&r2.ok)renderSenior(r2);
+          if(r2&&r2.ok)snRenderRead(r2,g2);
           else document.getElementById('sn-people').innerHTML='<div class="empty">'+esc((r2&&r2.msg)||'載入失敗')+'</div>';
         });
       });
@@ -1430,7 +1477,7 @@ function snCur(){
   }
   return null;
 }
-function renderSenior(r,selectKey){
+function renderSenior(r,selectKey,keepMsg){
     // ⚠️ 重繪前先記下使用者已經勾好的人（2026-08-20 事故修正）。
     //
     // 為什麼需要：snLoad() 會繪製**兩次**——快取先秒顯一次，網路回來再一次。
@@ -1496,7 +1543,7 @@ function renderSenior(r,selectKey){
           }).join('');
       }).join('');
     }
-    snPickMsg();
+    snPickMsg(keepMsg);
 }
 /**
  * 範本下拉＋已停用清單（只畫範本，不碰名冊與勾選）。`renderSenior` 與 #129 的 `snApplyList` 共用這一份——
@@ -1565,7 +1612,7 @@ function snCheckAll(on){
   });
   setMsg('sn-msg',on?('已全選 '+n+' 人'):'已全部取消','ok');
 }
-function snPickMsg(){
+function snPickMsg(keepMsg){
   if(!SN)return;
   var c=snCur();
   document.getElementById('sn-tpl').value=c?c.body:'';
@@ -1579,7 +1626,7 @@ function snPickMsg(){
                  : st==='unknown' ? '⚠️ 無法確認這則發送過沒有——訊息平台沒有回應。發送前請先開「LINE 訊息紀錄」確認。'
                  : '';
   el.style.color = st==='unknown' ? '#b00' : '';
-  setMsg('sn-msg','','ok');
+  if(!keepMsg)setMsg('sn-msg','','ok');   // #129：落後的讀取重畫名冊時，不清掉寫入的成功訊息
 }
 function snTplChanged(){
   paintMirror('sn-tpl','sn-mirror','sn');
@@ -1703,7 +1750,7 @@ function snSend(){
     // 短句優先（使用者 2026-08-21：「太長了」）。細節留在小字，視窗只講結論。
     var skip=r.skipped||0, t='已送出 '+(r.sent-skip)+' 則';
     if(skip)t+='；'+skip+' 則重複傳送，未重送（'+(r.skippedNames||[]).join('、')+'）';
-    if(r.failed)t+='；失敗 '+r.failed+' 則：'+r.failures.map(function(f){return f.name+'('+f.msg+')';}).join('、');
+    if(r.failed)t+='；失敗 '+r.failed+' 則：'+failText(r);
     setMsg('sn-msg',t,r.failed?'err':'ok');
     var mt='已送出 '+(r.sent-skip)+' 則';
     if(skip)mt+='\n'+skip+' 則重複傳送，請 60 秒後再試';
@@ -2081,7 +2128,7 @@ function bcSendOne(){
     if(r&&r.transport){sendUnknown('bc-msg',bcReloadAfterUnknown);return;}
     if(!r||!r.ok){var m1=(r&&r.msg)||'補發失敗';setMsg('bc-msg',m1,'err');sendModal('err',m1);return;}
     bcInvalidate();   // 記憶體與磁碟的 preview 都過期了，下次 bundle 重新查
-    if(r.failed){var m2='補發失敗：'+r.failures.map(function(f){return f.name+'('+f.msg+')';}).join('、');
+    if(r.failed){var m2='補發失敗：'+failText(r);
       setMsg('bc-msg',m2,'err');sendModal('err',m2);return;}
     // 這一格最要緊：按補發的理由通常正是「他說沒收到」。這次真的沒送卻回
     // 「已補發」，等於告訴他做了一件沒做的事。
@@ -2119,8 +2166,7 @@ function bcSend(){
     // 同 snSend：r.sent 含被冪等網擋下的，要扣掉才是這一次真的送出的數量。
     var skip=r.skipped||0, t='已送出 '+(r.sent-skip)+' 則';
     if(skip)t+='；'+skip+' 則重複傳送，未重送';
-    if(r.failed){t+='；失敗 '+r.failed+' 則：'
-      +r.failures.map(function(f){return f.name+'('+f.msg+')';}).join('、');}
+    if(r.failed){t+='；失敗 '+r.failed+' 則：'+failText(r);}
     setMsg('bc-msg',t,r.failed?'err':'ok');
     var mt2='已送出 '+(r.sent-skip)+' 則';
     if(skip)mt2+='\n'+skip+' 則重複傳送，請 60 秒後再試';
@@ -2914,6 +2960,7 @@ pick('listActivities').then(function(r){
 // 預取不從 DOM 取值：那兩個下拉在預取當下都還沒填。
 var DEFAULT_ACT='';
 var SECOND_ITEMS=[];
+var SECOND_GEN=0;
 var SECOND=FIRST.then(function(first){
   if(!first||first.ok!==true)return null;   // 第一發撤銷或離線 → 不送第二發
   var la=first.results&&first.results.listActivities;
@@ -2927,6 +2974,7 @@ var SECOND=FIRST.then(function(first){
     SECOND_ITEMS.push({a:'previewPassBroadcast',p:{actId:DEFAULT_ACT,tpl:''}});
   }
   return queueRead(function(){
+    SECOND_GEN=SN_GEN;   // #129：預取批次發出時的範本世代（pick2 的 getSeniorNotice 切片用它比）
     return jsonp('batch',{token:q('t'),list:JSON.stringify(SECOND_ITEMS)}).then(function(env){
       if(cacheVerdict(env)!=='ok')return null;
       return persistBatchSlices(FP,env,SECOND_ITEMS,nameOfSlice).then(function(){return env;});
