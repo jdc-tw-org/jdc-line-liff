@@ -406,3 +406,162 @@ test('#127 相容：舊版後端（沒有 disabled）⇒ 區塊收起、確認�
     assert.strictEqual(h.confirms[h.confirms.length - 1], '刪除「表揚」？', '舊版後端沒有恢復入口，確認框卻說可恢復');
   } finally { h.cleanup(); }
 });
+
+/* ══ #128 處理中…＋鎖按鈕 ═══════════════════════════════════════════════
+ *
+ * jdc-tw-migration#128（2026-10-01）：#126 起改動後等最新清單回來才重畫（刻意的），等待期間數秒、
+ * 遇 404 重試更久，畫面沒有回饋、按鈕仍可按 ⇒ 以為沒反應而重按（#123 H1 實測重按 3 次）。
+ *   #128 K1 後端延遲回應：按下後「處理中…」立即出現、相關按鈕 disabled；回應前再按不會送出第二發（請求計數＝1）
+ *   #128 K2 成功與失敗（伺服器拒絕、逾時）三種結局都解鎖，且不殘留「處理中…」
+ * ⚠️ 替身讓**寫入**與**之後的重載**都可以分別卡住：鎖要撐到「最新清單重畫完成」，不是寫入回來就放。
+ * ═════════════════════════════════════════════════════════════════════ */
+
+const LOCK_IDS = ['sn-add', 'sn-del', 'sn-save', 'sn-send', 'sn-idx', 'sn-year'];
+const lockedAll = (h) => LOCK_IDS.every((id) => h.els[id] && h.els[id].disabled === true);
+const lockedNone = (h) => LOCK_IDS.every((id) => !(h.els[id] && h.els[id].disabled));
+
+/** 在 boot 的 fetch 外面再包一層：被 hold 的 action 卡住，直到 release／fail；所有 action 都計數。 */
+function gated(h) {
+  const inner = h.ctx.fetch;
+  const held = new Set(), waiting = {}, counts = {}, rejecting = new Set();
+  h.ctx.fetch = (u) => {
+    const a = qs(String(u)).get('action');
+    counts[a] = (counts[a] || 0) + 1;
+    if (rejecting.has(a)) { h.urls.push(String(u)); return Promise.reject(new Error('net')); }
+    if (!held.has(a)) return inner(u);
+    h.urls.push(String(u));
+    return new Promise((res) => { (waiting[a] = waiting[a] || []).push(res); });
+  };
+  const body = (b) => ({ text: () => Promise.resolve('cb(' + JSON.stringify(b) + ')') });
+  return {
+    counts, hold: (a) => held.add(a), reject: (a) => rejecting.add(a),
+    pending: (a) => (waiting[a] || []).length,
+    release: (a, b) => { held.delete(a); (waiting[a] || []).splice(0).forEach((res) => res(body(b))); },
+  };
+}
+
+/** 四個入口各自怎麼按、後端成功時回什麼、之後的最新清單長怎樣。 */
+const OPS = {
+  add: { action: 'addSeniorTemplate', press: (h) => h.ctx.snAddTpl(), ok: { ok: true, id: 'uuid-new', idx: 3 },
+    after: noticeD(['表揚', '問卷', '截止', '測試-刪除用'], ['legacy-0', 'legacy-1', 'legacy-2', 'uuid-new'], [D_OLD]), okMsg: /已新增/ },
+  del: { action: 'removeSeniorTemplate', press: (h) => h.ctx.snDelTpl(), ok: { ok: true },
+    after: noticeD(['問卷', '截止'], ['legacy-1', 'legacy-2'], [D_OLD]), okMsg: /^已刪除。$/ },
+  save: { action: 'saveSeniorTemplate', press: (h) => h.ctx.snSaveTpl(), ok: { ok: true, id: 'legacy-0' },
+    after: noticeD(['表揚', '問卷', '截止'], ['legacy-0', 'legacy-1', 'legacy-2'], [D_OLD]), okMsg: /^已儲存。$/ },
+  restore: { action: 'restoreSeniorTemplate', press: (h) => click(h, 0), ok: { ok: true, id: 'uuid-d', idx: 1 },
+    after: noticeD(['表揚', '舊的', '問卷', '截止'], ['legacy-0', 'uuid-d', 'legacy-1', 'legacy-2'], []), okMsg: /^已恢復。$/ },
+};
+const BEFORE_D = noticeD(['表揚', '問卷', '截止'], ['legacy-0', 'legacy-1', 'legacy-2'], [D_OLD]);
+
+async function bootBusy() {
+  let now = BEFORE_D;
+  const h = boot({ stale: BEFORE_D, latest: () => now });
+  await drain(); stubCache(h);
+  h.ctx.renderSenior(BEFORE_D);
+  const g = gated(h);
+  return { h, g, setLatest: (x) => { now = x; } };
+}
+
+Object.keys(OPS).forEach((name) => {
+  const op = OPS[name];
+  test('#128 K1 ' + name + '：後端延遲 ⇒「處理中…」立即出現、相關按鈕全鎖；回應前再按任何入口都不送第二發', async () => {
+    const { h, g, setLatest } = await bootBusy();
+    try {
+      g.hold(op.action);
+      op.press(h);
+      await drain();
+      assert.strictEqual(g.pending(op.action), 1, '前提：寫入已送出、卡在後端');
+      assert.strictEqual(msg(h), '處理中…', '按下後沒有「處理中…」（實際：' + msg(h) + '）');
+      assert.ok(lockedAll(h), '有按鈕或下拉沒鎖：' + LOCK_IDS.filter((id) => !(h.els[id] && h.els[id].disabled)).join(','));
+      // 重畫已停用清單時，恢復鈕也要是鎖住的
+      h.ctx.snRenderDisabled(BEFORE_D);
+      assert.match(disHtml(h), /data-k="0" disabled>恢復/, '處理中重畫出來的恢復鈕沒有鎖');
+      // 回應前再按：同一顆、以及其他每一個入口
+      op.press(h);
+      Object.keys(OPS).forEach((k) => OPS[k].press(h));
+      await drain();
+      Object.keys(OPS).forEach((k) => {
+        const a = OPS[k].action;
+        assert.strictEqual(g.counts[a] || 0, a === op.action ? 1 : 0, a + ' 送了 ' + (g.counts[a] || 0) + ' 發（處理中應該只有第一發）');
+      });
+      // 寫入回來了，但最新清單還沒回來 ⇒ 仍然鎖著（鎖要撐到重畫完成）
+      g.hold('getSeniorNotice');
+      setLatest(op.after);
+      g.release(op.action, op.ok);
+      await drain();
+      assert.ok(g.pending('getSeniorNotice') >= 1, '前提：重載已送出、卡在後端');
+      assert.ok(lockedAll(h), '寫入一回來就解鎖了，最新清單還沒畫上去');
+      g.release('getSeniorNotice', op.after);
+      assert.ok(await waitFor(() => op.okMsg.test(msg(h))), '沒有出現成功訊息（實際：' + msg(h) + '）');
+      await drain();
+      assert.ok(lockedNone(h), '成功後沒有解鎖：' + LOCK_IDS.filter((id) => h.els[id].disabled).join(','));
+      assert.match(msg(h), op.okMsg, '成功訊息被清掉或殘留「處理中…」');
+      assert.strictEqual(g.counts[op.action], 1);
+    } finally { h.cleanup(); }
+  });
+});
+
+test('#128 K2 伺服器拒絕 ⇒ 解鎖、顯示後端訊息、不殘留「處理中…」、不重載', async () => {
+  const { h, g } = await bootBusy();
+  try {
+    g.hold('removeSeniorTemplate');
+    h.ctx.snDelTpl();
+    await drain();
+    assert.ok(lockedAll(h), '前提：處理中是鎖著的');
+    g.release('removeSeniorTemplate', { ok: false, msg: '範本已變動，請重新整理。' });
+    assert.ok(await waitFor(() => msg(h) === '範本已變動，請重新整理。'), '實際：' + msg(h));
+    await drain();
+    assert.ok(lockedNone(h), '被拒絕後沒有解鎖');
+    assert.strictEqual(g.counts.getSeniorNotice || 0, 0, '被拒絕還重載');
+  } finally { h.cleanup(); }
+});
+
+test('#128 K2 逾時／斷線（傳輸失敗）⇒ 解鎖、顯示連線錯誤、不殘留「處理中…」', async () => {
+  const { h, g } = await bootBusy();
+  try {
+    g.reject('saveSeniorTemplate');
+    h.ctx.snSaveTpl();
+    assert.ok(await waitFor(() => /連線/.test(msg(h))), '實際：' + msg(h));
+    await drain();
+    assert.ok(lockedNone(h), '傳輸失敗後沒有解鎖');
+    assert.notStrictEqual(msg(h), '處理中…');
+  } finally { h.cleanup(); }
+});
+
+test('#128 K2 寫入成功但最新清單讀不到 ⇒ 解鎖、講明要重新整理、不殘留「處理中…」', async () => {
+  const { h, g, setLatest } = await bootBusy();
+  try {
+    setLatest({ ok: false, msg: 'hub 掛了' });
+    h.plan.restoreSeniorTemplate = [{ ok: true, id: 'uuid-d', idx: 1 }];
+    click(h, 0);
+    assert.ok(await waitFor(() => /重新整理/.test(msg(h))), '實際：' + msg(h));
+    await drain();
+    assert.ok(lockedNone(h), '重載失敗後沒有解鎖');
+    assert.match(msg(h), /^已恢復。但/, '恢復其實成功了，要講');
+  } finally { h.cleanup(); }
+});
+
+test('#128 K2 處理途中拋例外 ⇒ 仍然解鎖、不殘留「處理中…」', async () => {
+  const { h } = await bootBusy();
+  try {
+    h.plan.addSeniorTemplate = [{ ok: true, id: 'uuid-new', idx: 3 }];
+    h.ctx.snReload = () => { throw new Error('boom'); };
+    h.ctx.snAddTpl();
+    assert.ok(await waitFor(() => lockedNone(h) && msg(h) !== '處理中…'), '例外之後鎖住或殘留（實際：' + msg(h) + '）');
+    assert.match(msg(h), /重新整理/);
+  } finally { h.cleanup(); }
+});
+
+test('#128 取消（prompt 按取消／confirm 按否）⇒ 不上鎖、不顯示「處理中…」', async () => {
+  const { h } = await bootBusy();
+  try {
+    h.ctx.prompt = () => null;
+    h.ctx.snAddTpl();
+    h.ctx.confirm = () => false;
+    h.ctx.snDelTpl();
+    await drain();
+    assert.ok(lockedNone(h));
+    assert.notStrictEqual(msg(h), '處理中…');
+    assert.strictEqual(h.ctx.SN_BUSY, false);
+  } finally { h.cleanup(); }
+});

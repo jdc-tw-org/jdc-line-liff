@@ -291,8 +291,8 @@
     <div class="scope" style="margin-top:12px">
       <span style="font-size:12.5px;color:var(--ink2)">訊息</span>
       <select id="sn-idx" onchange="snPickMsg()" style="flex:1;font-size:13.5px;padding:7px 10px"></select>
-      <button class="btn btn-sm" onclick="snAddTpl()" style="margin:0">新增</button>
-      <button class="btn btn-sm" onclick="snDelTpl()" style="margin:0">刪除</button>
+      <button class="btn btn-sm" id="sn-add" onclick="snAddTpl()" style="margin:0">新增</button>
+      <button class="btn btn-sm" id="sn-del" onclick="snDelTpl()" style="margin:0">刪除</button>
     </div>
     <!-- 名稱欄拿掉（2026-08-16 使用者：多餘）——上面的下拉已經顯示名稱，
          名稱在「新增」時輸入一次即可，不必每次編輯內容都盯著一個重複的欄位。 -->
@@ -303,7 +303,7 @@
     <div class="phs" id="sn-phs"></div>
     <div id="sn-sent" class="hint"></div>
     <div class="btnrow">
-      <button class="btn" onclick="snSaveTpl()">儲存</button>
+      <button class="btn" id="sn-save" onclick="snSaveTpl()">儲存</button>
       <button class="btn btn-pri2" id="sn-send" onclick="snSend()">發送給勾選的人</button></div>
     <div id="sn-msg" class="msg"></div>
     <!-- #127：刪除＝停用（#126），這裡列出已停用的訊息、各配一顆「恢復」。
@@ -1260,6 +1260,35 @@ function selectBindLink(msg){
 }
 
 /**
+ * 範本改動（新增／刪除／儲存／恢復）進行中的鎖（#128）。
+ *
+ * 🔴 為何：#126 起改動後要等最新清單回來才重畫（刻意的，防快取舊清單蓋掉選取），等待期間數秒、
+ *    遇 404 重試更久，而畫面沒有任何回饋、按鈕仍可按 ⇒ 以為沒反應而重按（#123 H1 實測重按 3 次）。
+ * ⇒ 按下的那一刻顯示「處理中…」，鎖住本區塊的新增／刪除／儲存／恢復／發送鈕與兩個下拉，
+ *    **直到最新清單重畫完成或失敗**才解鎖；解鎖時若訊息還是「處理中…」就清掉（不殘留）。
+ * ⚠️ 鎖不只靠 disabled：`SN_BUSY` 期間四個入口一律直接 return——按鈕狀態被別的重繪改掉時，
+ *    第二發仍然送不出去。不改實際時間、不重新引入「先畫快取」。
+ */
+var SN_BUSY=false;
+var SN_LOCK_IDS=['sn-add','sn-del','sn-save','sn-send','sn-idx','sn-year'];
+function snSetBusy(on){
+  SN_BUSY=on;
+  SN_LOCK_IDS.forEach(function(id){document.getElementById(id).disabled=on;});
+  // 恢復鈕每次重畫都是新節點：重畫時由 snRenderDisabled 看 SN_BUSY，這裡處理「已經畫好的那幾顆」
+  [].slice.call(document.getElementById('sn-dis-list').querySelectorAll('button')).forEach(function(b){b.disabled=on;});
+  if(on)setMsg('sn-msg','處理中…','ok');
+  else if(document.getElementById('sn-msg').textContent==='處理中…')setMsg('sn-msg','','ok');
+}
+/** 上鎖 → 跑 run（要回傳「重畫完成或失敗」才 resolve 的 promise）→ 解鎖。已在處理中就什麼都不做。 */
+function snBusyRun(run){
+  if(SN_BUSY)return Promise.resolve();
+  snSetBusy(true);
+  var end=function(){snSetBusy(false);};
+  return Promise.resolve().then(run).then(end,function(){
+    end();setMsg('sn-msg','處理失敗，請重新整理頁面再試。','err');
+  });
+}
+/**
  * 範本改動（新增／刪除／儲存）之後的重載：**不先畫快取、不吃第二發**，等最新清單回來才畫（#126）。
  *
  * 🔴 為何（10-01 #123 H1）：快取與第二發都是**改動前**的清單。先畫它 ⇒ 下拉被重設、
@@ -1420,7 +1449,7 @@ function snRenderDisabled(r){
     return '<div class="tag-row" style="font-weight:400">'
       +'<span>'+esc(x.title)+'</span>'
       +(x.disabledAt?'<span class="tag">'+esc(snWhen(x.disabledAt))+' 停用</span>':'')
-      +'<button class="btn btn-sm" style="margin:0 0 0 auto" data-k="'+k+'">恢復</button></div>';
+      +'<button class="btn btn-sm" style="margin:0 0 0 auto" data-k="'+k+'"'+(SN_BUSY?' disabled':'')+'>恢復</button></div>';
   }).join(''):'<div class="hint">（目前沒有停用的訊息）</div>';
 }
 /** 停用時間顯示成台北時間 `M/D HH:mm`；解析不出來就原樣顯示（不吞掉資料）。 */
@@ -1440,13 +1469,15 @@ function snDisClick(e){
  * 成功後等最新清單回來才畫（snReload，沿用 #126 的重畫規則）、選到恢復的那則、畫完才寫「已恢復。」。
  */
 function snRestoreTpl(k){
-  if(!SN||!Array.isArray(SN.disabled))return;
+  if(SN_BUSY||!SN||!Array.isArray(SN.disabled))return;
   var x=SN.disabled[k];
   if(!x){setMsg('sn-msg','清單還沒載入完成，請稍候再試。','err');return;}
   var nonce=newNonce();   // #123：沒帶 nonce 的自動重送會讓後端再執行一次
-  jsonp('restoreSeniorTemplate',{token:q('t'),id:x.id,title:x.title,nonce:nonce}).then(function(r){
-    if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'恢復失敗','err');return;}
-    snReload((r.id!=null&&r.id!=='')?String(r.id):String(x.id),'已恢復。');
+  return snBusyRun(function(){
+    return jsonp('restoreSeniorTemplate',{token:q('t'),id:x.id,title:x.title,nonce:nonce}).then(function(r){
+      if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'恢復失敗','err');return;}
+      return snReload((r.id!=null&&r.id!=='')?String(r.id):String(x.id),'已恢復。');
+    });
   });
 }
 /** 全選／全不選。發不出去的（未綁定、同名）是 disabled，本來就不該被拉進來。 */
@@ -1479,26 +1510,34 @@ function snTplChanged(){
   setMsg('sn-msg','改了記得按儲存。','ok');
 }
 function snSaveTpl(){
+  if(SN_BUSY)return;      // #128：處理中不收第二發
   var nonce=newNonce();   // #123
   var c=snCur();
   if(!c){setMsg('sn-msg','清單還沒載入完成，請稍候再試。','err');return;}
-  // #126：idx 給舊版後端、id 給新版（有 id 就只認 id）
-  jsonp('saveSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,nonce:nonce,
-    text:document.getElementById('sn-tpl').value}).then(function(r){
-    if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'儲存失敗','err');return;}
-    snReload(snKey(SN,c.k),'已儲存。');
+  var text=document.getElementById('sn-tpl').value;
+  var key=snKey(SN,c.k);
+  return snBusyRun(function(){
+    // #126：idx 給舊版後端、id 給新版（有 id 就只認 id）
+    return jsonp('saveSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,nonce:nonce,
+      text:text}).then(function(r){
+      if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'儲存失敗','err');return;}
+      return snReload(key,'已儲存。');
+    });
   });
 }
 /** 新增一則空白範本（則數不再寫死三則）。 */
 function snAddTpl(){
+  if(SN_BUSY)return;      // #128：處理中不收第二發
   var nonce=newNonce();   // #123：重送會多一則空白範本
   var t=prompt('新增一則訊息，名稱：');
   if(t===null)return;
   t=t.trim();if(!t){setMsg('sn-msg','要給它一個名稱。','err');return;}
-  jsonp('addSeniorTemplate',{token:q('t'),title:t,nonce:nonce}).then(function(r){
-    if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'新增失敗','err');return;}
-    // #126：新版後端回新編號；舊版只回則次。等最新清單回來再選到它（舊清單裡還沒有這一則）
-    snReload((r.id!=null&&r.id!=='')?String(r.id):String(r.idx),'已新增，內容還是空的。');
+  return snBusyRun(function(){
+    return jsonp('addSeniorTemplate',{token:q('t'),title:t,nonce:nonce}).then(function(r){
+      if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'新增失敗','err');return;}
+      // #126：新版後端回新編號；舊版只回則次。等最新清單回來再選到它（舊清單裡還沒有這一則）
+      return snReload((r.id!=null&&r.id!=='')?String(r.id):String(r.idx),'已新增，內容還是空的。');
+    });
   });
 }
 /**
@@ -1507,7 +1546,7 @@ function snAddTpl(){
  * idx 只給舊版後端（新版不收則次）。
  */
 function snDelTpl(){
-  if(!SN)return;
+  if(SN_BUSY||!SN)return;   // #128：處理中不收第二發
   // #123：沒帶 nonce 的自動重送會讓後端再執行一次
   var nonce=newNonce();
   var c=snCur();
@@ -1516,9 +1555,11 @@ function snDelTpl(){
   // #127：後端有回已停用清單（＝有恢復入口）才講「可恢復」；舊版後端沒有入口，不講做不到的事
   if(!confirm('刪除「'+c.title+'」？'+(Array.isArray(SN.disabled)
       ?'\n刪除後會移到下方「已停用的訊息」，之後可恢復。':'')))return;
-  jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title,nonce:nonce}).then(function(r){
-    if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'刪除失敗','err');return;}
-    snReload(null,'已刪除。');
+  return snBusyRun(function(){
+    return jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title,nonce:nonce}).then(function(r){
+      if(!r||!r.ok){setMsg('sn-msg',(r&&r.msg)||'刪除失敗','err');return;}
+      return snReload(null,'已刪除。');
+    });
   });
 }
 // ── 呼叫 nonce（診斷儀器，2026-08-21）──────────────────────────────────
@@ -1553,7 +1594,7 @@ function newNonce(){
   return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
 }
 function snSend(){
-  if(!SN)return;
+  if(SN_BUSY||!SN)return;   // #128：範本改動處理中，發送鈕也鎖著
   var nonce=newNonce();   // ⚠️ 點擊當下產生，早於 confirm 與 jsonp。理由見 newNonce 上方。
   // #126：確認框的名稱、狀態與送出的編號取自同一個 snCur()
   var cur=snCur();
