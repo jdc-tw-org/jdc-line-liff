@@ -661,7 +661,7 @@ function jsonp(action,params,timeoutMs){
       .then(function(v){clearTimeout(timer);return v;},function(e){clearTimeout(timer);throw e;});
   }
   // 30s＋逾時/斷線自動重試一次（隔 2s，8/6 對策 1）。條件是「**沒帶 timeoutMs**」，不是「讀取」：
-  // 🔴 原註解寫「僅限讀取」，前提不成立（#123）——本頁十幾支寫入也沒帶 timeoutMs，404 後照樣重送一次；
+  // 🔴 原註解把它寫成只對讀取生效，前提不成立（#123）——本頁十幾支寫入也沒帶 timeoutMs，404 後照樣重送一次；
   //    jsonpW 則對任何 ok:false 再送最多兩次。所以**每一支寫入都要帶點擊當下產生的 nonce**（見 newNonce），
   //    重送時 qs／params 沿用同一份 ⇒ 同一個 nonce ⇒ 後端重播第一次的結果、不再執行一次。
   //    完整性由 tests/stats-write-nonce.test.js 守：每個呼叫點不是在唯讀白名單裡，就是帶 nonce。
@@ -1257,7 +1257,8 @@ function snLoad(){
   });
   // pick2 抓的是「當前台北年度」——只有選到同一個年度才能沿用，切年度一律自己打。
   var p=(y===String(currentTaipeiYear()))?pick2('getSeniorNotice'):Promise.resolve(null);
-  p.then(function(r){
+  // 回傳網路那一段（#123：發送狀態不明時要等它畫完，再把警示寫回去——重繪會清掉 sn-msg）
+  return p.then(function(r){
     if(r){renderSenior(r);return;}                     // 第二發已備妥（且同一年度）
     return queueRead(function(){                        // 沒有才自己打
       return jsonp('getSeniorNotice',{token:q('t'),year:y}).then(function(r2){
@@ -1421,6 +1422,21 @@ function snDelTpl(){
 //    這一格是整支儀器唯一會靜默失效的地方。
 /** #123：發送入口**傳輸失敗**時的說法（伺服器拒絕照舊顯示它自己的 msg）。三個入口共用一份，免得各寫各的。 */
 var SEND_UNKNOWN_MSG='⚠️ 連線中斷，不確定有沒有送出。\n請不要重按——先開「LINE 訊息紀錄」確認。';
+/**
+ * 發送入口傳輸失敗：講「不確定」、重新載入發送狀態，**載完再寫一次警示**。
+ * ⚠️ 只寫一次不夠：重載的繪製（snPickMsg／renderPreview／bcPreview）會把同一格訊息清空或改成「查詢中…」，
+ *    警示一閃就沒了，留下的畫面看起來像什麼都沒發生。
+ */
+function sendUnknown(msgId,reload){
+  setMsg(msgId,SEND_UNKNOWN_MSG,'err');
+  sendModal('err',SEND_UNKNOWN_MSG);
+  var again=function(){setMsg(msgId,SEND_UNKNOWN_MSG,'err');};
+  Promise.resolve().then(reload).then(again,again);
+}
+/** 報到碼發送狀態不明後的重載：作廢記憶體與磁碟上的預覽（同成功路徑的 bcInvalidate），再重查。 */
+function bcReloadAfterUnknown(){
+  return Promise.resolve(bcInvalidate()).then(function(){return loadCheckinBundle(ckActId(),bcTpl());});
+}
 function newNonce(){
   return Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
 }
@@ -1447,7 +1463,7 @@ function snSend(){
     document.getElementById('sn-send').disabled=false;
     // 🔴 #123：傳輸失敗＝**不確定有沒有送出**，不是失敗。說「失敗」會引誘重按，而超過 hub 120 秒去重窗＝整批再送一次。
     //    重新載入發送狀態，讓下一次確認框的「已經發送過」警告有機會出現。（同 line.html 的 transport 分支）
-    if(r&&r.transport){setMsg('sn-msg',SEND_UNKNOWN_MSG,'err');sendModal('err',SEND_UNKNOWN_MSG);snLoad();return;}
+    if(r&&r.transport){sendUnknown('sn-msg',snLoad);return;}
     if(!r||!r.ok){var m=(r&&r.msg)||'發送失敗';setMsg('sn-msg',m,'err');sendModal('err',m);return;}
     // r.sent 含被冪等網擋下的那幾則（它們回 ok:true，因為對方確實收到過）。
     // 畫面必須報「這一次真的送了幾則」，否則操作者以為補送成功而其實沒送。
@@ -1829,7 +1845,7 @@ function bcSendOne(){
     userIds:JSON.stringify([sel.value])},60000).then(function(r){
     btn.disabled=false;   // 放在 then 開頭，涵蓋下面每一條 return 分支
     // 🔴 #123：傳輸失敗＝不確定有沒有送出（理由見 snSend）。作廢預覽再重查，狀態才是新的。
-    if(r&&r.transport){setMsg('bc-msg',SEND_UNKNOWN_MSG,'err');sendModal('err',SEND_UNKNOWN_MSG);bcInvalidate();bcPreview();return;}
+    if(r&&r.transport){sendUnknown('bc-msg',bcReloadAfterUnknown);return;}
     if(!r||!r.ok){var m1=(r&&r.msg)||'補發失敗';setMsg('bc-msg',m1,'err');sendModal('err',m1);return;}
     bcInvalidate();   // 記憶體與磁碟的 preview 都過期了，下次 bundle 重新查
     if(r.failed){var m2='補發失敗：'+r.failures.map(function(f){return f.name+'('+f.msg+')';}).join('、');
@@ -1862,7 +1878,7 @@ function bcSend(){
     //    那是既有缺陷，順手修掉（2026-08-21）。
     document.getElementById('bc-send').disabled=false;
     // 🔴 #123：傳輸失敗＝不確定有沒有送出（理由見 snSend）。
-    if(r&&r.transport){setMsg('bc-msg',SEND_UNKNOWN_MSG,'err');sendModal('err',SEND_UNKNOWN_MSG);bcInvalidate();bcPreview();return;}
+    if(r&&r.transport){sendUnknown('bc-msg',bcReloadAfterUnknown);return;}
     if(!r||!r.ok){var m3=(r&&r.msg)||'發送失敗';setMsg('bc-msg',m3,'err');sendModal('err',m3);return;}
     bcInvalidate();   // 記憶體與磁碟的 preview 都過期了，下次 bundle 重新查
     // 逐則回報實際結果，不假設成功（LINE 的 400/401/429 都不會拋例外）
