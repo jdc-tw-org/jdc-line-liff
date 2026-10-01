@@ -254,7 +254,12 @@ const SENDERS = [
       c.SN = { year: '2026', titles: ['一'], status: { 0: 'none' } };
       e['sn-idx'] = val('0'); e['sn-idx'].selectedOptions = [{ textContent: '一' }];
       c.document.querySelectorAll = (sel) => (sel === '.sn-ck:checked' ? [{ dataset: { uid: 'U1' }, checked: true }] : []);
-    }, run: (c) => c.snSend() },
+    },
+    // 重載回來的是「這則已發送」——真的走完 renderSenior（它最後會把 sn-msg 清空），警示要撐過那一次繪製
+    reloadBody: () => ({ getSeniorNotice: [{ ok: true, year: '2026', years: ['2026'], titles: ['一'], templates: ['內容'],
+      audience: [], status: { 0: 'sent' } }] }),
+    after: (c) => !!(c.SN && c.SN.status && c.SN.status[0] === 'sent'),
+    run: (c) => c.snSend() },
   { name: 'bcSendOne', msg: 'bc-msg', reload: (u) => /previewPassBroadcast/.test(decodeURIComponent(u)),
     setup: (c, e) => { e['ck-act'] = val('A1'); e['bc-one-sel'] = val('I1'); e['bc-one-sel'].selectedOptions = [{ textContent: '甲' }]; },
     run: (c) => c.bcSendOne() },
@@ -271,14 +276,18 @@ for (const s of SENDERS) {
       await drain();
       s.setup(h.ctx, h.els);
       h.plan[ACTION[s.name]] = [404];
+      if (s.reloadBody) Object.assign(h.plan, s.reloadBody());
       const from = execOnly(h.urls).length;
       s.run(h.ctx);
       const reloaded = await waitFor(() => execOnly(h.urls).slice(from).some(s.reload));
+      if (s.after) await waitFor(() => s.after(h.ctx));
+      await drain();                              // 讓重載的繪製跑完——它會清掉同一格訊息，警示要撐過它
       const text = h.els[s.msg].textContent;
       assert.match(text, /不確定有沒有送出/, s.name + ' 傳輸失敗卻說：「' + text + '」⇒ 引誘重按，超過 hub 120 秒就整批再送一次');
       assert.ok(reloaded, s.name + ' 傳輸失敗後沒有重新載入發送狀態 ⇒ 確認框的「已發送過」警告不會出現（實送：'
         + execOnly(h.urls).slice(from).map(actionOf).join(',') + '）');
       assert.equal(sent(h.urls, ACTION[s.name], from).length, 1, s.name + ' 自動重送了發送');
+      if (s.after) assert.ok(s.after(h.ctx), s.name + ' 重載回來了，頁面記住的發送狀態卻沒更新 ⇒ 下一次確認框不會警告「已經發送過」');
     } finally { h.cleanup(); }
   });
 
