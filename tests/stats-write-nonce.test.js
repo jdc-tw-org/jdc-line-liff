@@ -72,7 +72,9 @@ const SINGLE = [
   { action: 'setGuestTable', setup: (c, e) => { e['ti-act'] = val('A1'); }, run: (c) => c.moveSeat('guest', '5', '乙') },
   { action: 'publishTables', setup: (c, e) => { e['ti-act'] = val('A1'); c.SB = { pubState: 'dirty' }; }, run: (c) => c.seatPublish() },
   { action: 'unpublishTables', setup: (c, e) => { e['ti-act'] = val('A1'); c.SB = { pubState: 'clean' }; }, run: (c) => c.seatUnpublish() },
-  { action: 'saveSeniorTemplate', setup: (c, e) => { e['sn-idx'] = val('0'); }, run: (c) => c.snSaveTpl() },
+  // #126：儲存要從 SN 取編號 ⇒ 清單要先在（沒載入就不送）
+  { action: 'saveSeniorTemplate', setup: (c, e) => { e['sn-idx'] = val('0'); c.SN = { titles: ['一'], status: {} }; },
+    run: (c) => c.snSaveTpl() },
   { action: 'addSeniorTemplate', run: (c) => c.snAddTpl(), body: { ok: true, idx: 1 } },
   { action: 'removeSeniorTemplate', setup: (c, e) => { e['sn-idx'] = val('1'); c.SN = { titles: ['一', '二'], status: {} }; },
     run: (c) => c.snDelTpl() },
@@ -421,8 +423,8 @@ test('每一個 jsonp／jsonpW 呼叫都必須「在唯讀白名單裡」或「�
 });
 
 test('⬛ 對照組：完整性掃描器對「拿掉一支的 nonce」會命中', () => {
-  const bad = SRC.replace("jsonp('removeSeniorTemplate',{token:q('t'),idx:i,nonce:nonce})",
-    "jsonp('removeSeniorTemplate',{token:q('t'),idx:i})");
+  const bad = SRC.replace("jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title,nonce:nonce})",
+    "jsonp('removeSeniorTemplate',{token:q('t'),idx:c.k,id:c.id,title:c.title})");
   assert.notEqual(bad, SRC, '對照組的替換沒命中——原始碼的寫法變了，這條要跟著改');
   const line = bad.split('\n').find((l) => l.indexOf("jsonp('removeSeniorTemplate'") >= 0);
   assert.ok(!/nonce\s*:\s*[A-Za-z_$][\w$]*/.test(line), '掃描器的判準對壞樣本也說有 nonce ⇒ 零鑑別力');
