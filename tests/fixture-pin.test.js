@@ -272,7 +272,18 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'action-roles.json');
  * 🔴 **合併順序：本 repo 這顆先合、gas 那張後合**（同上，合併後要在 gas 那張 PR
  *    手動 `gh run rerun <id> --failed`）。
  */
-const PIN = '0e7723a6ee3d44cacc0e809499ded6c2c5fcff31d6372c11a3f2e39f5fd81336';
+/**
+ * 🔴 2026-10-01（本 repo 對應 jdc-tw-migration `#127`）：後端新增 `restoreSeniorTemplate`
+ *    （資深夥伴範本「恢復」，刪除＝停用之後的反向操作），`ACTION_ROLES` 註冊 `'admin,activity'`
+ *    ——與既有的 `removeSeniorTemplate`／`addSeniorTemplate` 同一格。
+ *    副本重產，**diff 恰好 10 加 0 減**，只在 `actions` 底下多這一支整塊（105 → 106 支）；
+ *    `identities`／`batchAllowed`／`dispatchPages`／`gateContract` 與其餘 105 支 **一個位元組都沒動**
+ *    ⇒ 既有任何人的權限零變化；多出來的這一支由 `stats.html` 年資里程碑區塊的「恢復」鈕呼叫。
+ *
+ * 🔴 **合併順序：本 repo 這顆先合、gas 那張後合**（同上，合併後要在 gas 那張 PR
+ *    手動 `gh run rerun <id> --failed`）。
+ */
+const PIN = '292e23da29e9070890390088ca7663fb11dafb62deed886aa069a3851e644845';
 
 const raw = fs.readFileSync(FIXTURE);
 const actual = crypto.createHash('sha256').update(raw).digest('hex');

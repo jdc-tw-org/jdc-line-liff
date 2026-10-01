@@ -932,6 +932,16 @@
         "unknown"
       ]
     },
+    "restoreSeniorTemplate": {
+      "roles": [
+        "admin",
+        "activity"
+      ],
+      "who": [
+        "admin",
+        "activity"
+      ]
+    },
     "restoreWelfareTemplate": {
       "roles": [
         "admin",
