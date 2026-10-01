@@ -128,6 +128,11 @@
   .btn-amber { background: var(--warn-bg); color: var(--warn); }
   .btn-red { background: var(--bad-bg); color: var(--bad); }
   .btn-grey { background: #f4f4f2; color: var(--ink2); }
+  /* 鎖住要看得出來（jdc-tw-migration#128 H1）：上面每一種 .btn 與 select 都自訂了底色，
+     瀏覽器預設的灰化被蓋掉 ⇒ disabled 了卻看起來一樣，使用者照樣以為按得下去。
+     整頁一條，不只年資區塊——bc-save／bc-reset／bc-send 等原本一樣看不出鎖。
+     守門：tests/e2e/stats-disabled-look.spec.js（K4，量 computed opacity）。 */
+  .btn:disabled, select:disabled { opacity: .45; cursor: default; }
   .act-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .act-h .nm { font-weight: 600; font-size: 15.5px; }
   .st { font-size: 11.5px; padding: 1px 8px; border-radius: 2px; }
